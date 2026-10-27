@@ -220,6 +220,17 @@ public final class LineSnap {
     }
 
     /**
+     * @param c the T snap's cell; @param e a segment end; @param chainStart the live chain's first start (null: none)
+     * @return true when the end should be the joint instead of the T: the chain closing on its own start within the
+     * snap radius, or an end within 2 cells of the T cell; a free end farther away never hijacks a T into a long wall
+     */
+    public static boolean closes(int[] c, int[] e, int[] chainStart, double r) {
+        int d = Math.max(Math.abs(e[0] - c[0]), Math.abs(e[1] - c[1]));
+        if (chainStart != null && e[0] == chainStart[0] && e[1] == chainStart[1]) return d <= r;
+        return d <= 2;
+    }
+
+    /**
      * @return the fewest cells (0 .. max) to add to a run of {@code cells} so its straights fit exactly between the
      * offsets, or -1 when none does
      */

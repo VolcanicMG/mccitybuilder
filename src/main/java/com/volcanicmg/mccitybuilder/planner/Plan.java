@@ -240,6 +240,20 @@ public final class Plan {
         return out;
     }
 
+    /** @return a copy of the joint types with one cell set ({@link #J_AUTO} clears it); the given map is untouched */
+    public static java.util.Map<Long, Integer> withJoint(java.util.Map<Long, Integer> types, long cell, int type) {
+        java.util.Map<Long, Integer> out = new java.util.HashMap<>(types);
+        if (type == J_AUTO) out.remove(cell);
+        else out.put(cell, type);
+        return out;
+    }
+
+    /** @return true when segments i and j run along the same axis (straight on through their shared end) */
+    public static boolean collinearAt(List<Line> lines, int i, int j) {
+        Line a = lines.get(i), b = lines.get(j);
+        return (a.z0() == a.z1()) == (b.z0() == b.z1());
+    }
+
     /**
      * Splits the segment that passes through cell {@code c} (not at its ends) into two meeting there, so a branch or a
      * segment ending on it gets a joint. The second half drops a gate. Locked segments (built, or on their way to the

@@ -497,14 +497,37 @@ public final class PieceLayout {
     public static final int NONE = 0, CORNER = 1, INNER = 2, TEE = 3, CROSS = 4;
 
     /**
-     * Auto's joint from the topology alone: how many lines meet, straight on or not, and for an L which way it bends
-     * relative to the first line's outside ({@link #innerTurn}). Never from what fits, so mirror-image shapes (a left
-     * turn, and the right turn with the walls flipped) get the same piece.
+     * Auto's joint from the topology alone: how many lines meet, straight on or not. Every L gets the plain corner
+     * (turned to fit either way round); the inner corner and the tower are only used when chosen per joint, so the
+     * same gesture turning left or right looks the same ({@link #innerTurn} stays for the hints).
      */
     public static int autoRole(int degree, boolean collinear, int outA, int outB, boolean flip) {
         if (degree >= 4) return CROSS;
         if (degree == 3) return TEE;
-        if (collinear) return NONE;
-        return innerTurn(outA, outB, flip) ? INNER : CORNER;
+        return collinear ? NONE : CORNER;
+    }
+
+    /**
+     * The piece roles a joint may use, best first: the chosen type's role (or auto's, {@link #autoRole}), then the
+     * stand-ins when the family lacks it (a corner for an inner corner and the other way round, a tower for a T or
+     * cross and for a tower-less family's tower pick a corner). Empty = a butt joint (none, or straight on).
+     *
+     * @param type   {@link Plan#J_AUTO} .. {@link Plan#J_NONE}; @param towers the line was drawn with towers
+     */
+    public static List<PieceSets.Role> jointRoles(int type, int degree, boolean collinear, boolean towers) {
+        if (type == Plan.J_NONE) return List.of();
+        if (type == Plan.J_AUTO) {
+            if (towers) return List.of(PieceSets.Role.TOWER, PieceSets.Role.CORNER, PieceSets.Role.INNER);
+            int auto = autoRole(degree, collinear, 0, 0, false);
+            type = auto == NONE ? Plan.J_NONE : auto == CROSS ? Plan.J_CROSS : auto == TEE ? Plan.J_TEE : Plan.J_CORNER;
+        }
+        return switch (type) {
+            case Plan.J_TOWER -> List.of(PieceSets.Role.TOWER, PieceSets.Role.CORNER, PieceSets.Role.INNER);
+            case Plan.J_CORNER -> List.of(PieceSets.Role.CORNER, PieceSets.Role.INNER);
+            case Plan.J_INNER -> List.of(PieceSets.Role.INNER, PieceSets.Role.CORNER);
+            case Plan.J_TEE -> List.of(PieceSets.Role.TEE, PieceSets.Role.TOWER);
+            case Plan.J_CROSS -> List.of(PieceSets.Role.CROSS, PieceSets.Role.TOWER);
+            default -> List.of();
+        };
     }
 }

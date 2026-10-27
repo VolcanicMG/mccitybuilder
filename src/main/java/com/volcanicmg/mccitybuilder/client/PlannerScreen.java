@@ -246,6 +246,7 @@ final class PlannerScreen extends Screen {
             g.drawString(font, t, sx - tw / 2, sy - 4, (alpha + 0x3F) << 24 | col, false);
         }
         List<OverlayView.Marker> ms = OverlayView.markers;
+        int icons = 0;
         for (int i = 0; i < ms.size(); i++) {
             OverlayView.Marker m = ms.get(i);
             double[] ndc = Planner.project(m.pos().x, m.pos().y, m.pos().z);
@@ -255,12 +256,69 @@ final class PlannerScreen extends Screen {
                 g.fill(sx - 7, sy - 7, sx + 7, sy + 7, 0xFF000000);
                 g.fill(sx - 6, sy - 6, sx + 6, sy + 6, m.color());
                 icon(g, "build", sx - 4, sy - 4, 0xFF202020);
+            } else if (m.icon() != null && icons < MAX_JOB_ICONS) {
+                // A worker: its hut's item on a dark rounded backing with a job-coloured ring, ~10 px.
+                icons++;
+                g.fill(sx - 7, sy - 6, sx + 7, sy + 6, m.color());
+                g.fill(sx - 6, sy - 7, sx + 6, sy + 7, m.color());
+                g.fill(sx - 6, sy - 5, sx + 6, sy + 5, 0xFF202020);
+                g.fill(sx - 5, sy - 6, sx + 5, sy + 6, 0xFF202020);
+                g.pose().pushPose();
+                g.pose().translate(sx - 5, sy - 5, 0);
+                g.pose().scale(0.625f, 0.625f, 1);
+                g.renderItem(m.icon(), 0, 0);
+                g.pose().popPose();
             } else {
                 g.fill(sx - 4, sy - 4, sx + 4, sy + 4, 0xFF000000);
                 g.fill(sx - 3, sy - 3, sx + 3, sy + 3, m.color());
             }
             drawnMarkers.add(new int[]{i, sx, sy});
         }
+    }
+
+    // Item icons drawn per frame at most (each is a model render).
+    private static final int MAX_JOB_ICONS = 96;
+
+    /**
+     * The joint menu beside the selected joint: one row per type that fits its shape (a 3D thumbnail of the piece,
+     * the name, "fits" / "gap N" / "won't fit"); hovering a row shows it in the world, a click applies it, Esc or a
+     * click elsewhere closes it (C still cycles).
+     */
+    private void jointMenu(GuiGraphics g, int mx, int my) {
+        if (!LineView.jointMenu || LineView.selectedJoint == null || LineView.jointOptions.isEmpty()) return;
+        double[] p = screen(LineView.selectedJoint[0], LineView.selectedJoint[1], 1.5);
+        if (p == null) {
+            LineView.closeJointMenu(false);
+            return;
+        }
+        int rowH = 28, w = 160, h = LineView.jointOptions.size() * rowH + 2 * PAD;
+        int x = Math.min(width - w - 2, (int) p[0] + 14), y = Math.max(2, Math.min(height - h - 2, (int) p[1] - h / 2));
+        panels.add(new int[]{x, y, w, h});
+        VanillaUi.panel(g, x, y, w, h);
+        int hovered = -1;
+        for (int i = 0; i < LineView.jointOptions.size(); i++) {
+            LineView.JointOption o = LineView.jointOptions.get(i);
+            int ry = y + PAD + i * rowH, rx = x + PAD, rw = w - 2 * PAD;
+            boolean over = mx >= rx && mx < rx + rw && my >= ry && my < ry + rowH - 2;
+            if (over) hovered = o.type();
+            int current = PlanView.jointTypes.getOrDefault(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1]), com.volcanicmg.mccitybuilder.planner.Plan.J_AUTO);
+            VanillaUi.button(g, rx, ry, rw, rowH - 2, o.type() == current, o.lacks() > 0, over);
+            if (o.piece() != null) {
+                var bp = PieceCatalog.rotated(pack(), o.piece().path(), 0);
+                if (bp != null) PieceView.render(g, "menu|" + pack() + "|" + o.piece().path(), bp, rx + 2, ry + 1, 24, 24);
+            }
+            int ink = VanillaUi.ink(o.type() == current, o.lacks() > 0);
+            g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.line.joint." + o.type()).getString(), rw - 32), rx + 30, ry + 4, ink, false);
+            String hint = o.type() == com.volcanicmg.mccitybuilder.planner.Plan.J_NONE ? "" : o.lacks() > 0 ? Component.translatable("mccitybuilder.edit.menu_no_fit", o.lacks()).getString()
+                    : Component.translatable("mccitybuilder.edit.menu_fits").getString();
+            g.drawString(font, hint, rx + 30, ry + 15, o.lacks() > 0 ? 0xFFA02020 : 0xFF206020, false);
+            int t = o.type();
+            hits.add(new Hit(rx, ry, rw, rowH - 2, () -> {
+                click();
+                LineView.pickJoint(t);
+            }, Component.translatable("mccitybuilder.edit.menu.tip")));
+        }
+        LineView.previewJoint(hovered);
     }
 
     /** @return {index, x, y} of the overlay marker under the mouse, or null */
@@ -387,8 +445,8 @@ final class PlannerScreen extends Screen {
             int bx = ix + i * (bw3 + 2);
             boolean off = i == 0 && !wall, over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
             VanillaUi.button(g, bx, iy, bw3, 16, on[i], off, over);
-            String l = Component.translatable("mccitybuilder.line." + keys[i]).getString();
-            g.drawString(font, l, bx + (bw3 - font.width(l)) / 2, iy + 4, off ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
+            String l = Component.translatable("mccitybuilder.line." + keys[i] + (i == 2 ? ".btn" : "")).getString();
+            VanillaUi.buttonLabel(g, font, l, bx, iy, bw3, 16, off ? VanillaUi.INK_DISABLED : VanillaUi.INK);
             int fi = i;
             hits.add(new Hit(bx, iy, bw3, 16, () -> {
                 if (fi == 0 && !wall) return;
@@ -436,8 +494,7 @@ final class PlannerScreen extends Screen {
             int bx = ix + i * (bw + 2);
             boolean over = mx >= bx && mx < bx + bw && my >= iy && my < iy + 20;
             VanillaUi.button(g, bx, iy, bw, 20, false, off[i], over);
-            String l = Component.translatable("mccitybuilder.line." + bkeys[i]).getString();
-            g.drawString(font, l, bx + (bw - font.width(l)) / 2, iy + 6, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
+            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.line." + bkeys[i]).getString(), bx, iy, bw, 20, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK);
             int fi = i;
             hits.add(new Hit(bx, iy, bw, 20, () -> {
                 if (off[fi]) return;
@@ -671,21 +728,23 @@ final class PlannerScreen extends Screen {
             boolean joint = h[2] == 0, hover = k == hv;
             boolean selected = joint ? LineView.selectedJoint != null && ((int[]) what.get(k))[0] == LineView.selectedJoint[0] && ((int[]) what.get(k))[1] == LineView.selectedJoint[1]
                     : LineView.sel.contains((Integer) what.get(k));
-            int c = dragging && selected ? (LineView.dragPreview == null ? 0xFFFF4040 : LineView.dragFits ? 0xFF40E040 : 0xFFFFA020)
-                    : selected ? 0xFF40E0FF : hover ? 0xFFFFE040 : 0xFFF0F0F0;
-            int x = (int) h[0], y = (int) h[1], r = joint ? 5 : 4;
-            if (joint) {
-                g.fill(x - r - 1, y - r - 1, x + r + 1, y + r + 1, 0xFF202020);
-                g.fill(x - r, y - r, x + r, y + r, c);
-            } else {
-                // A diamond for a segment's middle handle.
-                for (int d = -r; d <= r; d++) {
-                    int half = r - Math.abs(d);
-                    g.fill(x - half - 1, y + d, x + half + 2, y + d + 1, 0xFF202020);
-                    if (half > 0) g.fill(x - half, y + d, x + half + 1, y + d + 1, c);
-                }
+            // Amber, so the nodes never read as citizen markers: a diamond ring for a joint, a small diamond for a
+            // middle handle; paler when hovered, white-hot when selected, green / orange / red while a drag fits / doesn't.
+            int c = dragging && selected ? (LineView.dragPreview == null ? 0xFFFF3020 : LineView.dragFits ? 0xFFC0FF40 : 0xFFFF8020)
+                    : selected ? 0xFFFFF0B0 : hover ? 0xFFFFD060 : 0xFFF0A020;
+            int x = (int) h[0], y = (int) h[1], r = joint ? 6 : 4;
+            for (int d = -r; d <= r; d++) {
+                int half = r - Math.abs(d);
+                g.fill(x - half - 1, y + d, x + half + 2, y + d + 1, 0xFF202020);
+                if (half > 0) g.fill(x - half, y + d, x + half + 1, y + d + 1, c);
+            }
+            // The ring's hole.
+            if (joint) for (int d = -2; d <= 2; d++) {
+                int half = 2 - Math.abs(d);
+                g.fill(x - half, y + d, x + half + 1, y + d + 1, 0xFF202020);
             }
         }
+        jointMenu(g, mx, my);
         // The selection's label.
         if (!LineView.sel.isEmpty() && LineView.sel.get(0) < ls.size()) {
             var first = ls.get(LineView.sel.get(0));
@@ -769,8 +828,7 @@ final class PlannerScreen extends Screen {
             int bx = x + PAD + i * (bw + 2), by = y + PAD + 24;
             boolean over = mx >= bx && mx < bx + bw && my >= by && my < by + 20;
             VanillaUi.button(g, bx, by, bw, 20, false, off[i], over);
-            String l = Component.translatable("mccitybuilder.plan." + keys[i]).getString();
-            g.drawString(font, l, bx + (bw - font.width(l)) / 2, by + 6, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
+            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.plan." + keys[i]).getString(), bx, by, bw, 20, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK);
             int fi = i;
             hits.add(new Hit(bx, by, bw, 20, () -> {
                 if (off[fi]) return;
@@ -830,28 +888,50 @@ final class PlannerScreen extends Screen {
 
     // ---- palette ----
 
-    /** @return the category picker's ids: creative starts with "all" (every hut in one grid), survival as before */
+    // The palette's tab: huts, or the pack's decorations (kept for the client session).
+    private static boolean decoTab;
+
+    /**
+     * @return the category picker's ids: on the Huts tab creative starts with "all" (every hut in one grid), survival
+     * as before; on the Decorations tab "all" then the style pack's decoration folders, each once its blueprints have
+     * loaded and it has any that aren't road / wall pieces
+     */
     private static List<String> categories() {
         List<String> out = new ArrayList<>();
+        if (decoTab) {
+            out.add("all");
+            for (String f : Blueprints.decoFolders(pack())) if (!decorations(f).isEmpty()) out.add("deco:" + f);
+            return out;
+        }
         if (Planner.creative()) out.add("all");
         out.addAll(HutCatalog.CATEGORIES);
-        // Then the style pack's decoration folders, each once its blueprints have loaded and it has any.
-        for (String f : Blueprints.decoFolders(pack())) {
-            List<Blueprints.Hut> d = Blueprints.decorations(pack(), f);
-            if (d != null && !d.isEmpty()) out.add("deco:" + f);
-        }
         return out;
     }
 
-    /** @return the decoration folder of the chosen category, or null for a hut category */
-    private static String decoFolder() {
-        return category().startsWith("deco:") ? category().substring(5) : null;
+    /**
+     * @return a folder's decorations without the road / wall pieces (the line tools' business), unless that would
+     * hide every one of them; empty while they load
+     */
+    private static List<Blueprints.Hut> decorations(String folder) {
+        List<Blueprints.Hut> all = Blueprints.decorations(pack(), folder);
+        if (all == null) return List.of();
+        List<Blueprints.Hut> out = new ArrayList<>();
+        for (Blueprints.Hut h : all) if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(h.path()) == null) out.add(h);
+        return out.isEmpty() ? all : out;
     }
 
-    /** @return the chosen decoration folder's decorations matching the search */
+    /** @return the chosen decoration folder on the Decorations tab ("" for all of them), or null on the Huts tab */
+    private static String decoFolder() {
+        return !decoTab ? null : category().startsWith("deco:") ? category().substring(5) : "";
+    }
+
+    /** @return the chosen decoration folder's decorations (every folder's for "all") matching the search */
     private static List<Blueprints.Hut> decos() {
-        List<Blueprints.Hut> all = Blueprints.decorations(pack(), decoFolder());
-        if (all == null) return List.of();
+        String folder = decoFolder();
+        if (folder == null) return List.of();
+        List<Blueprints.Hut> all = new ArrayList<>();
+        if (folder.isEmpty()) for (String f : Blueprints.decoFolders(pack())) all.addAll(decorations(f));
+        else all.addAll(decorations(folder));
         String q = search.trim().toLowerCase(java.util.Locale.ROOT);
         return q.isEmpty() ? all : all.stream().filter(h -> h.blueprint().getFileName().toLowerCase(java.util.Locale.ROOT).contains(q)).toList();
     }
@@ -902,25 +982,41 @@ final class PlannerScreen extends Screen {
         Map<String, Integer> need = Planner.placingHut != null ? Blueprints.cost(Planner.placingHut) : null;
         // The placing block; creative adds a level picker row.
         int placingH = !Planner.isPlacing() ? 12 : 62 + (Planner.creative() && Planner.placing != null ? 20 : 0);
-        int fixedH = PAD + 10 + 16 + 4 + 20 + 20 + (recent.isEmpty() ? 0 : 10 + SLOT + 4) + gridH + 6 + placingH + 12 + 10 + PAD;
+        int fixedH = PAD + 20 + 16 + 4 + 20 + 20 + (recent.isEmpty() ? 0 : 10 + SLOT + 4) + gridH + 6 + placingH + 12 + 10 + PAD;
         // As many material rows as fit on screen (at least 3, at most 12).
         int costRows = Math.max(3, Math.min(COST_ROWS, (height - 8 - fixedH) / 10));
         com.volcanicmg.mccitybuilder.planner.Costs.Summary cost = need == null ? null
                 : com.volcanicmg.mccitybuilder.planner.Costs.summarize(need, inventory(), costRows);
         int costH = !Planner.isPlacing() ? 0 : 12 + (cost == null ? 10 : cost.rows().size() * 10 + (cost.more() > 0 ? 10 : 0));
         int x = 4, y = 4, w = PALETTE_W;
-        int h = PAD + 10 + 16 + 4 + 20 + 20 + (recent.isEmpty() ? 0 : 10 + SLOT + 4) + gridH + 6 + placingH + costH + PAD;
+        int h = PAD + 20 + 16 + 4 + 20 + 20 + (recent.isEmpty() ? 0 : 10 + SLOT + 4) + gridH + 6 + placingH + costH + PAD;
         panels.add(new int[]{x, y, w, h});
         paletteRect = new int[]{x, y, w, h};
         VanillaUi.panel(g, x, y, w, h);
         int ix = x + PAD, yy = y + PAD, iw = w - 2 * PAD;
-        g.drawString(font, Component.translatable("mccitybuilder.huts"), ix + 1, yy, VanillaUi.LABEL, false);
-        yy += 10;
+        // Tabs: Huts | Decorations (the chosen one drawn as an inset).
+        int tw2 = (iw - 2) / 2;
+        for (int i = 0; i < 2; i++) {
+            int bx = ix + i * (tw2 + 2);
+            boolean on = decoTab == (i == 1), over = mx >= bx && mx < bx + tw2 && my >= yy && my < yy + 16;
+            VanillaUi.button(g, bx, yy, tw2, 16, on, false, over);
+            VanillaUi.buttonLabel(g, font, Component.translatable(i == 0 ? "mccitybuilder.huts" : "mccitybuilder.decorations").getString(), bx, yy, tw2, 16, VanillaUi.ink(on, false));
+            boolean deco = i == 1;
+            hits.add(new Hit(bx, yy, tw2, 16, () -> {
+                if (decoTab == deco) return;
+                click();
+                decoTab = deco;
+                search = "";
+                decoScroll = 0;
+                if (deco ? Planner.placing != null : Planner.deco != null) Planner.stopPlacing();
+            }, Component.translatable(deco ? "mccitybuilder.decorations.tip" : "mccitybuilder.huts.tip")));
+        }
+        yy += 20;
         // Search field (click to type; Esc clears it).
         VanillaUi.textField(g, ix, yy, iw, 16);
         String caret = searchFocused && System.currentTimeMillis() / 400 % 2 == 0 ? "_" : "";
         boolean empty = search.isEmpty();
-        g.drawString(font, empty && !searchFocused ? Component.translatable("mccitybuilder.search").getString() : search + caret, ix + 4, yy + 4,
+        g.drawString(font, empty && !searchFocused ? Component.translatable(decoTab ? "mccitybuilder.search_deco" : "mccitybuilder.search").getString() : search + caret, ix + 4, yy + 4,
                 empty && !searchFocused ? 0xFF707070 : 0xFFE0E0E0, true);
         int fy = yy;
         hits.add(new Hit(ix, fy, iw, 16, () -> searchFocused = true, null));
@@ -936,8 +1032,8 @@ final class PlannerScreen extends Screen {
             click();
         }, Component.translatable("mccitybuilder.pack"));
         String catLabel = !search.isEmpty() ? Component.translatable("mccitybuilder.search_results", decoMode ? decos.size() : huts.size()).getString()
-                : decoMode ? Component.translatable("mccitybuilder.category.deco", decoFolder()).getString()
-                : Component.translatable("mccitybuilder.category." + category()).getString();
+                : decoMode && !decoFolder().isEmpty() ? Component.translatable("mccitybuilder.category.deco", decoFolder()).getString()
+                : Component.translatable("mccitybuilder.category." + (decoMode ? "all_deco" : category())).getString();
         yy = picker(g, ix, yy, iw, catLabel, mx, my, d -> {
             List<String> cats = categories();
             category = cats.get(Math.floorMod(cats.indexOf(category()) + d, cats.size()));
@@ -968,7 +1064,7 @@ final class PlannerScreen extends Screen {
             if (decos.size() > DECO_ROWS)
                 g.drawString(font, (decoScroll + 1) + "-" + Math.min(decos.size(), decoScroll + DECO_ROWS) + "/" + decos.size(), ix + iw - 40, yy - 9, 0xFF606060, false);
         } else for (int i = 0; i < huts.size(); i++) hutSlot(g, huts.get(i), ix + i % COLS * SLOT, yy + i / COLS * SLOT, mx, my);
-        if (decoMode ? decos.isEmpty() : huts.isEmpty()) g.drawString(font, Component.translatable("mccitybuilder.no_match"), ix + 1, yy + 2, 0xFF606060, false);
+        if (decoMode ? decos.isEmpty() : huts.isEmpty()) g.drawString(font, Component.translatable(decoMode ? "mccitybuilder.no_match_deco" : "mccitybuilder.no_match"), ix + 1, yy + 2, 0xFF606060, false);
         yy += gridH + 6;
         if (!Planner.isPlacing()) {
             g.drawString(font, Component.translatable(decoMode ? "mccitybuilder.pick_deco" : "mccitybuilder.pick_hut"), ix + 1, yy, VanillaUi.LABEL, false);
@@ -1293,8 +1389,7 @@ final class PlannerScreen extends Screen {
             int bx = x + PAD + i * (bw + 2), by = y + PAD + 24;
             boolean off = why[i] != null, over = mx >= bx && mx < bx + bw && my >= by && my < by + 20;
             VanillaUi.button(g, bx, by, bw, 20, false, off, over);
-            String l = Component.translatable("mccitybuilder." + keys[i]).getString();
-            g.drawString(font, l, bx + (bw - font.width(l)) / 2, by + 6, off ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
+            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder." + keys[i]).getString(), bx, by, bw, 20, off ? VanillaUi.INK_DISABLED : VanillaUi.INK);
             int fi = i;
             hits.add(new Hit(bx, by, bw, 20, () -> {
                 if (off) return;
@@ -1575,6 +1670,10 @@ final class PlannerScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_ESCAPE && LineView.dragging()) {
             LineView.cancelDrag();
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_ESCAPE && LineView.jointMenu) {
+            LineView.closeJointMenu(false);
             return true;
         }
         if (key == GLFW.GLFW_KEY_TAB && LineView.active() && LineView.edit) {

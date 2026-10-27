@@ -59,6 +59,12 @@ final class VanillaUi {
         g.blitSprite(disabled ? BUTTON_DISABLED : hover ? BUTTON_HOVER : BUTTON, x, y, w, h);
     }
 
+    /** A label centred in a button, cut with an ellipsis when wider than the button (it never overflows). */
+    static void buttonLabel(GuiGraphics g, net.minecraft.client.gui.Font font, String text, int x, int y, int w, int h, int color) {
+        String t = font.width(text) <= w - 4 ? text : font.plainSubstrByWidth(text, Math.max(0, w - 4 - font.width("…"))) + "…";
+        g.drawString(font, t, x + (w - font.width(t)) / 2, y + (h - 8) / 2, color, false);
+    }
+
     /** @return icon / label colour for a button state */
     static int ink(boolean selected, boolean disabled) {
         return disabled ? INK_DISABLED : selected ? INK_SELECTED : INK;

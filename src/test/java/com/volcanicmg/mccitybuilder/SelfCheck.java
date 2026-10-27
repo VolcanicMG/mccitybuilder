@@ -13,6 +13,7 @@ import com.volcanicmg.mccitybuilder.planner.TerrainFollow;
 import com.volcanicmg.mccitybuilder.planner.CameraRig;
 import com.volcanicmg.mccitybuilder.planner.LineSnap;
 import com.volcanicmg.mccitybuilder.planner.PieceLayout;
+import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import com.volcanicmg.mccitybuilder.planner.Plan;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -390,6 +391,8 @@ public final class SelfCheck {
         var cols = new com.volcanicmg.mccitybuilder.planner.Columns(src);
         check(cols.ground(5, 0) == 70 && cols.surface(5, 0) == 80, "tree column: ground = soil, surface = canopy");
         check(cols.ground(1, 0) == 70 && cols.ground(2000, 0) == null, "open column and unloaded column");
+        // A hut placed on tall grass: the pick stops on the plant (y 75), the ground is the soil under it.
+        check(cols.settle(1, 75, 0) == 69 && cols.settle(1, 69, 0) == 69, "pick settles past plants onto the ground");
         // The whole loop on that data: zoom-out reaches the real land + 160, never anything near -64.
         var r = new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 100, 0, 0));
         for (int i = 0; i < 240; i++) {
@@ -1274,14 +1277,42 @@ public final class SelfCheck {
 
     /** Auto joints from the shape alone, edit handles, wall grouping, fitting moves and re-fits, the tools' Clear. */
     private static void editRules() {
-        // Auto: a left turn and its mirror (a right turn with the walls flipped) get the same piece; nothing else counts.
-        for (int a = 0; a < 4; a++) {
-            int left = (a + 1) % 4, right = (a + 3) % 4;
-            check(PieceLayout.autoRole(2, false, a, left, false) == PieceLayout.autoRole(2, false, a, right, true), "mirror-image L's get the same joint");
-            check(PieceLayout.autoRole(2, false, a, left, false) != PieceLayout.autoRole(2, false, a, right, false), "left and right differ only by the outside side");
+        // Closing a ring on its own start: the end snap lands on the first wall's start (in line), the T snap never
+        // takes the first wall's end cell, and every corner has exactly two ends, so each gets a joint (4 for a square,
+        // 3 for a three-sided loop); Done never trims an end that two walls share.
+        int[][] sq = {{0, 0}, {20, 0}, {20, 20}, {0, 20}};
+        List<Plan.Line> ring = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) ring.add(new Plan.Line("wall", sq[i][0], sq[i][1], sq[(i + 1) % 4][0], sq[(i + 1) % 4][1], "p", "f", 1, -1, true, false));
+        int[] closing = LineSnap.joinEnd(new int[]{0, 20}, ring.get(0).ends(), 0, true, 3);
+        check(closing != null && closing[0] == 0 && closing[1] == 0, "chain closes on its own start");
+        check(LineSnap.crossing(new int[]{0, 20}, 3, 20, List.<int[][]>of(ring.get(0).ends()), 3) == -1, "no T split at the first wall's end");
+        for (int[] c : sq) {
+            int ends = 0;
+            for (Plan.Line l : ring) for (int[] e : l.ends()) if (e[0] == c[0] && e[1] == c[1]) ends++;
+            check(ends == 2 && Plan.split(new java.util.ArrayList<>(ring), c, l -> false) == -1, "ring corner " + c[0] + "," + c[1] + " is a joint of two walls");
+            check(PieceLayout.jointRoles(Plan.J_AUTO, 2, false, true).get(0) == PieceSets.Role.TOWER, "a towered ring gets towers at its corners");
         }
+        // A T into a long wall with an unrelated free end 8 cells away still T-snaps; the ring's own start closes.
+        check(!LineSnap.closes(new int[]{10, 0}, new int[]{18, 0}, new int[]{0, 0}, 16) && LineSnap.closes(new int[]{1, 0}, new int[]{0, 0}, new int[]{0, 0}, 16)
+                && LineSnap.closes(new int[]{10, 0}, new int[]{12, 0}, null, 16) && !LineSnap.closes(new int[]{10, 0}, new int[]{13, 0}, null, 16), "a free end hijacks a T only when it is the chain's start or right at the cell");
+        // A hovered joint type is a drawing override: the plan's map (what a save writes) keeps the original.
+        java.util.Map<Long, Integer> types = new java.util.HashMap<>(java.util.Map.of(Plan.cell(0, 0), Plan.J_TOWER));
+        var shown = Plan.withJoint(types, Plan.cell(0, 0), Plan.J_INNER);
+        check(shown.get(Plan.cell(0, 0)) == Plan.J_INNER && types.get(Plan.cell(0, 0)) == Plan.J_TOWER && !Plan.withJoint(types, Plan.cell(0, 0), Plan.J_AUTO).containsKey(Plan.cell(0, 0)),
+                "joint preview never touches the saved types");
+        List<Plan.Line> tri = List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, false), new Plan.Line("wall", 20, 0, 20, 20, "p", "f", 1, -1, false, false),
+                new Plan.Line("wall", 20, 20, 0, 20, "p", "f", 1, -1, false, false), new Plan.Line("wall", 0, 20, 0, 0, "p", "f", 1, -1, false, false));
+        check(Plan.connected(tri, 0).size() == 4, "a closed loop is one wall");
+        // Auto: every L gets the plain corner whichever way it turns or faces; T, cross and straight on by count.
+        for (int a = 0; a < 4; a++)
+            check(PieceLayout.autoRole(2, false, a, (a + 1) % 4, false) == PieceLayout.CORNER && PieceLayout.autoRole(2, false, a, (a + 3) % 4, true) == PieceLayout.CORNER, "every L gets the corner");
         check(PieceLayout.autoRole(3, false, 0, 1, false) == PieceLayout.TEE && PieceLayout.autoRole(4, false, 0, 1, true) == PieceLayout.CROSS
                 && PieceLayout.autoRole(2, true, 0, 2, false) == PieceLayout.NONE, "T, cross, straight on");
+        // Stand-ins: an inner corner pick falls back to the corner, a T or cross to a tower, none / straight on = butt.
+        check(PieceLayout.jointRoles(Plan.J_INNER, 2, false, false).equals(List.of(PieceSets.Role.INNER, PieceSets.Role.CORNER))
+                && PieceLayout.jointRoles(Plan.J_AUTO, 3, false, false).equals(List.of(PieceSets.Role.TEE, PieceSets.Role.TOWER))
+                && PieceLayout.jointRoles(Plan.J_AUTO, 2, true, false).isEmpty() && PieceLayout.jointRoles(Plan.J_NONE, 3, false, true).isEmpty()
+                && PieceLayout.jointRoles(Plan.J_AUTO, 2, false, true).get(0) == PieceSets.Role.TOWER, "joint role stand-ins");
         // Handles: a node beats a middle handle even when the middle one is nearer; beyond 12 px nothing.
         List<double[]> hs = List.of(new double[]{100, 100, 1}, new double[]{109, 100, 0}, new double[]{140, 100, 0});
         check(LineSnap.pickHandle(hs, 101, 100, 12) == 1 && LineSnap.pickHandle(hs, 70, 100, 12) == -1 && LineSnap.pickHandle(List.of(hs.get(0)), 101, 100, 12) == 0,

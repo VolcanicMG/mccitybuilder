@@ -67,7 +67,7 @@ public final class Planner {
     // The height loop (baseline, follow, ceiling, floor) around the drone; pure, see CameraRig.
     private static CameraRig rig;
     // Column heights from the client level. Never MOTION_BLOCKING_NO_LEAVES: clients don't receive it (see Columns).
-    private static final CameraRig.World WORLD = new Columns(new Columns.Source() {
+    private static final Columns WORLD = new Columns(new Columns.Source() {
         @Override
         public boolean loaded(int x, int z) {
             var l = Minecraft.getInstance().level;
@@ -199,6 +199,7 @@ public final class Planner {
     static void enter() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
+        LineView.closeJointMenu(false);
         // Only from inside a colony the player belongs to: the owner of the chunk they stand in (MineColonies' claims).
         int owner = owner(mc);
         IColonyView c = owner > 0 ? IColonyManager.getInstance().getColonyView(owner, mc.level.dimension()) : null;
@@ -557,8 +558,10 @@ public final class Planner {
             return;
         }
         BlockPos ground = hit.getBlockPos();
+        // The ray stops on grass and flowers: the ground is the first real block under the hit.
+        int gy = WORLD.settle(ground.getX(), ground.getY(), ground.getZ());
         int offset = placingHut != null ? BlueprintTagUtils.getGroundAnchorOffset(placingHut.blueprint(), 1) - 1 : 0;
-        place.follow(ground.getX(), ground.getY() + offset, ground.getZ());
+        place.follow(ground.getX(), gy + offset, ground.getZ());
     }
 
     /** First click: drop the ghost where it is and switch to ADJUST. @return true if dropped */

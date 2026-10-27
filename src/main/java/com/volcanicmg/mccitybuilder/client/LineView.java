@@ -233,7 +233,7 @@ final class LineView {
                 nl = prev.between(prev.x0(), prev.z0(), b[0], b[1]);
             }
             all.add(nl);
-            PieceCatalog.Layout lay = PieceCatalog.layout(all, PlanView.jointTypes);
+            PieceCatalog.Layout lay = PieceCatalog.layout(all, previewTypes());
             int last = all.size() - 1;
             List<PieceCatalog.Placed> ps = new ArrayList<>(lay.lines().get(last));
             // Joint pieces at the live segment's ends that another segment owns in the layout.
@@ -342,9 +342,11 @@ final class LineView {
         lastPress = now;
         lastPressLine = line;
         int[] from = hit == null ? null : new int[]{hit.getBlockPos().getX(), hit.getBlockPos().getZ()};
+        closeJointMenu(false);
         if (hoverJoint != null) {
             select(List.of(), false);
             selectedJoint = hoverJoint.clone();
+            openJointMenu();
             if (from != null) startDrag(2, List.of(selectedJoint), from);
             return;
         }
@@ -412,6 +414,8 @@ final class LineView {
             }
         }
         dragDelta = new int[]{dx, dz};
+        // A real drag is a move, not a menu pick.
+        if (dx != 0 || dz != 0) closeJointMenu(false);
         dragPreview = Plan.move(PlanView.lines, dragPoints, dx, dz, PlanView::locked);
         dragFits = dragPreview != null && Plan.allFit(PlanView.lines, dragPreview, PlanView.lineOffs, lens);
         dragStatus = net.minecraft.network.chat.Component.translatable(dragPreview == null ? "mccitybuilder.edit.cant_move"
@@ -476,14 +480,20 @@ final class LineView {
             return;
         }
         long k = Plan.cell(selectedJoint[0], selectedJoint[1]);
-        int t = Math.floorMod(PlanView.jointTypes.getOrDefault(k, Plan.J_AUTO) + d, Plan.J_TYPES);
+        setJointType(Math.floorMod(PlanView.jointTypes.getOrDefault(k, Plan.J_AUTO) + d, Plan.J_TYPES));
+    }
+
+    /** A trial of a joint type at the selected joint: the types, the lines re-fitted, and the blocks a fixed run would lack (0 = fits). */
+    private record Trial(java.util.Map<Long, Integer> types, List<Plan.Line> lines, int lacks) {
+    }
+
+    private static Trial trial(int t) {
+        long k = Plan.cell(selectedJoint[0], selectedJoint[1]);
         java.util.Map<Long, Integer> trial = new java.util.HashMap<>(PlanView.jointTypes);
         if (t == Plan.J_AUTO) trial.remove(k);
         else trial.put(k, t);
         // A type that costs a run a straight: runs with a free end grow to fit; a run fixed at both ends refuses it.
-        List<Integer> at = new ArrayList<>();
-        for (int i = 0; i < PlanView.lines.size(); i++)
-            for (int[] e : PlanView.lines.get(i).ends()) if (e[0] == selectedJoint[0] && e[1] == selectedJoint[1]) at.add(i);
+        List<Integer> at = linesAt(selectedJoint);
         PieceCatalog.Layout lay = PieceCatalog.layout(PlanView.lines, trial);
         List<Plan.Line> ls = Plan.refitFree(PlanView.lines, at, lay.offs(), lensAll(), PlanView::locked, 12);
         PieceCatalog.Layout lay2 = PieceCatalog.layout(ls, trial);
@@ -494,15 +504,109 @@ final class LineView {
             if (after < before) short2 = Math.max(short2, Math.max(1, before * minRun(i) - avail));
         }
         PieceCatalog.layout(PlanView.lines, PlanView.jointTypes);
-        if (short2 > 0) {
+        return new Trial(trial, ls, short2);
+    }
+
+    /** @return true when the selected joint took type {@code t}; refused (a flash) when a run fixed at both ends would lose a straight */
+    static boolean setJointType(int t) {
+        if (selectedJoint == null) return false;
+        Trial tr = trial(t);
+        if (tr.lacks() > 0) {
             flash = "mccitybuilder.edit.joint_no_fit." + t;
-            flashArg = short2;
+            flashArg = tr.lacks();
             flashUntil = System.currentTimeMillis() + 2500;
-            return;
+            return false;
         }
         PlanView.jointTypes.clear();
-        PlanView.jointTypes.putAll(trial);
-        PlanView.setLines(ls);
+        PlanView.jointTypes.putAll(tr.types());
+        PlanView.setLines(tr.lines());
+        return true;
+    }
+
+    private static List<Integer> linesAt(int[] c) {
+        List<Integer> at = new ArrayList<>();
+        for (int i = 0; i < PlanView.lines.size(); i++)
+            for (int[] e : PlanView.lines.get(i).ends()) if (e[0] == c[0] && e[1] == c[1]) at.add(i);
+        return at;
+    }
+
+    // ---- the joint menu (a click on a joint node) ----
+
+    /** One option of the joint menu: the type, the piece it would use (null for none), the blocks a fixed run would lack (0 fits, -1 unknown). */
+    record JointOption(int type, PieceSets.Piece piece, int lacks) {
+    }
+
+    static boolean jointMenu;
+    static List<JointOption> jointOptions = List.of();
+    // The type previewed in the world while an option is hovered (-1: none): a rendering override, never written to the plan.
+    private static int menuPreview = -1;
+
+    /** @return the joint types to lay out with for drawing: the plan's, with the menu's hovered type at the selected joint */
+    static java.util.Map<Long, Integer> previewTypes() {
+        if (!jointMenu || selectedJoint == null || menuPreview < 0) return PlanView.jointTypes;
+        return Plan.withJoint(PlanView.jointTypes, Plan.cell(selectedJoint[0], selectedJoint[1]), menuPreview);
+    }
+
+    /**
+     * Opens the menu for the selected joint: the types that mean something for its shape (an L: auto, corner, inner
+     * corner, tower, none; a T: auto, T, tower, none; a cross: auto, cross, tower, none; straight on: auto, tower,
+     * none), only those the family has a piece for, each with its piece and whether it fits.
+     */
+    static void openJointMenu() {
+        if (selectedJoint == null) return;
+        List<Integer> at = linesAt(selectedJoint);
+        if (at.isEmpty()) return;
+        Plan.Line l = PlanView.lines.get(at.get(0));
+        var fs = PieceCatalog.families(l.pack());
+        var f = fs == null ? null : fs.get(l.family());
+        int degree = at.size();
+        boolean collinear = degree == 2 && Plan.collinearAt(PlanView.lines, at.get(0), at.get(1));
+        List<Integer> types = new ArrayList<>(List.of(Plan.J_AUTO));
+        if (degree >= 4) types.addAll(List.of(Plan.J_CROSS, Plan.J_TOWER));
+        else if (degree == 3) types.addAll(List.of(Plan.J_TEE, Plan.J_TOWER));
+        else if (collinear) types.add(Plan.J_TOWER);
+        else types.addAll(List.of(Plan.J_CORNER, Plan.J_INNER, Plan.J_TOWER));
+        types.add(Plan.J_NONE);
+        List<JointOption> out = new ArrayList<>();
+        for (int t : types) {
+            PieceSets.Piece piece = null;
+            for (PieceSets.Role r : com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(t, degree, collinear, l.towers())) {
+                var gs = f == null ? List.<PieceSets.Group>of() : PieceCatalog.groups(l.pack(), f, r);
+                if (!gs.isEmpty()) {
+                    piece = gs.get(0).pick(l.level(), 0);
+                    break;
+                }
+            }
+            // A chosen role the family lacks is a stand-in for another option: skip it (auto and none always count).
+            if (piece == null && t != Plan.J_AUTO && t != Plan.J_NONE) continue;
+            final PieceSets.Piece pc = piece;
+            if (t != Plan.J_AUTO && t != Plan.J_NONE && pc != null && out.stream().anyMatch(o -> o.piece() != null && o.piece().path().equals(pc.path()) && o.type() != Plan.J_AUTO)) continue;
+            out.add(new JointOption(t, piece, trial(t).lacks()));
+        }
+        jointOptions = out;
+        jointMenu = true;
+        menuPreview = -1;
+    }
+
+    /** Shows the joint with type {@code t} in the world while an option is hovered (-1: its own type); drawing only. */
+    static void previewJoint(int t) {
+        if (!jointMenu || selectedJoint == null || t == menuPreview) return;
+        menuPreview = t;
+        PlanView.relayout();
+    }
+
+    /** Closes the menu (the world shows the plan's own types again). Safe to call any time: entry, exit, a commit. */
+    static void closeJointMenu(boolean applied) {
+        if (jointMenu && menuPreview >= 0) PlanView.relayout();
+        jointMenu = false;
+        menuPreview = -1;
+        jointOptions = List.of();
+    }
+
+    /** An option clicked: the joint takes the type (refused with a flash when a run can't fit); the menu closes. */
+    static void pickJoint(int t) {
+        closeJointMenu(false);
+        setJointType(t);
     }
 
     private static int straights(List<List<PieceCatalog.Placed>> ps, int i) {
@@ -519,6 +623,10 @@ final class LineView {
 
     /** Esc in edit mode: deselect; with nothing selected, @return false (edit mode then ends) */
     static boolean deselect() {
+        if (jointMenu) {
+            closeJointMenu(false);
+            return true;
+        }
         if (selectedJoint == null && sel.isEmpty() && PlanView.selectedLine < 0) return false;
         select(List.of(), false);
         return true;
@@ -621,6 +729,22 @@ final class LineView {
         int t = LineSnap.crossing(start, dir, along, segs, r);
         if (t > 0) {
             int[] c = {start[0] + sx * t, start[1] + sz * t};
+            // The chain's own start within reach of the T cell, or an end right at it, is the joint instead: a ring
+            // must close on a corner, never split its first wall a cell from its start (other ends never hijack a T).
+            int[] chainStart = chain.isEmpty() ? null : new int[]{chain.get(0).x0(), chain.get(0).z0()};
+            for (int i = 0; i < PlanView.lines.size(); i++) {
+                Plan.Line a = PlanView.lines.get(i);
+                for (int k = 0; k < 2; k++) {
+                    int[] e = a.ends()[k];
+                    if (e[0] == start[0] && e[1] == start[1] || !LineSnap.closes(c, e, chainStart, r)) continue;
+                    int[] j = LineSnap.joinEnd(start, a.ends(), k, endCount(e) == 1 && !PlanView.locked(a), r);
+                    if (j == null) continue;
+                    if (j[2] != e[0] || j[3] != e[1]) adjust = new int[]{i, k, j[2], j[3]};
+                    snap = adjust != null ? "join_moved" : "joint";
+                    jointPoints(new int[]{j[0], j[1]});
+                    return new int[]{j[0], j[1]};
+                }
+            }
             snap = "tee";
             snapPoints = List.of(c);
             return c;
@@ -665,9 +789,8 @@ final class LineView {
         int pdir = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{prev.x0(), prev.z0()}, start), ldir = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(start, e);
         if (ldir == pdir || ldir == (pdir + 2) % 4) return null;
         int type = PlanView.jointTypes.getOrDefault(Plan.cell(start[0], start[1]), jointDefault);
-        int auto = com.volcanicmg.mccitybuilder.planner.PieceLayout.autoRole(2, false, (pdir + 2) % 4, ldir, prev.flip());
-        PieceSets.Role role = type == Plan.J_NONE ? null : type == Plan.J_TOWER || prev.towers() ? PieceSets.Role.TOWER : type == Plan.J_CORNER ? PieceSets.Role.CORNER
-                : type == Plan.J_INNER || type == Plan.J_AUTO && auto == com.volcanicmg.mccitybuilder.planner.PieceLayout.INNER ? PieceSets.Role.INNER : PieceSets.Role.CORNER;
+        List<PieceSets.Role> roles = com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(type, 2, false, prev.towers());
+        PieceSets.Role role = roles.isEmpty() ? null : roles.get(0);
         int[] lens = PieceCatalog.runLengths(prev);
         int reach = PieceCatalog.reachOf(prev, role), max = reach;
         for (int l : lens) max = Math.max(max, l + reach);

@@ -291,6 +291,7 @@ final class PlanView {
     }
 
     static void hide() {
+        LineView.closeJointMenu(false);
         LineView.clearLive();
         for (int i = 0; i < linePreviews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_piece_" + i);
         linePreviews = 0;
@@ -309,6 +310,7 @@ final class PlanView {
      * @return a message for the player
      */
     static Component commit(boolean selectedOnly) {
+        LineView.closeJointMenu(false);
         Minecraft mc = Minecraft.getInstance();
         boolean creative = Planner.creative(), server = Planner.serverInstant();
         Map<Plan.Build, Integer> kept = new java.util.EnumMap<>(Plan.Build.class);
@@ -497,7 +499,7 @@ final class PlanView {
         if (!linesDirty && !(waitingForPieces && (PieceCatalog.loadVersion != seenLoads || now - lastTry > 500))) return;
         seenLoads = PieceCatalog.loadVersion;
         lastTry = now;
-        PieceCatalog.Layout lay = PieceCatalog.layout(lines, jointTypes);
+        PieceCatalog.Layout lay = PieceCatalog.layout(lines, LineView.previewTypes());
         layoutVersion++;
         linePieces = lay.lines();
         lineShort = lay.shortened();
@@ -602,6 +604,11 @@ final class PlanView {
         if (i < 0) return;
         if (selectedLine > i) selectedLine++;
         save();
+        linesDirty = true;
+    }
+
+    /** Lays the lines out again next frame (a joint type previewed, nothing saved). */
+    static void relayout() {
         linesDirty = true;
     }
 

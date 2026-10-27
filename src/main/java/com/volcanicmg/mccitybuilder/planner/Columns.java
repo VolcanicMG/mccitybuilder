@@ -35,6 +35,16 @@ public final class Columns implements CameraRig.World {
         return y;
     }
 
+    /**
+     * @return the ground block at or below y: a picked block walked down past leaves, plants, snow layers and other
+     * blocks that don't count as ground (the hut ghost otherwise stands one up on tall grass), at most {@link #MAX_WALK}
+     */
+    public int settle(int x, int y, int z) {
+        int stop = Math.max(src.minY(), y - MAX_WALK);
+        while (y > stop && src.notGround(x, y, z)) y--;
+        return y;
+    }
+
     @Override
     public Integer surface(int x, int z) {
         return src.loaded(x, z) ? src.motionBlocking(x, z) : null;

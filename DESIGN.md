@@ -102,6 +102,9 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   in place; zoom-to-cursor shifts at most 2 x the altitude change; a terrain sample with under half its columns
   loaded keeps the previous value; clearance (3 blocks above the highest non-leaf column within 3) eases at 0.2 s.
   Shift multiplies the pan speed (`fastPanMultiplier`).
+- Placing a hut / decoration: the pick ray stops on tall grass, flowers and snow layers (OUTLINE clip), so the ground
+  under the cursor is the hit block settled down past blocks that aren't ground (`Columns.settle`, the same rule the
+  line tools' column heights use); the ghost then stands on the soil, not one up on the grass.
 - Drone camera (`planner/DroneCamera`, pure): position + yaw + pitch; the user owns the altitude. Scroll changes only
   the altitude (11% of the height above the terrain baseline per notch, ≥ 1 block, clamped to
   ground + `minHeight` (10) .. ground + 160, eased ~0.12 s; the clamp is on the target, so it glides into the limit).
@@ -399,9 +402,31 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   top-down PNGs of every case (columns by highest block, joint box yellow, run boxes green, one contact strip per
   run). The test reader (`PackPieces`) takes the ground layer like the game: primary offset y minus the
   `groundlevel` tag's depth below the anchor (1 without one).
-- Auto is from the topology only (`PieceLayout.autoRole`): L = corner or inner corner by the outside side, three = T,
-  four = cross; never a tower unless chosen. The tower's gap is still computed, for the edit-mode hint
+- Auto is from the topology only (`PieceLayout.autoRole`): every L gets the plain corner, turned to fit either way
+  round (Ethan: a left turn giving a tower-like outer corner and a right turn a plain inner corner read as
+  inconsistent), three = T, four = cross; the inner corner and the tower only when chosen per joint. Stand-ins
+  (`PieceLayout.jointRoles`, used by the layout, the reach estimates and the joint menu): a missing corner takes the
+  inner corner and the other way round, a missing T or cross takes the tower, else it is a butt joint (the old code
+  put the corner at a T, which faces two of three walls). Roles come from the piece's file name
+  (`PieceSets.role`, most specific keyword first: gate > inner > T > cross > corner/curve/outer > tower/pillar >
+  stairs > end > straight); so original walls/cobble's `cobble_corner` (a 10 x 10 tower-like block) is its corner
+  and `cobble_tower` its tower, nothing else. The tower's gap is still computed, for the edit-mode hint
   ("T · gap 4 (tower: 0)").
+- A branch onto a wall's body (`LineSnap.crossing` + `Plan.split`: the end lands on the wall's axis cell, the click
+  splits it there, three ends meet) lays out like any T; with no T piece or tower the butt joint's branch meets the
+  owner wall's body with `fit` (the owner's straight stands in for the joint piece: the box may hold an air margin),
+  so it starts at the first layer holding blocks in front of its face when that overlap is non-destructive, else at
+  the box (a 1-block gap where the margin is air: birch, incan, lostcity walls - the table says so). SelfCheck's
+  `T-split` cases build it through those two calls; `T-split-butt` covers the families without a T piece.
+- Closing a ring: the end snap onto the chain's own start (any free end) wins over the T snap when that end is
+  within the snap radius of the T cell, so a ring never splits its first wall a cell from its start and leaves the
+  corner without a joint; each corner then has two ends and gets the chain's joint (towers when drawn with towers).
+- Joint menu (edit mode, a click on a joint node; `LineView.openJointMenu`): the types that mean something for the
+  joint's shape (an L: auto, corner, inner corner, tower, none; a T: auto, T, tower, none; a cross: auto, cross,
+  tower, none; straight on: auto, tower, none), only those the family has a piece for, each with a 3D thumbnail
+  (`PieceView`), its name and "fits" / "won't fit: a wall lacks N blocks" (the same trial `setJointType` refuses
+  with); hovering a row shows it in the world (the type is set without saving, `PlanView.relayout`, and put back),
+  a click applies, Esc or any other press closes. C still cycles.
 - Lengths: a chain's free end tiles exactly (no reserved room); when the next segment turns, the last one grows at
   the corner by what the corner takes (`chainGrowth`, shown live) and the new segment moves out with it. Edits never
   silently drop a straight: an edit drag snaps (without Shift) to positions where every run with joints at both
@@ -409,9 +434,9 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   free end re-fit after a move or a joint-type change (`Plan.refitFree`, growing first), a joint type that would cost
   a run fixed at both ends a straight is refused with how many blocks it needs, and a drop that turns a corner into
   a T grows the affected walls' free ends (or warns).
-- Edit mode UX: nodes at every segment end / joint and a diamond handle mid-segment, constant size, picked within
-  12 GUI pixels (nodes first, `LineSnap.pickHandle`); white idle, yellow hover, cyan selected, green / amber / red
-  while dragging; the joint types over the joints; a label for the selection ("Segment 2/5 · 9 blocks", "Whole wall
+- Edit mode UX: amber diamond rings at every segment end / joint and a small amber diamond mid-segment (never the
+  citizen markers' squares), constant size, picked within 12 GUI pixels (nodes first, `LineSnap.pickHandle`); paler
+  on hover, white-hot selected, green / orange / red while dragging; the joint types over the joints; a label for the selection ("Segment 2/5 · 9 blocks", "Whole wall
   · 5 segments · 47 blocks"); a status line while dragging, Esc cancels; a flash on release ("Moved", or why not);
   a hint at the cursor. Selection: a body click = that segment; Alt, a double-click or the Whole wall mode (Tab /
   the panel toggle) = every segment connected through joints (`Plan.connected`); a body drag moves the selection,

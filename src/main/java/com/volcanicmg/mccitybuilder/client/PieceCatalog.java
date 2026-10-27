@@ -398,6 +398,23 @@ final class PieceCatalog {
                     int[] bt = butts.get(k);
                     off[end] = PieceLayout.offset(c, d, bt, bt[4] == i);
                     if (bt[5] == 1) ok = false;
+                    // A branch onto the owner's side meets its body like a joint piece (the box may hold a margin).
+                    Plan.Line o = lines.get(bt[4]);
+                    int od = PieceLayout.dir(new int[]{o.x0(), o.z0()}, new int[]{o.x1(), o.z1()});
+                    PieceSets.Piece op = primary(o, bt[4]);
+                    if (bt[4] != i && d % 2 != od % 2 && op != null) {
+                        int oout = o.x0() == c[0] && o.z0() == c[1] ? od : (od + 2) % 4;
+                        PieceLayout.Grid og = grid(o.pack(), op.path(), sturn(op, od, o.flip())), sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
+                        if (og != null && sg != null) {
+                            int[] ob = PieceLayout.boxes(c, oout, PieceLayout.offset(c, oout, bt, true), List.of(op.run()), op.across(), 0).get(0);
+                            int[] att = PieceLayout.attach(c, d, ob, og, sg, width, primary.run(), Math.max(3, width));
+                            off[end] = att[0];
+                            if (end == 0 || !aligned) {
+                                shift = att[1];
+                                aligned = true;
+                            }
+                        }
+                    }
                 }
             }
             // Caps sit across from the run: on the line when no joint set the run's shift, else moved with it.
@@ -514,14 +531,11 @@ final class PieceCatalog {
      * @return the cells such a joint takes from a run meeting it (0 while loading or with no such piece)
      */
     static int expectedReach(Plan.Line l, int type) {
-        return reachOf(l, switch (type) {
-            case Plan.J_TOWER -> PieceSets.Role.TOWER;
-            case Plan.J_INNER -> PieceSets.Role.INNER;
-            case Plan.J_TEE -> PieceSets.Role.TEE;
-            case Plan.J_CROSS -> PieceSets.Role.CROSS;
-            case Plan.J_NONE -> null;
-            default -> l.towers() ? PieceSets.Role.TOWER : PieceSets.Role.CORNER;
-        });
+        Map<String, PieceSets.Family> fs = families(l.pack());
+        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        if (f == null) return 0;
+        for (PieceSets.Role r : PieceLayout.jointRoles(type, 2, false, l.towers())) if (!groups(l.pack(), f, r).isEmpty()) return reachOf(l, r);
+        return 0;
     }
 
     /** @return the cells a joint piece of role {@code r} takes from a run meeting it (0 for none or while loading) */
@@ -532,7 +546,6 @@ final class PieceCatalog {
         PieceSets.Piece st = primary(l, 0);
         if (f == null || st == null) return 0;
         List<PieceSets.Group> gs = groups(l.pack(), f, r);
-        if (gs.isEmpty()) gs = groups(l.pack(), f, PieceSets.Role.CORNER);
         if (gs.isEmpty()) return 0;
         PieceLayout.Grid jg = grid(l.pack(), gs.get(0).pick(l.level(), 0).path(), 0), sg = grid(l.pack(), st.path(), sturn(st, 0, l.flip()));
         if (jg == null || sg == null) return 0;
@@ -632,7 +645,6 @@ final class PieceCatalog {
     private static Placed joint(Plan.Line l, PieceSets.Family f, int[] c, int d, List<int[]> meet, List<Plan.Line> lines, int i, PieceSets.Piece straight,
                                 int width, int type) {
         boolean collinear = collinear(l, d, meet, lines);
-        if (type == Plan.J_NONE || type == Plan.J_AUTO && !l.towers() && collinear) return null;
         int degree = meet.size() + 1;
         // Directions out of the joint along each line, and the lines.
         List<Integer> outs = new ArrayList<>(List.of(d));
@@ -643,22 +655,16 @@ final class PieceCatalog {
             outs.add(m[1] == 0 ? od : (od + 2) % 4);
             at.add(o);
         }
+        // The first role the family has, in the type's order of stand-ins; none = a butt joint.
         List<PieceSets.Role> primary = new ArrayList<>(), fallback = new ArrayList<>();
-        if (type == Plan.J_TOWER || type == Plan.J_AUTO && l.towers()) primary.add(PieceSets.Role.TOWER);
-        else if (type == Plan.J_CORNER) primary.add(PieceSets.Role.CORNER);
-        else if (type == Plan.J_INNER) primary.add(PieceSets.Role.INNER);
-        else if (type == Plan.J_TEE) primary.add(PieceSets.Role.TEE);
-        else if (type == Plan.J_CROSS) primary.add(PieceSets.Role.CROSS);
-        else {
-            // Auto: from the topology alone (never from what fits), so the same shape always gets the same piece.
-            int auto = PieceLayout.autoRole(degree, collinear, outs.get(0), outs.size() > 1 ? outs.get(1) : 0, at.get(0).flip());
-            primary.add(auto == PieceLayout.CROSS ? PieceSets.Role.CROSS : auto == PieceLayout.TEE ? PieceSets.Role.TEE
-                    : auto == PieceLayout.INNER ? PieceSets.Role.INNER : PieceSets.Role.CORNER);
-        }
+        for (PieceSets.Role r : PieceLayout.jointRoles(type, degree, collinear, l.towers()))
+            if (!groups(l.pack(), f, r).isEmpty()) {
+                primary.add(r);
+                break;
+            }
+        if (primary.isEmpty()) return null;
         // A tower, for the hint only ("try Tower: 0 gap"), never picked here.
         if (!primary.contains(PieceSets.Role.TOWER)) fallback.add(PieceSets.Role.TOWER);
-        // A missing role falls back to a corner (as before), then nothing.
-        if (primary.stream().allMatch(r -> groups(l.pack(), f, r).isEmpty())) primary = new ArrayList<>(List.of(PieceSets.Role.CORNER));
         List<PieceSets.Piece> cands = new ArrayList<>();
         List<PieceSets.Role> roles = new ArrayList<>();
         int primaries = 0;

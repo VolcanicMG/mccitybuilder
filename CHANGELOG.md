@@ -2,6 +2,13 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Joints: Auto gives every L the plain corner (inner corner and tower only when picked); a family without a T piece
+  gets a tower, else a plain butt joint (no more corner piece at a T); a branch drawn onto a wall meets its body; a
+  ring closing on its own start gets a corner there. Edit mode: a click on a joint opens a menu of the types that fit
+  it (thumbnail, name, fits / won't fit; hover previews). Edit nodes are amber diamonds.
+- Palette: Huts | Decorations tabs; decorations by folder or all at once, searchable (road / wall pieces stay with the
+  line tools). Workers show their hut's icon on the overlay; builders keep the hammer.
+- Fix: placing on tall grass or flowers no longer raises the hut by a block. Panel button labels never overflow.
 - Fix: joints (corners, inner corners, T's, crosses, towers, end caps) line up with the walls and roads they join.
   Continuity is now measured on the placed blocks from the ground layer up (the old rule lined up the buried
   foundations and stepped the visible wall by a block); end caps follow the run. The self-check covers every bundled

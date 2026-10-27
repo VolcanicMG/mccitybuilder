@@ -1,6 +1,8 @@
 package com.volcanicmg.mccitybuilder;
 
+import com.volcanicmg.mccitybuilder.planner.LineSnap;
 import com.volcanicmg.mccitybuilder.planner.PieceLayout;
+import com.volcanicmg.mccitybuilder.planner.Plan;
 import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,7 +23,11 @@ final class JointCases {
     record Run(int out, PieceLayout.Grid straight, PieceLayout.Fit fit, int[] box) {
     }
 
-    record Case(String family, String name, String jointPath, PieceLayout.Grid joint, int[] jointBox, List<Run> runs) {
+    record Case(String family, String name, String jointPath, PieceLayout.Grid joint, int[] jointBox, List<Run> runs, boolean butt) {
+        Case(String family, String name, String jointPath, PieceLayout.Grid joint, int[] jointBox, List<Run> runs) {
+            this(family, name, jointPath, joint, jointBox, runs, false);
+        }
+
         /** @return the least matched run ({@link PieceLayout.Fit#match}) */
         double match() {
             double f = 1;
@@ -37,7 +43,11 @@ final class JointCases {
     record Report(double match, double best, String reason) {
     }
 
-    /** The shapes: L turning left and right (both flips), a T, a cross, an L with the tower, and a free end with a cap. */
+    /**
+     * The shapes: L turning left and right (both flips; the plain corner, then the inner corner when chosen), a T, a
+     * cross, an L with the tower, a free end with a cap, and a T made the way the game makes one: a branch drawn onto
+     * a wall's body ({@link LineSnap#crossing}, {@link Plan#split}).
+     */
     static final Map<String, int[]> SHAPES = new LinkedHashMap<>();
 
     static {
@@ -84,23 +94,75 @@ final class JointCases {
         if (fam == null || fam.straights().isEmpty()) return out;
         PieceSets.Piece st = pickTop(fam.straights().get(0));
         PieceLayout.Grid sg = PackPieces.grid(pack + "/" + st.path());
-        for (boolean flip : new boolean[]{false, true})
+        for (boolean flip : new boolean[]{false, true}) {
             for (var en : SHAPES.entrySet()) {
                 int[] outs = en.getValue();
                 String name = en.getKey() + (flip ? "-flipped" : "");
                 if (outs.length == 1) {
-                    add(out, pack, famKey, name, fam, PieceSets.Role.END, sg, st, outs, flip);
+                    add(out, pack, famKey, name, fam, List.of(PieceSets.Role.END), sg, st, outs, dirsOf(outs), flip);
                     continue;
                 }
-                int auto = PieceLayout.autoRole(outs.length, false, outs[0], outs[1], flip);
-                PieceSets.Role role = auto == PieceLayout.CROSS ? PieceSets.Role.CROSS : auto == PieceLayout.TEE ? PieceSets.Role.TEE
-                        : auto == PieceLayout.INNER ? PieceSets.Role.INNER : PieceSets.Role.CORNER;
-                // A missing role falls back to the corner, as the layout does.
-                if (fam.of(role).isEmpty()) role = PieceSets.Role.CORNER;
-                add(out, pack, famKey, name, fam, role, sg, st, outs, flip);
-                if (outs.length == 2 && !flip) add(out, pack, famKey, en.getKey() + "-tower", fam, PieceSets.Role.TOWER, sg, st, outs, false);
+                add(out, pack, famKey, name, fam, PieceLayout.jointRoles(Plan.J_AUTO, outs.length, false, false), sg, st, outs, dirsOf(outs), flip);
+                if (outs.length == 2) {
+                    add(out, pack, famKey, name + "-inner", fam, List.of(PieceSets.Role.INNER), sg, st, outs, dirsOf(outs), flip);
+                    if (!flip) add(out, pack, famKey, en.getKey() + "-tower", fam, PieceLayout.jointRoles(Plan.J_TOWER, 2, false, false), sg, st, outs, dirsOf(outs), false);
+                }
             }
+            split(out, pack, famKey, fam, sg, st, flip);
+        }
         return out;
+    }
+
+    /**
+     * A T the way the game makes one: a wall along X is planned, a branch is drawn from the south heading north; the
+     * end snaps onto the wall's body ({@link LineSnap#crossing}) and the click splits it there ({@link Plan#split}).
+     * The joint cell then has three line ends; the layout's outs, straights and role come from those lines. With no T
+     * piece (nor tower) it is a butt joint: the first half runs through the square, the other half and the branch
+     * stop at its face ({@link PieceLayout#square}, {@link PieceLayout#owner}, {@link PieceLayout#offset}).
+     */
+    private static void split(List<Case> out, String pack, String famKey, PieceSets.Family fam, PieceLayout.Grid sg, PieceSets.Piece st, boolean flip) throws Exception {
+        List<Plan.Line> lines = new ArrayList<>();
+        lines.add(new Plan.Line("wall", -30, 0, 30, 0, pack, famKey, st.number(), -1, false, false, flip, Plan.FOLLOW, 0, Plan.NO_BASE, false));
+        int[] start = {0, 30};
+        int cells = LineSnap.crossing(start, 3, 30, List.<int[][]>of(lines.get(0).ends()), 3);
+        int[] c = {start[0], start[1] - cells};
+        int i = Plan.split(lines, c, l -> false);
+        if (cells != 30 || c[0] != 0 || c[1] != 0 || i != 0 || lines.size() != 2) throw new AssertionError("T snap / split: " + cells + " " + i);
+        lines.add(new Plan.Line("wall", start[0], start[1], c[0], c[1], pack, famKey, st.number(), -1, false, false, flip, Plan.FOLLOW, 0, Plan.NO_BASE, false));
+        // The layout: each line's direction out of the joint cell (end 0: its direction; end 1: back) and its own travel.
+        int[] outs = new int[lines.size()], dirs = new int[lines.size()];
+        for (int q = 0; q < lines.size(); q++) {
+            Plan.Line l = lines.get(q);
+            dirs[q] = PieceLayout.dir(new int[]{l.x0(), l.z0()}, new int[]{l.x1(), l.z1()});
+            outs[q] = l.x0() == c[0] && l.z0() == c[1] ? dirs[q] : (dirs[q] + 2) % 4;
+        }
+        String name = "T-split" + (flip ? "-flipped" : "");
+        List<PieceSets.Role> roles = PieceLayout.jointRoles(Plan.J_AUTO, lines.size(), false, false);
+        for (PieceSets.Role r : roles)
+            if (!fam.of(r).isEmpty()) {
+                add(out, pack, famKey, name, fam, List.of(r), sg, st, outs, dirs, flip);
+                return;
+            }
+        // Butt joint: the owner's straight stands in for the joint piece, the others are the runs.
+        int width = st.across(), run = st.run();
+        int[] widths = new int[outs.length];
+        java.util.Arrays.fill(widths, width);
+        int[] sq = PieceLayout.square(c, outs, widths);
+        int owner = PieceLayout.owner(outs);
+        PieceLayout.Grid og = straight(sg, dirs[owner], flip);
+        int[] ob = PieceLayout.boxes(c, outs[owner], PieceLayout.offset(c, outs[owner], sq, true), List.of(run), width, 0).get(0);
+        List<Run> runs = new ArrayList<>();
+        for (int q = 0; q < outs.length; q++) {
+            if (q == owner) continue;
+            PieceLayout.Grid s = straight(sg, dirs[q], flip);
+            // The other half butts on the square; the branch meets the owner's body like a joint piece.
+            PieceLayout.Fit f = outs[q] % 2 == outs[owner] % 2 ? new PieceLayout.Fit(PieceLayout.offset(c, outs[q], sq, false), 0, 0, 0)
+                    : PieceLayout.fit(c, outs[q], ob, og, s, width, run, Math.max(3, width));
+            int[] bx = PieceLayout.boxes(c, outs[q], f.off(), List.of(run), width, f.shift()).get(0);
+            Run r = new Run(outs[q], s, f, bx);
+            runs.add(new Run(outs[q], s, new PieceLayout.Fit(f.off(), f.shift(), measure(new Case(pack, name, st.path(), og, ob, List.of(r), true), r), f.depth()), bx));
+        }
+        out.add(new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name + "-butt", st.path(), og, ob, runs, true));
     }
 
     /** The highest level of a group (the pieces in the screenshots are level 5). */
@@ -108,9 +170,15 @@ final class JointCases {
         return g.pieces().get(g.pieces().size() - 1);
     }
 
-    private static void add(List<Case> out, String pack, String famKey, String name, PieceSets.Family fam, PieceSets.Role role,
-                            PieceLayout.Grid sg, PieceSets.Piece st, int[] outs, boolean flip) throws Exception {
-        if (fam.of(role).isEmpty()) return;
+    /** @param dirs each run's travel direction as the game places its straight; @param roles the joint's roles, first present used */
+    private static void add(List<Case> out, String pack, String famKey, String name, PieceSets.Family fam, List<PieceSets.Role> roles,
+                            PieceLayout.Grid sg, PieceSets.Piece st, int[] outs, int[] dirs, boolean flip) throws Exception {
+        PieceSets.Role role = null;
+        for (PieceSets.Role r : roles) if (!fam.of(r).isEmpty()) {
+            role = r;
+            break;
+        }
+        if (role == null) return;
         PieceSets.Piece jp = pickTop(fam.of(role).get(0));
         PieceLayout.Grid jg = PackPieces.grid(pack + "/" + jp.path());
         int[] c = {0, 0};
@@ -126,7 +194,7 @@ final class JointCases {
             PieceLayout.Grid t = jg.turned(k);
             double sc = 0;
             for (int q = 0; q < outs.length; q++)
-                sc += PieceLayout.faceScore(c, outs[q], box(c, outs[0], t, role, jp), t, straight(sg, dirOf(outs, q), flip), width, run);
+                sc += PieceLayout.faceScore(c, outs[q], box(c, outs[0], t, role, jp), t, straight(sg, dirs[q], flip), width, run);
             if (sc > bs + 1e-9) {
                 bs = sc;
                 best = k;
@@ -137,7 +205,7 @@ final class JointCases {
         List<Run> runs = new ArrayList<>();
         for (int q = 0; q < outs.length; q++) {
             int o = outs[q];
-            PieceLayout.Grid s = straight(sg, dirOf(outs, q), flip);
+            PieceLayout.Grid s = straight(sg, dirs[q], flip);
             PieceLayout.Fit f = PieceLayout.fit(c, o, jb, t, s, width, run, Math.max(3, width));
             runs.add(new Run(o, s, f, PieceLayout.boxes(c, o, f.off(), List.of(run), width, f.shift()).get(0)));
         }
@@ -149,9 +217,11 @@ final class JointCases {
         return role == PieceSets.Role.END ? PieceLayout.boxes(c, d, 0, List.of(p.run()), p.across(), 0).get(0) : PieceLayout.centred(c, t.sx(), t.sz());
     }
 
-    /** @return the direction line q runs in: the first arrives at the joint (heading against its out), the rest leave */
-    static int dirOf(int[] outs, int q) {
-        return q == 0 ? (outs[0] + 2) % 4 : outs[q];
+    /** @return the direction each line runs in: the first arrives at the joint (heading against its out), the rest leave */
+    static int[] dirsOf(int[] outs) {
+        int[] d = outs.clone();
+        d[0] = (outs[0] + 2) % 4;
+        return d;
     }
 
     /** @return the straight as the planner places it on a line running in direction {@code dir} */
@@ -210,6 +280,12 @@ final class JointCases {
         if (hit * 2 < a.size()) return 0;
         a.removeIf(v -> (v >> 16) < hLo || (v >> 16) > hHi);
         b.removeIf(v -> (v >> 16) < hLo || (v >> 16) > hHi);
+        // A butt joint's run meets the other wall's side: continuous when every face cell has a block in front.
+        if (cs.butt()) {
+            hit = 0;
+            for (int v : a) if (b.contains(v)) hit++;
+            return a.isEmpty() ? 1 : (double) hit / a.size();
+        }
         return jaccard(a, b);
     }
 
@@ -239,7 +315,9 @@ final class JointCases {
         PieceLayout.Grid t = cs.joint();
         int[] jb = cs.jointBox();
         double best = 1;
-        for (Run r : cs.runs()) {
+        // A butt joint's runs stay on their line (nothing to shift against); only joint pieces are brute-forced.
+        if (cs.butt()) best = match;
+        for (Run r : cs.butt() ? List.<Run>of() : cs.runs()) {
             int d = r.out(), si = r.straight().inset((d + 2) % 4), edge = PieceLayout.reach(c, d, jb), layers = d % 2 == 0 ? t.sx() : t.sz();
             double bm = 0;
             for (int s = -Math.max(3, width); s <= Math.max(3, width); s++) {
@@ -254,7 +332,7 @@ final class JointCases {
                     if (i + si == 0 || !PieceLayout.destructive(t, jb[0], -t.ground(), jb[1], r.straight(), bi[0], -r.straight().ground(), bi[1])) q = new Run(d, r.straight(), null, bi);
                     break;
                 }
-                bm = Math.max(bm, measure(new Case(cs.family(), cs.name(), cs.jointPath(), t, jb, List.of(q)), q));
+                bm = Math.max(bm, measure(new Case(cs.family(), cs.name(), cs.jointPath(), t, jb, List.of(q), cs.butt()), q));
             }
             best = Math.min(best, bm);
         }
