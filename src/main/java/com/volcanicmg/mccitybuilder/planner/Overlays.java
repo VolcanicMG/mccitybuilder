@@ -37,4 +37,15 @@ public final class Overlays {
         out.sort(Comparator.comparingInt(Need::missing).reversed().thenComparing(Need::name));
         return out.size() > max ? out.subList(0, max) : out;
     }
+
+    /**
+     * @param entityPresent the citizen's entity exists on this client
+     * @param alive         and is alive and not removed
+     * @return true to draw its marker. Without a live entity nothing is drawn: the citizen view's position is the
+     * server's last known one, sent only with view updates, so it is stale (inside a building, asleep, moved,
+     * despawned or dead) and would put markers where nobody is.
+     */
+    public static boolean showCitizen(boolean entityPresent, boolean alive) {
+        return entityPresent && alive;
+    }
 }

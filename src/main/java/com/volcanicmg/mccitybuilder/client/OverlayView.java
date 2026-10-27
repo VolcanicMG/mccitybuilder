@@ -26,7 +26,8 @@ import net.minecraft.world.phys.Vec3;
  * The planner's one combined overlay: huts by staffing, citizens as job-coloured markers, and builders as hammer
  * badges with their site outlined, a faint line from the hut and what they wait for. Data
  * comes from the client colony view (citizen views, work order views, the builder's resources module view, worker
- * module views) and is refreshed four times a second; positions come from the citizen entity when it is loaded.
+ * module views) and is refreshed four times a second; citizens and builder badges are drawn only at their live
+ * entities (no marker where the entity isn't loaded).
  */
 final class OverlayView {
     /** A builder at work: its hut, its site box, what it misses, and the builder citizen (may be null). */
@@ -104,14 +105,19 @@ final class OverlayView {
         counts = ct;
     }
 
-    /** @return the citizen's position: its entity when loaded (exact), else the last synced block position */
+    /**
+     * @return where to draw the citizen: its live entity, or null. The view's {@code getPosition()} is MineColonies'
+     * {@code CitizenData.lastPosition}, set by the server while the entity ticks but only sent with a citizen view
+     * update, so it lags (indoors, asleep, moved, despawned): never drawn.
+     */
     private static Vec3 where(ICitizenDataView c) {
         if (c == null) return null;
         Minecraft mc = Minecraft.getInstance();
         Entity e = mc.level == null ? null : mc.level.getEntity(c.getEntityId());
-        if (e != null) return e.position().add(0, e.getBbHeight() + 0.3, 0);
-        BlockPos p = c.getPosition();
-        return p == null ? null : Vec3.atBottomCenterOf(p).add(0, 2.1, 0);
+        // The view's entity id can outlive the citizen and be reused: only a citizen entity that is this citizen counts.
+        boolean present = e instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce && (ce.getCivilianID() == 0 || ce.getCivilianID() == c.getId());
+        if (!Overlays.showCitizen(present, present && e.isAlive() && !e.isRemoved())) return null;
+        return e.position().add(0, e.getBbHeight() + 0.3, 0);
     }
 
     /** World part: builder sites (cyan box, a faint line from the hut) and under-staffed huts (red / amber boxes). */

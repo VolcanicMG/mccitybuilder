@@ -865,6 +865,8 @@ public final class SelfCheck {
     }
 
     private static void overlays() {
+        check(com.volcanicmg.mccitybuilder.planner.Overlays.showCitizen(true, true) && !com.volcanicmg.mccitybuilder.planner.Overlays.showCitizen(false, false)
+                && !com.volcanicmg.mccitybuilder.planner.Overlays.showCitizen(true, false), "citizen markers only at live entities (no stale last-known spots)");
         check(com.volcanicmg.mccitybuilder.planner.Overlays.staffing(0, 0) == com.volcanicmg.mccitybuilder.planner.Overlays.Staff.NO_JOBS
                 && com.volcanicmg.mccitybuilder.planner.Overlays.staffing(0, 2) == com.volcanicmg.mccitybuilder.planner.Overlays.Staff.NONE
                 && com.volcanicmg.mccitybuilder.planner.Overlays.staffing(1, 2) == com.volcanicmg.mccitybuilder.planner.Overlays.Staff.UNDER

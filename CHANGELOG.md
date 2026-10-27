@@ -2,6 +2,8 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Fix: citizen markers and builder badges no longer appear where nobody is; they're drawn only at citizens actually
+  there (the old fallback used MineColonies' stale last-known position).
 - Road / wall drawing shows what you lay: a ghost of the current piece under the cursor before you click, then the
   live segment as real ghost pieces (joints, end caps, gates) with an outline per piece (green, red outside the
   colony or into a building, amber for uncovered cells), a "24 blocks · 3 pieces" label at its middle, and the gap

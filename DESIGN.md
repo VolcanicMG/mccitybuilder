@@ -221,6 +221,13 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   materials from the hut's `BuildingResourcesModuleView` (DONT_HAVE / NEED_MORE / IN_DELIVERY, amount - available);
   clicking it selects the builder's hut.
 
+- Citizen markers and builder badges are drawn only at a live citizen entity on the client (`Overlays.showCitizen`;
+  the entity must be a citizen entity with this citizen's id, alive). Verified in 1.1.1403: `ICitizenDataView
+  .getPosition()` is `CitizenData.lastPosition`, set by the server while the entity ticks but only sent with a
+  citizen view update, so it lags (indoors, asleep, moved, despawned, dead); markers from it appeared in empty
+  fields. No "last known" marker beyond tracking range either: the camera stays inside the loaded area, and that
+  position can't be trusted. Builder sites (from the work order) still show without the badge.
+
 ### Plan mode (phase C, `client/PlanView`, `planner/Plan`)
 
 - K or the "Plan" button toggles it. While on, confirming a ghost (Enter / the check button) adds a plan entry
