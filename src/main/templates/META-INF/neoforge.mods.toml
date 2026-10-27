@@ -1,0 +1,40 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="VolcanicMG"
+description='''
+An overhead, RTS-style planner for MineColonies: fly the camera over your colony, place huts with Structurize's ghost preview and manage the builder queue, all through MineColonies' own build tool and work-order handling.
+'''
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecolonies"
+    type="required"
+    versionRange="[1.1.1403,)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="structurize"
+    type="required"
+    versionRange="[1.0.832,)"
+    ordering="AFTER"
+    side="BOTH"

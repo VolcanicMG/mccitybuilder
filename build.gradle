@@ -1,0 +1,90 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+tasks.named('wrapper', Wrapper).configure {
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = project.neo_version
+
+    runs {
+        client {
+            client()
+        }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+// Exact pack jars (copied into the gitignored libs/ dir); compile-only so API drift fails the build.
+def colonyJars = [
+        'libs/minecolonies-1.1.1403-1.21.1.jar',
+        'libs/structurize-1.0.832-1.21.1.jar',
+        'libs/blockui-1.0.209-1.21.1.jar',
+        'libs/domum-ornamentum-1.0.236-snapshot-main.jar',
+        'libs/multipiston-1.2.58-1.21.1.jar'
+]
+dependencies {
+    compileOnly files(colonyJars)
+    // The MineColonies stack for runServer/runClient.
+    runtimeOnly files(colonyJars)
+}
+
+// The one runnable check: assert-based, no test framework dependency.
+tasks.register('selfCheck', JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.volcanicmg.mccitybuilder.SelfCheck'
+    jvmArgs '-ea'
+}
+tasks.named('check') { dependsOn 'selfCheck' }
+// Mock of the planner UI with the real vanilla font and sprites (not part of check).
+tasks.register('plannerPreview', JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.volcanicmg.mccitybuilder.PlannerPreview'
+    args = [project.findProperty('out') ?: "${buildDir}/planner-preview.png"]
+    jvmArgs '-Djava.awt.headless=true'
+}
+tasks.named('test') { failOnNoDiscoveredTests = false }
+
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
+}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
