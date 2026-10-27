@@ -346,6 +346,38 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   it, the blueprint stays as it is (a "fill foundations" option could come later).
 - Flip (R, per segment): straights and gates turned 180° (a wall's other side out); joints re-score their turn
   against the flipped straights.
+- Joint types (per joint cell, saved as `J x z type` rows; `Plan.J_*`): auto, tower, corner, inner corner, T, cross,
+  none (butt joint). Auto: an L gets a corner, inner when the turn bends toward the walls' outside
+  (`PieceLayout.innerTurn`: unflipped walls face out to the left of the first segment's travel; flip swaps), outer
+  otherwise; three lines a T, four a cross; two in a straight line nothing. A tower is used when chosen, for old
+  segments drawn with Towers, or as auto's fallback when it keeps strictly more whole straights than auto's piece
+  (`PieceLayout.pickJoint`; among a role's variants the one leaving the fewest uncovered cells wins). The panel's
+  joint picker sets the default for new joints (applied to a dropped segment's ends) or, in edit mode, the selected
+  joint's type (C / T cycle).
+- The "walls get removed" bug: medievaloak's T piece (9 x 9) reaches one block further than its corner (7 x 7), so
+  walls sized for a corner lost a whole straight each (9 long, no shorter piece) when a third wall joined: 3 of 6
+  straights kept. Auto now falls back to the tower there (all 6 kept; SelfCheck uses the real blueprints).
+- Gaps: a gap the main straights leave is filled with the family's shorter pieces of the same width (any level /
+  variant, end pieces), longest first. Length snapping keeps room at a free end for the joint the next segment will
+  bring (`PieceCatalog.expectedReach`), so chained walls stay whole; Done / right-click / Esc trims a gap left at
+  the chain's free end. Starting on another segment's free end grows that segment by the fewest cells that keep its
+  straights whole once the joint takes its share (`LineSnap.extension`). Going straight on extends the last segment
+  instead of butting a second one against it. SelfCheck prints, per bundled family, the uncovered cells at a T of
+  walls sized for the corner with the T piece vs auto's pick (medievaloak / medievalbirch / medievaldarkoak / medievalspruce walls: 24 -> 2,
+  via the tower; lostcity roads 6 -> 0; most roads without towers or shorter straights stay as they were).
+- Ending: another segment's end within the snap radius (about 24 GUI pixels at the cursor's distance,
+  `LineSnap.radiusPx`), from any side, wins over length snapping: in line with the start the joint is there;
+  across a segment whose free end is off the line, that end moves along its own axis onto the line
+  (`LineSnap.joinEnd`) and the joint forms there. Onto a segment's body: a T where the run crosses it. A live
+  segment that would still clear or replace a planned piece is red with "crosses a segment without a joint". The
+  target joint and its snap points show before the click.
+- Edit mode (X or the Edit button; the line tools then draw nothing): hover highlights a joint (a segment end) or
+  a segment; a click selects one. Dragging an end of the selected segment, the segment or the selected joint moves
+  it (`Plan.move`, pure): segments ending at a moved point follow, along their axis by changing length, across it
+  by shifting whole when their other end is free (else that component is dropped); directions and lengths >= 1 are
+  kept, built / sending segments never move, a single dragged point snaps onto another end, joint types move with
+  their joints. R flips, Del removes, C sets the joint type, Esc deselects (then leaves edit mode); leaving clears
+  the selection. Draw mode keeps no selection.
 - Removing (line tool): the planned segment under the cursor is highlighted; Del, right-click (no chain active) or
   Remove deletes it, and its neighbours' joints are laid out again; Undo (Backspace) with no chain brings removed
   segments back (last 32).

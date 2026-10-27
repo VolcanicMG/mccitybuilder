@@ -40,6 +40,39 @@ public final class Plan {
      * A drawn road or wall segment from (x0, z0) to (x1, z1), built from a style pack's pieces: the pack, the piece
      * family, the level (level groups) or variant (-1 = varied), towers at its joints, a gate in its middle.
      */
+    /** Joint types a joint can be set to: picked automatically, or a tower / outer corner / inner corner / T / cross, or none (butt joint). */
+    public static final int J_AUTO = 0, J_TOWER = 1, J_CORNER = 2, J_INNER = 3, J_TEE = 4, J_CROSS = 5, J_NONE = 6, J_TYPES = 7;
+
+    /** @return the key of a joint cell */
+    public static long cell(int x, int z) {
+        return (long) x << 32 ^ (z & 0xFFFFFFFFL);
+    }
+
+    public static int cellX(long k) {
+        return (int) (k >> 32);
+    }
+
+    public static int cellZ(long k) {
+        return (int) k;
+    }
+
+    /** @return the joint types in {@code text} (rows {@code J x z type}); damaged rows and unknown types are skipped */
+    public static java.util.Map<Long, Integer> readJoints(String text) {
+        java.util.Map<Long, Integer> out = new java.util.HashMap<>();
+        if (text == null) return out;
+        for (String row : text.split("\n")) {
+            String[] f = row.split("\t");
+            if (f.length != 4 || !f[0].equals("J")) continue;
+            try {
+                int t = Integer.parseInt(f[3].trim());
+                if (t > J_AUTO && t < J_TYPES) out.put(cell(Integer.parseInt(f[1]), Integer.parseInt(f[2])), t);
+            } catch (NumberFormatException ignored) {
+                // A damaged row: skip it.
+            }
+        }
+        return out;
+    }
+
     /** Height modes of a line: each piece on its ground, flat per segment, flat per chain, smoothed (steps of 1). */
     public static final int FOLLOW = 0, FLAT = 1, CHAIN = 2, SMOOTH = 3;
     /** {@link Line#base} when no chain height is fixed yet. */
@@ -135,7 +168,14 @@ public final class Plan {
 
     /** @return entries, then lines (each prefixed {@code L}) */
     public static String write(List<Entry> entries, List<Line> lines) {
+        return write(entries, lines, java.util.Map.of());
+    }
+
+    /** @return entries, lines and the joint types chosen per joint cell (rows {@code J x z type}) */
+    public static String write(List<Entry> entries, List<Line> lines, java.util.Map<Long, Integer> joints) {
         StringBuilder sb = new StringBuilder("mccitybuilder-plan\t" + VERSION + "\n");
+        for (var en : new java.util.TreeMap<>(joints).entrySet())
+            if (en.getValue() != J_AUTO) sb.append("J\t").append(cellX(en.getKey())).append('\t').append(cellZ(en.getKey())).append('\t').append(en.getValue()).append('\n');
         for (Line l : lines)
             sb.append(String.join("\t", "L3", l.tool(), "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1(), l.pack(), l.family(), "" + l.level(),
                     "" + l.variant(), "" + l.towers(), "" + l.gate(), "" + l.flip(), "" + l.height(), "" + l.dy(), "" + l.base(), "" + l.built())).append('\n');
@@ -220,6 +260,49 @@ public final class Plan {
             return i;
         }
         return -1;
+    }
+
+    /**
+     * Edit mode: moves the given points (segment ends, a joint) by (dx, dz). Every segment ending at a moved point
+     * follows: along its own axis it just gets longer or shorter; across it, the whole segment shifts, which needs its
+     * other end free (no other segment there), else that component of the move is dropped. Segments keep their
+     * direction and a length of at least 1; locked ones (built, sending) never move.
+     *
+     * @return the moved segments (same order), or null when nothing can move
+     */
+    public static List<Line> move(List<Line> lines, List<int[]> points, int dx, int dz, java.util.function.Predicate<Line> locked) {
+        java.util.Set<Long> m = new java.util.HashSet<>();
+        for (int[] p : points) m.add(cell(p[0], p[1]));
+        java.util.Map<Long, Integer> ends = new java.util.HashMap<>();
+        for (Line l : lines) for (int[] e : l.ends()) ends.merge(cell(e[0], e[1]), 1, Integer::sum);
+        boolean allowX = true, allowZ = true;
+        for (Line l : lines) {
+            boolean a = m.contains(cell(l.x0(), l.z0())), b = m.contains(cell(l.x1(), l.z1()));
+            if (!a && !b) continue;
+            if (locked.test(l)) return null;
+            if (a && b) continue;
+            int[] other = a ? new int[]{l.x1(), l.z1()} : new int[]{l.x0(), l.z0()};
+            boolean otherFree = ends.getOrDefault(cell(other[0], other[1]), 0) == 1;
+            if (l.z0() == l.z1() && !otherFree) allowZ = false;
+            if (l.x0() == l.x1() && !otherFree) allowX = false;
+        }
+        int mx = allowX ? dx : 0, mz = allowZ ? dz : 0;
+        if (mx == 0 && mz == 0) return null;
+        List<Line> out = new ArrayList<>();
+        for (Line l : lines) {
+            boolean a = m.contains(cell(l.x0(), l.z0())), b = m.contains(cell(l.x1(), l.z1()));
+            if (!a && !b) {
+                out.add(l);
+                continue;
+            }
+            // The moved end goes all the way; the other end only across the segment's axis (it shifts with it).
+            int ox = l.x0() == l.x1() ? mx : 0, oz = l.z0() == l.z1() ? mz : 0;
+            int x0 = l.x0() + (a ? mx : ox), z0 = l.z0() + (a ? mz : oz), x1 = l.x1() + (b ? mx : ox), z1 = l.z1() + (b ? mz : oz);
+            boolean aligned = x0 == x1 || z0 == z1, same = Integer.signum(x1 - x0) == Integer.signum(l.x1() - l.x0()) && Integer.signum(z1 - z0) == Integer.signum(l.z1() - l.z0());
+            if (!aligned || !same || x0 == x1 && z0 == z1) return null;
+            out.add(l.between(x0, z0, x1, z1));
+        }
+        return out;
     }
 
     /** @return true when two inclusive boxes share a block */

@@ -186,4 +186,45 @@ public final class LineSnap {
         }
         return best;
     }
+
+    /**
+     * @return the snap radius in blocks for {@code px} GUI pixels at {@code dist} blocks from the camera (vertical
+     * field of view {@code fovDeg}, screen {@code screenH} GUI pixels high), at least {@link #RADIUS}, at most 16
+     */
+    public static double radiusPx(double dist, double fovDeg, int screenH, double px) {
+        double perPx = 2 * dist * Math.tan(Math.toRadians(fovDeg) / 2) / Math.max(1, screenH);
+        return Math.max(RADIUS, Math.min(16, px * perPx));
+    }
+
+    /**
+     * Joining another segment's end: the live segment from {@code start} ends exactly on that end's joint. In line with
+     * the start: there. Off the start's line but the other segment runs across it (perpendicular): that segment's
+     * free end moves along its own axis (by at most {@code r}) onto the live segment's line, and the joint is there.
+     *
+     * @param a the other segment's ends, {@code k} the index of the end near the cursor; @param free that end is free
+     * @return {end x, end z, the other segment's moved end x, z}, or null when no joint can form there
+     */
+    public static int[] joinEnd(int[] start, int[][] a, int k, boolean free, double r) {
+        int[] e = a[k], o = a[1 - k];
+        if (e[0] == start[0] && e[1] == start[1]) return null;
+        if (e[0] == start[0] || e[1] == start[1]) return new int[]{e[0], e[1], e[0], e[1]};
+        if (!free) return null;
+        boolean aAlongX = a[0][1] == a[1][1];
+        // The live segment runs across the other one: along Z when that one is along X, and the other way round.
+        int[] moved = aAlongX ? new int[]{start[0], e[1]} : new int[]{e[0], start[1]};
+        if (Math.abs(moved[0] - e[0]) + Math.abs(moved[1] - e[1]) > r || moved[0] == o[0] && moved[1] == o[1]) return null;
+        // Moving past the other end would turn the segment around.
+        if (Integer.signum(e[0] - o[0]) != Integer.signum(moved[0] - o[0]) || Integer.signum(e[1] - o[1]) != Integer.signum(moved[1] - o[1])) return null;
+        if (moved[0] == start[0] && moved[1] == start[1]) return null;
+        return new int[]{moved[0], moved[1], moved[0], moved[1]};
+    }
+
+    /**
+     * @return the fewest cells (0 .. max) to add to a run of {@code cells} so its straights fit exactly between the
+     * offsets, or -1 when none does
+     */
+    public static int extension(int cells, int off0, int off1, int[] lens, int max) {
+        for (int d = 0; d <= max; d++) if (exact(cells + d, off0, off1, lens)) return d;
+        return -1;
+    }
 }

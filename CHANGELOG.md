@@ -2,6 +2,15 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Fix: walls no longer lose pieces when a third wall joins a corner (the T piece was bigger; auto now uses a tower
+  there when that keeps the walls whole). Starting on a wall's free end grows it so its pieces still fit.
+- Joint choice: auto (corner or inner corner by turn and side, T, cross), tower, corner, inner corner, T, cross or
+  none, as the default for new joints or per joint in edit mode.
+- Edit mode (X): select a segment or joint, drag ends, segments and joints (attached walls follow), R / Del / C.
+- Snapping: ending near another wall's end from any side forms a joint there (a free end off the line moves onto
+  it); crossing without a joint shows red; the snap radius follows the zoom (about 24 pixels). Chains keep room for
+  their next joint, Done trims what's left, gaps are filled with shorter pieces where the style has them.
+
 - Road / wall tools: walls meet towers and corners on their real faces (overhangs skipped, centred on the face);
   the joint with the last segment shows while you drag; remove a segment by hovering it (Del, right-click or Remove;
   Undo brings it back); R flips a segment's side; heights: follow the ground, flat, flat for the whole chain, or smooth,

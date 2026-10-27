@@ -66,10 +66,10 @@ public final class Hints {
                 caps("#click"),
                 caps("#backspace"),
                 caps("#delete"),
-                caps("R"),
+                caps("R", ",", "X"),
                 caps("H", ",", "#pgup", "/", "#pgdn"),
                 caps("[", "/", "]", ",", "-", "/", "="),
-                caps("T", ",", "G"),
+                caps("C", ",", "G"),
                 caps("#rmb", "/", "#esc"));
         section("selected",
                 caps("U"),

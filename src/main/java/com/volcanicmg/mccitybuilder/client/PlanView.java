@@ -56,6 +56,10 @@ final class PlanView {
     private static Object waitingFor;
     // Drawn road / wall segments, their computed blocks (client terrain) and whether each has a conflict.
     static List<Plan.Line> lines = new ArrayList<>();
+    /** Joint type per joint cell ({@link Plan#cell}); missing = auto. */
+    static Map<Long, Integer> jointTypes = new HashMap<>();
+    static List<int[]> lineOffs = new ArrayList<>();
+    static List<Integer> lineNeed = new ArrayList<>();
     static List<List<PieceCatalog.Placed>> linePieces = new ArrayList<>();
     static List<Boolean> lineBad = new ArrayList<>();
     static List<Integer> lineShort = new ArrayList<>();
@@ -89,10 +93,12 @@ final class PlanView {
             String text = from != null ? Files.readString(from) : null;
             entries = new ArrayList<>(Plan.read(text));
             lines = new ArrayList<>(Plan.readLines(text));
+            jointTypes = new java.util.HashMap<>(Plan.readJoints(text));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't read plan {}", file, e);
             entries = new ArrayList<>();
             lines = new ArrayList<>();
+            jointTypes = new HashMap<>();
         }
         selected = -1;
         selectedLine = -1;
@@ -111,7 +117,7 @@ final class PlanView {
         if (file == null) return;
         try {
             Files.createDirectories(file.getParent());
-            Files.writeString(file, Plan.write(entries, lines));
+            Files.writeString(file, Plan.write(entries, lines, jointTypes));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't save plan {}", file, e);
         }
@@ -478,13 +484,15 @@ final class PlanView {
     /** Lays out the lines into pieces (when they or the loaded pieces changed), their conflicts and ghosts. */
     static void refreshLines() {
         if (!linesDirty) return;
-        PieceCatalog.Layout lay = PieceCatalog.layout(lines);
+        PieceCatalog.Layout lay = PieceCatalog.layout(lines, jointTypes);
         layoutVersion++;
         linePieces = lay.lines();
         lineShort = lay.shortened();
         lineGaps = lay.gaps();
         lineComplete = lay.lineComplete();
         lineHeights = lay.heights();
+        lineOffs = lay.offs();
+        lineNeed = lay.need();
         lineBad = new ArrayList<>();
         pieceBad = new ArrayList<>();
         List<int[]> boxes = buildingBoxes();
@@ -574,6 +582,21 @@ final class PlanView {
         int i = Plan.split(lines, c, PlanView::locked);
         if (i < 0) return;
         if (selectedLine > i) selectedLine++;
+        save();
+        linesDirty = true;
+    }
+
+    /** Sets (AUTO clears) the joint type at a cell and saves. */
+    static void setJointType(int x, int z, int type) {
+        if (type == Plan.J_AUTO) jointTypes.remove(Plan.cell(x, z));
+        else jointTypes.put(Plan.cell(x, z), type);
+        save();
+        linesDirty = true;
+    }
+
+    /** Replaces the whole set of lines (an edit-mode move) and saves. */
+    static void setLines(List<Plan.Line> ls) {
+        lines = new ArrayList<>(ls);
         save();
         linesDirty = true;
     }

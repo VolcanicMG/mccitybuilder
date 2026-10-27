@@ -372,4 +372,45 @@ public final class PieceLayout {
         for (int n : neighbours) best = Math.max(best, n);
         return neighbours.length == 0 ? own : best;
     }
+
+    // ---- joint choice ----
+
+    /** @return {whole straights, uncovered cells} for a run of {@code cells} tiled with {@code lens} */
+    public static int[] runFit(int cells, int[] lens) {
+        if (cells <= 0 || lens.length == 0) return new int[]{0, Math.max(0, cells)};
+        List<Integer> f = fill(cells, lens);
+        int sum = 0;
+        for (int l : f) sum += l;
+        return new int[]{f.size(), cells - sum};
+    }
+
+    /**
+     * @param fits      per candidate joint piece: {whole straights the meeting runs keep, cells they leave uncovered}
+     * @param primaries how many candidates (first in the list) the joint's type asks for; the rest are fallbacks
+     *                  (a tower for an auto joint), taken only when they keep strictly more straights
+     * @return the candidate to use: the primary leaving the fewest cells uncovered (then more straights, then order)
+     */
+    public static int pickJoint(List<int[]> fits, int primaries) {
+        int best = 0;
+        for (int q = 1; q < Math.max(1, primaries); q++) {
+            int[] a = fits.get(q), b = fits.get(best);
+            if (a[1] < b[1] || a[1] == b[1] && a[0] > b[0]) best = q;
+        }
+        int fb = -1;
+        for (int q = primaries; q < fits.size(); q++)
+            if (fits.get(q)[0] > fits.get(best)[0] && (fb < 0 || fits.get(q)[0] > fits.get(fb)[0] || fits.get(q)[0] == fits.get(fb)[0] && fits.get(q)[1] < fits.get(fb)[1])) fb = q;
+        return fb >= 0 ? fb : best;
+    }
+
+    /**
+     * @param outA the first line's direction out of the joint (travel arrives along it); @param outB the other's
+     * @param flip the first line's flip (unflipped walls face out to the left of travel)
+     * @return true when the turn bends toward the outside: an inner corner
+     */
+    public static boolean innerTurn(int outA, int outB, boolean flip) {
+        int arrive = (outA + 2) % 4, turn = Math.floorMod(outB - arrive, 4);
+        // Directions run clockwise seen from above (east, south, west, north): +1 is a right turn.
+        boolean left = turn == 3;
+        return left != flip;
+    }
 }

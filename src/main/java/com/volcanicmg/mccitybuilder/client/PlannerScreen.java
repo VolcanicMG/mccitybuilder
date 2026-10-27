@@ -317,12 +317,12 @@ final class PlannerScreen extends Screen {
         String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
         String status = sel != null ? null : LineView.status();
         String fam = sel != null ? sel.family() : status == null ? LineView.family() : null;
-        int w = 220, h = status != null ? 40 : 232, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
+        int w = 220, h = status != null ? 40 : 252, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
         stackTop = y - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         int ix = x + PAD, iw = w - 2 * PAD;
-        g.drawString(font, Component.translatable(sel != null ? "mccitybuilder.line.selected." + tool : "mccitybuilder.line.title." + tool), ix + 1, y + PAD, VanillaUi.LABEL, false);
+        g.drawString(font, Component.translatable(sel != null ? "mccitybuilder.line.selected." + tool : LineView.edit ? "mccitybuilder.line.edit_title." + tool : "mccitybuilder.line.title." + tool), ix + 1, y + PAD, VanillaUi.LABEL, false);
         if (status != null) {
             g.drawString(font, Component.translatable("mccitybuilder.line.status." + status + "." + tool, pk), ix + 1, y + PAD + 13, 0xFFA02020, false);
             return;
@@ -359,24 +359,32 @@ final class PlannerScreen extends Screen {
             LineView.cycleHeight(d);
             click();
         }, Component.translatable("mccitybuilder.line.height.tip"));
-        // Towers at joints, a gate (walls: the selected segment or the next one), the other side out.
+        // Joints: the selected joint's type (edit mode), else the default for new joints.
+        int jt = LineView.selectedJoint != null ? PlanView.jointTypes.getOrDefault(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1]),
+                com.volcanicmg.mccitybuilder.planner.Plan.J_AUTO) : LineView.jointDefault;
+        iy = picker(g, ix, iy, iw, Component.translatable(LineView.selectedJoint != null ? "mccitybuilder.line.joint.this" : "mccitybuilder.line.joint.new",
+                Component.translatable("mccitybuilder.line.joint." + jt)).getString(), mx, my, d -> {
+            LineView.cycleJoint(d);
+            click();
+        }, Component.translatable("mccitybuilder.line.joint.tip"));
+        // A gate (walls: the selected segment or the next one), the other side out, edit mode.
         boolean wall = "wall".equals(tool);
-        boolean[] on = {sel != null ? sel.towers() : LineView.towers, sel != null ? sel.gate() : LineView.gate, sel != null ? sel.flip() : LineView.flip};
-        String[] keys = {"towers", "gate", "flip"};
+        boolean[] on = {sel != null ? sel.gate() : LineView.gate, sel != null ? sel.flip() : LineView.flip, LineView.edit};
+        String[] keys = {"gate", "flip", "edit"};
         int bw3 = (iw - 4) / 3;
         for (int i = 0; i < 3; i++) {
             int bx = ix + i * (bw3 + 2);
-            boolean off = i == 1 && !wall, over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
+            boolean off = i == 0 && !wall, over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
             VanillaUi.button(g, bx, iy, bw3, 16, on[i], off, over);
             String l = Component.translatable("mccitybuilder.line." + keys[i]).getString();
             g.drawString(font, l, bx + (bw3 - font.width(l)) / 2, iy + 4, off ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
             int fi = i;
             hits.add(new Hit(bx, iy, bw3, 16, () -> {
-                if (fi == 1 && !wall) return;
+                if (fi == 0 && !wall) return;
                 click();
-                if (fi == 0) LineView.toggleTowers();
-                else if (fi == 1) LineView.toggleGate();
-                else LineView.toggleFlip();
+                if (fi == 0) LineView.toggleGate();
+                else if (fi == 1) LineView.toggleFlip();
+                else LineView.toggleEdit();
             }, Component.translatable("mccitybuilder.line." + keys[i] + ".tip")));
         }
         iy += 20;
@@ -389,7 +397,8 @@ final class PlannerScreen extends Screen {
             int sh = idx < PlanView.lineShort.size() ? PlanView.lineShort.get(idx) : 0;
             info = Component.translatable("mccitybuilder.line.cost_selected", com.volcanicmg.mccitybuilder.planner.LineSnap.length(new int[]{sel.x0(), sel.z0()},
                     new int[]{sel.x1(), sel.z1()}) + 1, ps.size(), LineView.cost(ps), sh).getString();
-        } else if (LineView.hoverLine >= 0) info = Component.translatable("mccitybuilder.line.hover_remove").getString();
+        } else if (LineView.edit) info = Component.translatable(LineView.selectedJoint != null ? "mccitybuilder.line.edit_joint" : "mccitybuilder.line.edit_hint").getString();
+        else if (LineView.hoverLine >= 0) info = Component.translatable("mccitybuilder.line.hover_remove").getString();
         else if (LineView.start == null) info = Component.translatable("mccitybuilder.line.click_start").getString();
         else {
             int chainPieces = 0;
@@ -408,7 +417,7 @@ final class PlannerScreen extends Screen {
         boolean canRemove = LineView.hoverLine >= 0 || sel != null;
         boolean[] off = {LineView.start == null, LineView.chain.isEmpty() && LineView.removed.isEmpty(), !canRemove,
                 PlanView.lines.isEmpty() && PlanView.entries.isEmpty()};
-        Runnable[] run = {LineView::endChain, LineView::undo, () -> {
+        Runnable[] run = {LineView::finishChain, LineView::undo, () -> {
             if (LineView.removeHovered()) toast(Component.translatable("mccitybuilder.line.removed"));
         }, () -> toast(PlanView.commit(false))};
         int bw = (iw - 6) / 4;
@@ -576,6 +585,9 @@ final class PlannerScreen extends Screen {
             }
             if (!fits) {
                 warn = t.getString();
+                warnColour = 0xFFFF8080;
+            } else if (LineView.liveClash) {
+                warn = Component.translatable("mccitybuilder.line.crossing").getString();
                 warnColour = 0xFFFF8080;
             } else if (LineView.liveShort > 0) warn = Component.translatable("mccitybuilder.line.short", LineView.liveShort).getString();
         }
@@ -1311,7 +1323,8 @@ final class PlannerScreen extends Screen {
         // Road / wall tool: clicks start a chain or drop the live segment.
         if (LineView.active()) {
             if (hit != null) {
-                LineView.click(hit);
+                if (LineView.edit) LineView.press(hit);
+                else LineView.click(hit);
                 click();
             }
             return true;
@@ -1330,6 +1343,10 @@ final class PlannerScreen extends Screen {
     }
 
     private boolean draggedImpl(double mx, double my, double dx, double dy) {
+        if (LineView.dragging()) {
+            LineView.dragTo(Planner.pick(mx / width, my / height));
+            return true;
+        }
         if (cardDrag) {
             PieceView.yaw += (float) dx * 1.5f;
             PieceView.pitch = Math.max(-10, Math.min(89, PieceView.pitch + (float) dy * 1.5f));
@@ -1357,13 +1374,17 @@ final class PlannerScreen extends Screen {
             cardDrag = PieceView.dragging = false;
             return true;
         }
+        if (button == 0 && LineView.dragging()) {
+            LineView.release();
+            return true;
+        }
         if (button == 1 && rightDown) {
             rightDown = false;
             if (rightDragged) Planner.endDragTurn();
             else {
                 // A plain right-click backs out one step: adjust -> follow -> not placing; ends a road / wall chain; deselect too.
                 if (LineView.active()) {
-                    if (LineView.start != null) LineView.endChain();
+                    if (LineView.start != null) LineView.finishChain();
                     // On a planned segment: remove it (Undo brings it back); elsewhere: leave the tool.
                     else if (LineView.hoverLine >= 0 && LineView.removeHovered()) toast(Component.translatable("mccitybuilder.line.removed"));
                     else useTool(LineView.tool);
@@ -1430,7 +1451,9 @@ final class PlannerScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (Planner.isPlacing()) Planner.back();
-            else if (LineView.active() && LineView.start != null) LineView.endChain();
+            else if (LineView.active() && LineView.edit) {
+                if (!LineView.deselect()) LineView.toggleEdit();
+            } else if (LineView.active() && LineView.start != null) LineView.finishChain();
             else if (LineView.active()) useTool(LineView.tool);
             else if (PlanView.selectedLine() != null) PlanView.selectedLine = -1;
             else if (PlanView.hasSelection()) PlanView.selected = -1;
@@ -1489,7 +1512,10 @@ final class PlannerScreen extends Screen {
                 }
                 case GLFW.GLFW_KEY_MINUS -> LineView.cycleFamily(-1);
                 case GLFW.GLFW_KEY_EQUAL -> LineView.cycleFamily(1);
-                case GLFW.GLFW_KEY_T -> LineView.toggleTowers();
+                case GLFW.GLFW_KEY_T, GLFW.GLFW_KEY_C -> LineView.cycleJoint(1);
+                case GLFW.GLFW_KEY_X -> {
+                    if (LineView.active()) LineView.toggleEdit();
+                }
                 case GLFW.GLFW_KEY_G -> LineView.toggleGate();
                 default -> {
                     return false;

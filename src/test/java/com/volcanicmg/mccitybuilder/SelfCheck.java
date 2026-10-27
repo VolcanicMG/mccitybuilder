@@ -715,6 +715,8 @@ public final class SelfCheck {
         heightsAndRecords();
         snapping();
         buildQueue();
+        joining();
+        editing();
         // Saved lines round trip; hostile rows (huge segments, old vanilla rows) are skipped.
         var line = new com.volcanicmg.mccitybuilder.planner.Plan.Line("wall", 1, 2, 30, 2, "medievaloak", "wall:walls/segment", 3, -1, true, true);
         String text = com.volcanicmg.mccitybuilder.planner.Plan.write(List.of(), List.of(line));
@@ -929,7 +931,7 @@ public final class SelfCheck {
             String[] sn = com.volcanicmg.mccitybuilder.planner.PieceSets.split(path.substring(path.lastIndexOf('/') + 1));
             byPack.computeIfAbsent(pack, k -> new java.util.ArrayList<>()).add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece(path, sn[0], Integer.parseInt(sn[1]), g.sx(), g.sy(), g.sz()));
         }
-        List<String> exact = new java.util.ArrayList<>(), gapped = new java.util.ArrayList<>();
+        List<String> exact = new java.util.ArrayList<>(), gapped = new java.util.ArrayList<>(), tees = new java.util.ArrayList<>();
         int checked = 0;
         for (var en : byPack.entrySet())
             for (var fam : com.volcanicmg.mccitybuilder.planner.PieceSets.classify(en.getValue()).values()) {
@@ -974,11 +976,42 @@ public final class SelfCheck {
                                 }
                             }
                     }
+                // T junction with walls sized for this family's corner: straights lost with the T piece (before) and
+                // with auto's pick, tower allowed as a fallback, and every same-width straight as a filler (after).
+                if (!fam.of(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER).isEmpty() && !fam.of(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TEE).isEmpty()) {
+                    int[] lensAll = fam.straights().stream().flatMap(gq -> gq.pieces().stream()).filter(pq -> pq.across() == width).mapToInt(com.volcanicmg.mccitybuilder.planner.PieceSets.Piece::run).distinct().toArray();
+                    int[] c0 = {0, 0}, outs = {2, 1, 0};
+                    PieceLayout.Grid cg = grids.get(en.getKey() + "/" + fam.of(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER).get(0).first().path());
+                    int cells = cornerOff(cg, sgrid, new int[]{2, 1}, run, width) + 2 * run;
+                    List<int[]> tf = new java.util.ArrayList<>();
+                    List<String> names = new java.util.ArrayList<>();
+                    for (var role : List.of(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TEE, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TOWER))
+                        for (var grp : fam.of(role)) {
+                            PieceLayout.Grid bt = bestTurn(grids.get(en.getKey() + "/" + grp.first().path()), sgrid, outs, run, width);
+                            int pcs = 0, lft = 0;
+                            for (int o : outs) {
+                                PieceLayout.Grid sg = sgrid.turned(PieceLayout.turns(sgrid.sx(), sgrid.sz(), o));
+                                int off = PieceLayout.attach(c0, o, PieceLayout.centred(c0, bt.sx(), bt.sz()), bt, sg, width, run, Math.max(3, width))[0];
+                                int[] f = PieceLayout.runFit(cells - off, lensAll);
+                                pcs += f[0];
+                                lft += f[1];
+                            }
+                            tf.add(new int[]{pcs, lft});
+                            names.add(role.name().toLowerCase(java.util.Locale.ROOT));
+                        }
+                    int[] teeOnly = tf.get(0);
+                    int[] lone = PieceLayout.runFit(cells - 0, new int[]{run});
+                    int teeStraights = fam.of(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TEE).size();
+                    int pick = PieceLayout.pickJoint(tf, teeStraights);
+                    tees.add(en.getKey() + " " + fam.key().substring(fam.key().indexOf(':') + 1) + ": gap " + teeOnly[1] + " -> " + tf.get(pick)[1] + " (" + names.get(pick) + ")");
+                    check(tf.get(pick)[1] <= teeOnly[1] && lone[0] >= 0, "auto never worse than the T piece");
+                }
                 (worst == 0 ? exact : gapped).add(en.getKey() + " " + fam.key().substring(fam.key().indexOf(':') + 1) + (worst == 0 ? "" : " " + worst + " at " + worstOf));
             }
         check(checked > 100, "bundled joints checked: " + checked);
         System.out.println("CityBuilder self-check: runs meet the joint body exactly: " + exact);
         System.out.println("CityBuilder self-check: runs keep a gap (blocks) to the joint body: " + gapped);
+        System.out.println("CityBuilder self-check: T junction of walls sized for the corner, uncovered cells T piece -> auto: " + tees);
     }
 
     /** Heights (flat = highest ground, chain = one level, joints = highest neighbour) and the plan file keeping them. */
@@ -1079,6 +1112,117 @@ public final class SelfCheck {
         // The timed-out gate was built after all: a late yes moves it to done, so it isn't sent again.
         check("gate".equals(r.answer(8, true, "", 10 + com.volcanicmg.mccitybuilder.planner.BuildQueue.ANSWER_MS + 5)) && r.done().contains("gate")
                 && r.kept().size() == 1, "late acceptance after a timeout counts");
+    }
+
+    /**
+     * Joining: another segment's end from all four sides gives a joint exactly there; the screenshot case (a wall
+     * coming down across another's free end, 1-2 blocks off) moves that free end onto its line; inner / outer corners
+     * by turn and flip; the T that used to cost medievaloak walls their pieces; growing a run for a new joint.
+     */
+    private static void joining() throws Exception {
+        int[][] a = {{0, 0}, {10, 0}};
+        for (int[] st : new int[][]{{10, -12}, {10, 12}, {22, 0}, {-12, 0}}) {
+            if (st[0] == -12) continue;
+            int[] j = LineSnap.joinEnd(st, a, 1, true, 3);
+            check(j != null && j[0] == 10 && j[1] == 0 && j[2] == 10 && j[3] == 0, "joint exactly on the end from " + st[0] + "," + st[1]);
+        }
+        // Coming back the other way along the same line: still that end (the segment runs onto it from beyond).
+        int[] back = LineSnap.joinEnd(new int[]{25, 0}, a, 1, true, 3);
+        check(back != null && back[0] == 10, "approach from the far side");
+        for (int off : new int[]{1, 2}) {
+            int[] j = LineSnap.joinEnd(new int[]{10 + off, -12}, a, 1, true, 3);
+            check(j != null && j[0] == 10 + off && j[1] == 0 && j[2] == 10 + off, "perpendicular end " + off + " off: the free end moves onto the line, a corner forms");
+            check(LineSnap.joinEnd(new int[]{10 - off - 12, -12}, a, 1, true, 3) == null, "too far off: no joint");
+        }
+        check(LineSnap.joinEnd(new int[]{11, -12}, a, 1, false, 3) == null, "a shared end doesn't move");
+        check(LineSnap.joinEnd(new int[]{3, 5}, new int[][]{{0, 0}, {10, 0}}, 1, true, 3) == null, "parallel and off the line: no joint");
+        // Corners: a clockwise loop (east, then south) bends away from the left-hand outside: outer; the other way: inner.
+        check(!PieceLayout.innerTurn(2, 1, false) && PieceLayout.innerTurn(2, 3, false) && PieceLayout.innerTurn(2, 1, true), "inner / outer corner by turn and flip");
+        check(LineSnap.radiusPx(40, 70, 240, 24) > LineSnap.RADIUS && LineSnap.radiusPx(1, 70, 240, 24) == LineSnap.RADIUS, "snap radius in screen pixels");
+        check(LineSnap.extension(18, 0, 4, new int[]{9}, 20) == 4 && LineSnap.extension(22, 0, 4, new int[]{9}, 20) == 0, "grow a run for a new joint");
+        check(PieceLayout.pickJoint(List.of(new int[]{4, 2}, new int[]{6, 0}), 1) == 1 && PieceLayout.pickJoint(List.of(new int[]{6, 2}, new int[]{6, 0}), 1) == 0,
+                "a fallback tower only when it keeps more straights");
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        // The bug: medievaloak walls sized for a corner, then a third wall joins. Each run must keep its straights.
+        PieceLayout.Grid seg = PackPieces.grid("medievaloak/walls/segment/segment5.blueprint");
+        java.util.Map<String, PieceLayout.Grid> joint = new java.util.LinkedHashMap<>();
+        joint.put("corner", PackPieces.grid("medievaloak/walls/corner/corner5.blueprint"));
+        joint.put("tee", PackPieces.grid("medievaloak/walls/corner/tcorner5.blueprint"));
+        joint.put("tower", PackPieces.grid("medievaloak/walls/tower/tower5.blueprint"));
+        int run = 9, width = 6;
+        int[] c = {0, 0};
+        int[] cornerOuts = {2, 1}, teeOuts = {2, 1, 0};
+        int cells = cornerOff(joint.get("corner"), seg, cornerOuts, run, width) + 2 * run;
+        List<int[]> fits = new java.util.ArrayList<>();
+        for (String k : List.of("tee", "tower")) {
+            PieceLayout.Grid best = bestTurn(joint.get(k), seg, teeOuts, run, width);
+            int pieces = 0, left = 0;
+            for (int o : teeOuts) {
+                PieceLayout.Grid sg = seg.turned(PieceLayout.turns(seg.sx(), seg.sz(), o));
+                int off = PieceLayout.attach(c, o, PieceLayout.centred(c, best.sx(), best.sz()), best, sg, width, run, Math.max(3, width))[0];
+                int[] f = PieceLayout.runFit(cells - off, new int[]{run});
+                pieces += f[0];
+                left += f[1];
+            }
+            fits.add(new int[]{pieces, left});
+        }
+        int pick = PieceLayout.pickJoint(fits, 1);
+        check(fits.get(pick)[0] == 6, "three walls sized for a corner keep both straights each at the T: " + fits.get(0)[0] + " with the T piece, "
+                + fits.get(1)[0] + " with a tower, picked " + (pick == 0 ? "T" : "tower"));
+        System.out.println("CityBuilder self-check: medievaloak T junction keeps straights: T piece " + fits.get(0)[0] + ", tower " + fits.get(1)[0]);
+        // Plan side: adding the third / fourth wall and closing the ring never removes or shortens a wall.
+        List<Plan.Line> ring = new java.util.ArrayList<>(List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 5, -1, false, false),
+                new Plan.Line("wall", 20, 0, 20, 20, "p", "f", 5, -1, false, false)));
+        List<Plan.Line> before = new java.util.ArrayList<>(ring);
+        for (int[][] add : new int[][][]{{{20, 0}, {40, 0}}, {{20, 0}, {20, -20}}, {{20, 20}, {0, 20}}, {{0, 20}, {0, 0}}}) {
+            check(Plan.split(ring, add[0], Plan.Line::built) == -1 && Plan.split(ring, add[1], Plan.Line::built) == -1, "ends at joints never split");
+            ring.add(new Plan.Line("wall", add[0][0], add[0][1], add[1][0], add[1][1], "p", "f", 5, -1, false, false));
+        }
+        check(ring.containsAll(before) && ring.size() == 6, "no wall removed or shortened: " + ring.size());
+    }
+
+    private static int cornerOff(PieceLayout.Grid j, PieceLayout.Grid seg, int[] outs, int run, int width) {
+        PieceLayout.Grid best = bestTurn(j, seg, outs, run, width);
+        int[] c = {0, 0};
+        PieceLayout.Grid sg = seg.turned(PieceLayout.turns(seg.sx(), seg.sz(), outs[0]));
+        return PieceLayout.attach(c, outs[0], PieceLayout.centred(c, best.sx(), best.sz()), best, sg, width, run, Math.max(3, width))[0];
+    }
+
+    private static PieceLayout.Grid bestTurn(PieceLayout.Grid j, PieceLayout.Grid seg, int[] outs, int run, int width) {
+        PieceLayout.Grid best = j;
+        double bs = -1;
+        int[] c = {0, 0};
+        for (int k = 0; k < 4; k++) {
+            PieceLayout.Grid t = j.turned(k);
+            double sc = 0;
+            for (int o : outs) sc += PieceLayout.faceScore(c, o, PieceLayout.centred(c, t.sx(), t.sz()), t, seg.turned(PieceLayout.turns(seg.sx(), seg.sz(), o)), width, run);
+            if (sc > bs + 1e-9) {
+                bs = sc;
+                best = t;
+            }
+        }
+        return best;
+    }
+
+    /** Edit mode moves: an end drag, a joint drag (one wall longer, the other shifted), a body drag; locked and reversing moves refused. */
+    private static void editing() {
+        Plan.Line h = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, false), v = new Plan.Line("wall", 20, 0, 20, 20, "p", "f", 1, -1, false, false);
+        var m = Plan.move(List.of(h, v), List.of(new int[]{0, 0}), -5, 0, l -> false);
+        check(m != null && m.get(0).x0() == -5 && m.get(1).equals(v), "end drag lengthens");
+        // The corner moves east 3 and south 2: the horizontal wall grows, the vertical one shifts (its far end is free).
+        m = Plan.move(List.of(h, v), List.of(new int[]{20, 0}), 3, 2, l -> false);
+        check(m != null && m.get(0).x1() == 23 && m.get(0).z1() == 2 && m.get(0).z0() == 2 && m.get(1).x0() == 23 && m.get(1).x1() == 23 && m.get(1).z1() == 20,
+                "joint drag: both ends follow " + m);
+        // The horizontal wall's far end is shared with a third wall: it can't shift across, only along.
+        Plan.Line w = new Plan.Line("wall", 0, 0, 0, -20, "p", "f", 1, -1, false, false);
+        m = Plan.move(List.of(h, v, w), List.of(new int[]{20, 0}), 3, 2, l -> false);
+        check(m != null && m.get(0).z1() == 0 && m.get(0).x1() == 23 && m.get(1).x0() == 23 && m.get(2).equals(w), "shared far end: only the free component moves " + m);
+        m = Plan.move(List.of(h, v), List.of(h.ends()), 0, 4, l -> false);
+        check(m != null && m.get(0).z0() == 4 && m.get(1).z0() == 4 && m.get(1).z1() == 20, "body drag: the neighbour stretches");
+        check(Plan.move(List.of(h, v), List.of(new int[]{0, 0}), 25, 0, l -> false) == null, "an end can't pass the other");
+        check(Plan.move(List.of(h.asBuilt(), v), List.of(new int[]{20, 0}), 1, 0, Plan.Line::built) == null, "built walls don't move");
+        var t = Plan.readJoints(Plan.write(List.of(), List.of(h), java.util.Map.of(Plan.cell(20, 0), Plan.J_INNER, Plan.cell(-3, 7), Plan.J_TOWER)));
+        check(t.get(Plan.cell(20, 0)) == Plan.J_INNER && t.get(Plan.cell(-3, 7)) == Plan.J_TOWER && t.size() == 2, "joint types round trip");
     }
 
     private static void overlays() {

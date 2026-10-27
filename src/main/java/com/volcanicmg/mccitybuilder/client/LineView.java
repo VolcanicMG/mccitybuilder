@@ -43,6 +43,21 @@ final class LineView {
     static int snapPieces;
     static int[] guide;
     static List<int[]> snapPoints = List.of();
+    // Edit mode: no drawing; hover / select a segment or a joint, drag ends, bodies and joints.
+    static boolean edit;
+    static int[] hoverJoint, selectedJoint;
+    // A drag in edit mode: what is dragged (0 = an end of the selected segment, 1 = the segment, 2 = the joint), the
+    // points it moves, the cell it started at, and the plan as it would be (null = can't move there).
+    private static int dragKind = -1;
+    private static List<int[]> dragPoints = List.of();
+    private static int[] dragFrom;
+    static List<Plan.Line> dragPreview;
+    // The joint default for new joints (Plan.J_*), set in the panel.
+    static int jointDefault = Plan.J_AUTO;
+    // The live end joins another segment's free end that moves onto this line: {line, end, x, z}; or the live
+    // segment goes straight on from the chain's last one (dropped as its extension).
+    private static int[] adjust;
+    private static boolean merge;
     // The live layout's joint / cap offsets at {start, end} (length snapping tiles between them), its flat level.
     private static int[] liveOffs;
     static int liveY = Integer.MIN_VALUE, liveSegMax = Integer.MIN_VALUE;
@@ -54,6 +69,8 @@ final class LineView {
     static List<Boolean> liveBad = List.of();
     static int[] liveGap;
     static int liveShort, liveLen, liveNeed = Integer.MAX_VALUE;
+    // A live piece would clear or replace a planned one (crossing without a joint).
+    static boolean liveClash;
     private static int[] liveKey;
     private static int ghosts;
     // A short hint at the cursor (a refused click).
@@ -132,12 +149,19 @@ final class LineView {
         snap = null;
         guide = null;
         snapPoints = List.of();
+        if (edit) {
+            // Edit mode draws nothing: the cursor finds a joint (a segment end) or a segment.
+            if (liveKey != null || ghosts > 0 || !live.isEmpty()) clearLive();
+            end = hover = null;
+            hoverJoint = hit == null ? null : LineSnap.nearEndpoint(hit.getLocation().x, hit.getLocation().z, segments(), radius(hit));
+            return;
+        }
         if (hit == null || fam == null) {
             end = hover = null;
             if (liveKey != null || ghosts > 0 || !live.isEmpty()) clearLive();
             return;
         }
-        double cx = hit.getLocation().x, cz = hit.getLocation().z, r = LineSnap.radius(Planner.heightAboveGround());
+        double cx = hit.getLocation().x, cz = hit.getLocation().z, r = radius(hit);
         List<int[][]> segs = segments();
         int[] a, b;
         boolean tee = false;
@@ -182,10 +206,17 @@ final class LineView {
             complete = true;
         } else {
             List<Plan.Line> all = new ArrayList<>(PlanView.lines);
+            // Joining a free end that moves onto this line: preview it moved.
+            if (adjust != null && adjust[0] < all.size()) all.set(adjust[0], moveEnd(all.get(adjust[0]), adjust[1], adjust[2], adjust[3]));
             // Ending on a segment: preview it split there (the click splits it for real), so the T shows.
             if (tee) Plan.split(all, b, PlanView::locked);
+            if (merge && !chain.isEmpty() && all.remove(chain.get(chain.size() - 1))) {
+                // Straight on: the chain's last segment, extended, is what is laid out live.
+                Plan.Line prev = chain.get(chain.size() - 1);
+                nl = prev.between(prev.x0(), prev.z0(), b[0], b[1]);
+            }
             all.add(nl);
-            PieceCatalog.Layout lay = PieceCatalog.layout(all);
+            PieceCatalog.Layout lay = PieceCatalog.layout(all, PlanView.jointTypes);
             int last = all.size() - 1;
             List<PieceCatalog.Placed> ps = new ArrayList<>(lay.lines().get(last));
             // Joint pieces at the live segment's ends that another segment owns in the layout.
@@ -205,8 +236,9 @@ final class LineView {
         List<int[]> buildings = PlanView.buildingBoxes();
         List<Boolean> bad = new ArrayList<>();
         String pk = PlannerScreen.pack();
+        liveClash = false;
         for (PieceCatalog.Placed p : live) {
-            boolean red = PlanView.bad(p, buildings);
+            boolean red = PlanView.bad(p, buildings), out = red;
             // Clearing or replacing blocks of another planned or live piece.
             for (int k = 0; !red && k < PlanView.linePieces.size() && k < PlanView.lines.size(); k++) {
                 // Segments the live one attaches to are laid out again once it is dropped (their caps, joints and end
@@ -216,6 +248,7 @@ final class LineView {
             }
             for (PieceCatalog.Placed q : live) red |= q != p && PieceCatalog.clash(pk, p, pk, q);
             bad.add(red);
+            liveClash |= red && !out;
         }
         liveBad = bad;
         showGhosts();
@@ -226,6 +259,128 @@ final class LineView {
     /** @return true when cell c is on the segment (ends included) */
     private static boolean onLine(Plan.Line l, int[] c) {
         return c[0] >= Math.min(l.x0(), l.x1()) && c[0] <= Math.max(l.x0(), l.x1()) && c[1] >= Math.min(l.z0(), l.z1()) && c[1] <= Math.max(l.z0(), l.z1());
+    }
+
+    /** @return the snap radius: about 24 GUI pixels at the cursor's distance, in blocks */
+    static double radius(BlockHitResult hit) {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        double dist = mc.gameRenderer.getMainCamera().getPosition().distanceTo(hit.getLocation());
+        return LineSnap.radiusPx(dist, mc.options.fov().get(), mc.getWindow().getGuiScaledHeight(), 24);
+    }
+
+    // ---- edit mode ----
+
+    /** X / the Edit button: edit mode on or off (on: the chain ends; off: the selection clears). */
+    static void toggleEdit() {
+        edit = !edit;
+        finishChain();
+        PlanView.selectedLine = -1;
+        selectedJoint = hoverJoint = null;
+        dragKind = -1;
+        dragPreview = null;
+    }
+
+    /**
+     * A press in edit mode: on an end of the selected segment, the selected joint or the selected segment starts a
+     * drag; anywhere else selects the joint (a segment end) or segment under the cursor, or nothing.
+     */
+    static void press(BlockHitResult hit) {
+        if (hit == null) return;
+        int[] c = {hit.getBlockPos().getX(), hit.getBlockPos().getZ()};
+        Plan.Line sel = PlanView.selectedLine();
+        double r = radius(hit);
+        if (sel != null)
+            for (int k = 0; k < 2; k++) {
+                int[] e = sel.ends()[k];
+                if (Math.hypot(e[0] + 0.5 - hit.getLocation().x, e[1] + 0.5 - hit.getLocation().z) <= r) {
+                    startDrag(0, List.of(e), c);
+                    return;
+                }
+            }
+        if (selectedJoint != null && hoverJoint != null && hoverJoint[0] == selectedJoint[0] && hoverJoint[1] == selectedJoint[1]) {
+            startDrag(2, List.of(selectedJoint), c);
+            return;
+        }
+        int li = PlanView.lineAt(hit.getBlockPos());
+        if (sel != null && li == PlanView.selectedLine) {
+            startDrag(1, List.of(sel.ends()), c);
+            return;
+        }
+        // Select: a joint first (a segment end under the cursor), else a segment, else nothing.
+        selectedJoint = hoverJoint == null ? null : hoverJoint.clone();
+        PlanView.selectedLine = selectedJoint == null ? li : -1;
+    }
+
+    private static void startDrag(int kind, List<int[]> points, int[] from) {
+        dragKind = kind;
+        dragPoints = points;
+        dragFrom = from;
+        dragPreview = null;
+    }
+
+    static boolean dragging() {
+        return dragKind >= 0;
+    }
+
+    /** While dragging: the plan as the move would leave it (a single point snaps onto another segment's end). */
+    static void dragTo(BlockHitResult hit) {
+        if (dragKind < 0 || hit == null) return;
+        int[] c = {hit.getBlockPos().getX(), hit.getBlockPos().getZ()};
+        if (dragPoints.size() == 1) {
+            List<int[][]> others = new ArrayList<>();
+            for (Plan.Line l : PlanView.lines) {
+                boolean mine = false;
+                for (int[] e : l.ends()) mine |= e[0] == dragPoints.get(0)[0] && e[1] == dragPoints.get(0)[1];
+                if (!mine) others.add(l.ends());
+            }
+            int[] e = LineSnap.nearEndpoint(hit.getLocation().x, hit.getLocation().z, others, radius(hit));
+            if (e != null) c = new int[]{e[0] + dragFrom[0] - dragPoints.get(0)[0], e[1] + dragFrom[1] - dragPoints.get(0)[1]};
+        }
+        dragPreview = Plan.move(PlanView.lines, dragPoints, c[0] - dragFrom[0], c[1] - dragFrom[1], PlanView::locked);
+    }
+
+    /** Release: the move goes into the plan (joint types move with their joints); the selection follows. */
+    static void release() {
+        if (dragKind < 0) return;
+        List<Plan.Line> moved = dragPreview;
+        int kind = dragKind;
+        dragKind = -1;
+        dragPreview = null;
+        if (moved == null) return;
+        // Where each moved point went, for joint types and the selection.
+        java.util.Map<Long, int[]> to = new java.util.HashMap<>();
+        for (int i = 0; i < moved.size(); i++) {
+            Plan.Line a = PlanView.lines.get(i), b = moved.get(i);
+            for (int k = 0; k < 2; k++) {
+                int[] ea = a.ends()[k], eb = b.ends()[k];
+                for (int[] p : dragPoints) if (p[0] == ea[0] && p[1] == ea[1]) to.put(Plan.cell(ea[0], ea[1]), eb);
+            }
+        }
+        for (var en : to.entrySet()) {
+            Integer t = PlanView.jointTypes.remove(en.getKey());
+            if (t != null) PlanView.jointTypes.put(Plan.cell(en.getValue()[0], en.getValue()[1]), t);
+        }
+        PlanView.setLines(moved);
+        if (kind == 2 && selectedJoint != null) {
+            int[] n = to.get(Plan.cell(selectedJoint[0], selectedJoint[1]));
+            if (n != null) selectedJoint = n.clone();
+        }
+    }
+
+    /** C / the joint picker: the selected joint's type, or the default for new joints. */
+    static void cycleJoint(int d) {
+        if (selectedJoint != null) {
+            int t = PlanView.jointTypes.getOrDefault(Plan.cell(selectedJoint[0], selectedJoint[1]), Plan.J_AUTO);
+            PlanView.setJointType(selectedJoint[0], selectedJoint[1], Math.floorMod(t + d, Plan.J_TYPES));
+        } else jointDefault = Math.floorMod(jointDefault + d, Plan.J_TYPES);
+    }
+
+    /** Esc in edit mode: deselect; with nothing selected, @return false (edit mode then ends) */
+    static boolean deselect() {
+        if (selectedJoint == null && PlanView.selectedLine < 0) return false;
+        selectedJoint = null;
+        PlanView.selectedLine = -1;
+        return true;
     }
 
     private static boolean covers(int[] box, int[] c) {
@@ -282,34 +437,80 @@ final class LineView {
      * caps; Shift: any length).
      */
     private static int[] snapEnd(double cx, double cz, List<int[][]> segs, double r) {
-        int[] e = LineSnap.nearEndpoint(cx, cz, segs, r);
-        if (e != null && !(e[0] == start[0] && e[1] == start[1]) && (e[0] == start[0] || e[1] == start[1])) {
-            snap = "joint";
-            jointPoints(e);
-            return e.clone();
+        adjust = null;
+        merge = false;
+        // Another segment's end, from any side: a joint exactly there (its free end may move onto this line).
+        int bestI = -1, bestK = -1;
+        double bd = r * r;
+        for (int i = 0; i < PlanView.lines.size(); i++) {
+            Plan.Line l = PlanView.lines.get(i);
+            int[][] ends = l.ends();
+            for (int k = 0; k < 2; k++) {
+                double d = (ends[k][0] + 0.5 - cx) * (ends[k][0] + 0.5 - cx) + (ends[k][1] + 0.5 - cz) * (ends[k][1] + 0.5 - cz);
+                if (d <= bd && !(ends[k][0] == start[0] && ends[k][1] == start[1])) {
+                    bd = d;
+                    bestI = i;
+                    bestK = k;
+                }
+            }
+        }
+        if (bestI >= 0) {
+            Plan.Line a = PlanView.lines.get(bestI);
+            int[] e = a.ends()[bestK];
+            boolean free = endCount(e) == 1 && !PlanView.locked(a);
+            int[] j = LineSnap.joinEnd(start, a.ends(), bestK, free, r);
+            if (j != null) {
+                if (j[2] != e[0] || j[3] != e[1]) adjust = new int[]{bestI, bestK, j[2], j[3]};
+                snap = adjust != null ? "join_moved" : "joint";
+                jointPoints(new int[]{j[0], j[1]});
+                return new int[]{j[0], j[1]};
+            }
         }
         int[] raw = LineSnap.snapEnd(start, cx, cz, prevDir, false, List.of(), 90);
         if (raw[0] == start[0] && raw[1] == start[1]) return raw;
         int dir = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(start, raw), sx = dir == 0 ? 1 : dir == 2 ? -1 : 0, sz = dir == 1 ? 1 : dir == 3 ? -1 : 0;
         double along = dir % 2 == 0 ? (cx - start[0] - 0.5) * sx : (cz - start[1] - 0.5) * sz;
+        // Onto another segment's body: a T at the middle of its nearest piece (split on the click).
         int t = LineSnap.crossing(start, dir, along, segs, r);
         if (t > 0) {
+            int[] c = {start[0] + sx * t, start[1] + sz * t};
             snap = "tee";
-            return new int[]{start[0] + sx * t, start[1] + sz * t};
+            snapPoints = List.of(c);
+            return c;
         }
         int cells = LineSnap.length(start, raw) + 1;
-        int[] lens = PieceCatalog.runLengths(next(start, raw));
+        Plan.Line nl = next(start, raw);
+        int[] lens = PieceCatalog.runLengths(nl);
         if (liveOffs != null && lens.length > 0 && !net.minecraft.client.gui.screens.Screen.hasShiftDown()) {
-            int n = LineSnap.snapLength(cells, liveOffs[0], liveOffs[1], lens);
-            if (LineSnap.exact(n, liveOffs[0], liveOffs[1], lens)) {
+            // Room at the free end for the joint the next segment will bring (the chain usually goes on; Done trims it).
+            int off1 = PieceCatalog.expectedReach(nl, jointDefault);
+            Plan.Line prev = chain.isEmpty() ? null : chain.get(chain.size() - 1);
+            boolean straightOn = prev != null && prevDir != null && Integer.signum(prevDir[0]) == sx && Integer.signum(prevDir[1]) == sz;
+            int base = 0, off0 = liveOffs[0];
+            if (straightOn) {
+                // Straight on: one longer segment (dropped as an extension of the last), tiled as a whole.
+                int idx = PlanView.lines.indexOf(prev);
+                base = LineSnap.length(new int[]{prev.x0(), prev.z0()}, start);
+                off0 = idx >= 0 && idx < PlanView.lineOffs.size() ? PlanView.lineOffs.get(idx)[0] : 0;
+                merge = true;
+            }
+            int n = LineSnap.snapLength(base + cells, off0, off1, lens);
+            if (n - base >= 2 && LineSnap.exact(n, off0, off1, lens)) {
                 snap = "pieces";
-                snapPieces = com.volcanicmg.mccitybuilder.planner.PieceLayout.fill(n - liveOffs[0] - liveOffs[1], lens).size();
-                cells = n;
+                snapPieces = com.volcanicmg.mccitybuilder.planner.PieceLayout.fill(n - off0 - off1, lens).size();
+                cells = n - base;
             }
         }
         int[] c = {start[0] + sx * (cells - 1), start[1] + sz * (cells - 1)};
         guide = new int[]{start[0], start[1], c[0], c[1]};
         return c;
+    }
+
+    /** @return how many planned segments end at cell c */
+    private static int endCount(int[] c) {
+        int n = 0;
+        for (Plan.Line l : PlanView.lines) for (int[] e : l.ends()) if (e[0] == c[0] && e[1] == c[1]) n++;
+        return n;
     }
 
     /** A joint's snap points: the cell itself and the middle of each face of its piece. */
@@ -352,6 +553,7 @@ final class LineView {
         if (start == null) {
             start = hover != null ? hover : LineSnap.snapStart(hit.getLocation().x, hit.getLocation().z, segments());
             PlanView.splitAt(start);
+            start = extendForJoint(start);
             liveKey = null;
             return true;
         }
@@ -362,8 +564,15 @@ final class LineView {
             flashUntil = System.currentTimeMillis() + 1500;
             return false;
         }
-        // Ending on a segment splits it there (a T).
+        // A free end joined from across moves onto this line; ending on a segment splits it there (a T).
+        if (adjust != null && adjust[0] < PlanView.lines.size()) {
+            Plan.Line a = PlanView.lines.get(adjust[0]);
+            PlanView.replaceLine(a, moveEnd(a, adjust[1], adjust[2], adjust[3]));
+        }
         PlanView.splitAt(end);
+        // The joint default for the joints this segment makes.
+        for (int[] c : new int[][]{start, end})
+            if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         if (heightMode == Plan.CHAIN) {
             // The chain shares one level: high enough for this segment's ground too; earlier segments follow it.
             int nb = com.volcanicmg.mccitybuilder.planner.PieceLayout.chainBase(chainBase, liveSegMax);
@@ -376,8 +585,16 @@ final class LineView {
             chainBase = nb;
         }
         Plan.Line l = next(start, end);
-        PlanView.addLine(l);
-        chain.add(l);
+        if (merge && !chain.isEmpty()) {
+            // Straight on: the last segment grows instead of a second one butting against it.
+            Plan.Line prev = chain.get(chain.size() - 1);
+            l = prev.between(prev.x0(), prev.z0(), end[0], end[1]);
+            PlanView.replaceLine(prev, l);
+            chain.set(chain.size() - 1, l);
+        } else {
+            PlanView.addLine(l);
+            chain.add(l);
+        }
         prevDir = new int[]{end[0] - start[0], end[1] - start[1]};
         start = end;
         end = null;
@@ -385,6 +602,60 @@ final class LineView {
         gate = false;
         clearLive();
         return true;
+    }
+
+    /** @return the segment with end {@code k} (0 = start) moved to (x, z) */
+    static Plan.Line moveEnd(Plan.Line l, int k, int x, int z) {
+        return k == 0 ? l.between(x, z, l.x1(), l.z1()) : l.between(l.x0(), l.z0(), x, z);
+    }
+
+    /**
+     * Starting on a segment's free end: the joint the new segment brings takes cells from that segment, so it grows by
+     * the fewest cells that keep its straights whole (none when it already fits).
+     *
+     * @return where the chain starts (the moved end)
+     */
+    private static int[] extendForJoint(int[] c) {
+        if (endCount(c) != 1) return c;
+        for (int i = 0; i < PlanView.lines.size(); i++) {
+            Plan.Line a = PlanView.lines.get(i);
+            int k = a.x0() == c[0] && a.z0() == c[1] ? 0 : a.x1() == c[0] && a.z1() == c[1] ? 1 : -1;
+            if (k < 0 || PlanView.locked(a)) continue;
+            int[] lens = PieceCatalog.runLengths(a);
+            int reach = PieceCatalog.expectedReach(a, jointDefault), other = i < PlanView.lineOffs.size() ? PlanView.lineOffs.get(i)[1 - k] : 0;
+            int cells = LineSnap.length(new int[]{a.x0(), a.z0()}, new int[]{a.x1(), a.z1()}) + 1, max = reach;
+            for (int l : lens) max = Math.max(max, l + reach);
+            int d = LineSnap.extension(cells, other, reach, lens, max);
+            if (d <= 0) return c;
+            int[] o = a.ends()[1 - k];
+            int dx = Integer.signum(c[0] - o[0]), dz = Integer.signum(c[1] - o[1]);
+            int[] moved = {c[0] + dx * d, c[1] + dz * d};
+            PlanView.replaceLine(a, moveEnd(a, k, moved[0], moved[1]));
+            flash = "mccitybuilder.line.extended";
+            flashArg = d;
+            flashUntil = System.currentTimeMillis() + 1500;
+            return moved;
+        }
+        return c;
+    }
+
+    /**
+     * Done / right-click / Esc: the chain's last segment keeps no gap at its free end (the room it kept for a joint
+     * that didn't come) - it is trimmed to its straights - then the chain ends.
+     */
+    static void finishChain() {
+        if (!chain.isEmpty()) {
+            Plan.Line l = chain.get(chain.size() - 1);
+            int i = PlanView.lines.indexOf(l);
+            int left = i >= 0 && i < PlanView.lineShort.size() ? PlanView.lineShort.get(i) : 0;
+            int cells = LineSnap.length(new int[]{l.x0(), l.z0()}, new int[]{l.x1(), l.z1()}) + 1;
+            int need = i >= 0 && i < PlanView.lineNeed.size() ? PlanView.lineNeed.get(i) : Integer.MAX_VALUE;
+            if (left > 0 && endCount(new int[]{l.x1(), l.z1()}) == 1 && cells - left >= need && !PlanView.locked(l)) {
+                int dx = Integer.signum(l.x1() - l.x0()), dz = Integer.signum(l.z1() - l.z0());
+                PlanView.replaceLine(l, l.between(l.x0(), l.z0(), l.x1() - dx * left, l.z1() - dz * left));
+            }
+        }
+        endChain();
     }
 
     /** Backspace: removes the chain's last segment (found by value, so other edits can't misdirect it). */
@@ -433,12 +704,6 @@ final class LineView {
             level = lv;
             variant = va;
         }
-    }
-
-    static void toggleTowers() {
-        Plan.Line s = PlanView.selectedLine();
-        if (s != null) PlanView.setLine(s.with(s.family(), s.level(), s.variant(), !s.towers(), s.gate()));
-        else towers = !towers;
     }
 
     /** R: the other side out (straights and gates turned 180°), for the selected segment or the next ones. */
@@ -498,6 +763,10 @@ final class LineView {
     /** The live pieces' outlines (green, red where they conflict), the uncovered gap (amber), the chain start (white). */
     static void renderWorld(PoseStack pose, VertexConsumer lines) {
         if (!active()) return;
+        if (edit) {
+            renderEdit(pose, lines);
+            return;
+        }
         PlanView.outline(pose, lines, live, liveBad, false);
         if (liveGap != null) PlanView.gap(pose, lines, liveGap, live.isEmpty() ? groundY(liveGap[0], liveGap[1]) : live.get(0).anchor().getY());
         int[] c = start != null ? start : hover;
@@ -518,6 +787,28 @@ final class LineView {
             lines.addVertex(m, guide[2] + 0.5f, y, guide[3] + 0.5f).setColor(0.3f, 0.9f, 1f, 0.6f).setNormal(m, nx, 0, nz);
         }
         PlanView.floating(pose, lines, live);
+    }
+
+    /** Edit mode: the hovered / selected joint, the selected segment's end handles, and a drag's outcome (cyan). */
+    private static void renderEdit(PoseStack pose, VertexConsumer lines) {
+        for (int[] j : new int[][]{hoverJoint, selectedJoint}) {
+            if (j == null) continue;
+            boolean sel = j == selectedJoint;
+            int y = groundY(j[0], j[1]);
+            LevelRenderer.renderLineBox(pose, lines, j[0] - 0.2, y, j[1] - 0.2, j[0] + 1.2, y + 2.5, j[1] + 1.2, sel ? 1f : 0.3f, sel ? 1f : 0.9f, 1f, 1f);
+        }
+        Plan.Line s = PlanView.selectedLine();
+        if (s != null)
+            for (int[] e : s.ends()) {
+                int y = groundY(e[0], e[1]);
+                LevelRenderer.renderLineBox(pose, lines, e[0] + 0.1, y, e[1] + 0.1, e[0] + 0.9, y + 1.5, e[1] + 0.9, 0.3f, 0.9f, 1f, 1f);
+            }
+        if (dragPreview != null)
+            for (Plan.Line l : dragPreview) {
+                int y = groundY(l.x0(), l.z0()) + 1;
+                LevelRenderer.renderLineBox(pose, lines, Math.min(l.x0(), l.x1()), y, Math.min(l.z0(), l.z1()), Math.max(l.x0(), l.x1()) + 1, y + 0.3,
+                        Math.max(l.z0(), l.z1()) + 1, 0.3f, 0.9f, 1f, 1f);
+            }
     }
 
     private static int groundY(int x, int z) {
