@@ -278,6 +278,19 @@ public final class PieceLayout {
      * @param d        the direction from the joint cell into the run
      */
     public static Fit fit(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
+        // The result depends only on the pieces and the joint box relative to the joint cell, never on where it is.
+        FitKey k = new FitKey(joint, straight, d, width, run, maxShift, jb[0] - c[0], jb[1] - c[1], jb[2] - c[0], jb[3] - c[1]);
+        Fit f = FITS.get(k);
+        if (f == null) {
+            if (FITS.size() > 50_000) FITS.clear();
+            f = fitNow(c, d, jb, joint, straight, width, run, maxShift);
+            FITS.put(k, f);
+        }
+        return f;
+    }
+
+    /** {@link #fit} without the cache (the self-check compares the two). */
+    public static Fit fitNow(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
         int si = straight.inset((d + 2) % 4), edge = reach(c, d, jb), ref = d % 2 == 0 ? c[1] : c[0];
         int[] sbox0 = boxes(c, d, edge, List.of(run), width, 0).get(0);
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox0[1] : sbox0[0]) - ref;
@@ -352,6 +365,20 @@ public final class PieceLayout {
         return false;
     }
 
+    // Memoised fits and face scores: keyed by the pieces (grids are cached per piece and turn, so the same objects
+    // come back; a record compares their block arrays by identity) and the joint box relative to the joint cell.
+    private record FitKey(Grid joint, Grid straight, int d, int width, int run, int maxShift, int x0, int z0, int x1, int z1) {
+    }
+
+    private static final java.util.Map<FitKey, Fit> FITS = new java.util.HashMap<>();
+    private static final java.util.Map<FitKey, Double> SCORES = new java.util.HashMap<>();
+
+    /** Forgets the memoised fits (pieces reloaded). */
+    public static void clearCache() {
+        FITS.clear();
+        SCORES.clear();
+    }
+
     private static boolean hurts(int first, int second) {
         return first > 0 && second != 0 && second != first;
     }
@@ -362,6 +389,18 @@ public final class PieceLayout {
      * a shape)
      */
     public static double faceScore(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run) {
+        FitKey k = new FitKey(joint, straight, d, width, run, -1, jb[0] - c[0], jb[1] - c[1], jb[2] - c[0], jb[3] - c[1]);
+        Double v = SCORES.get(k);
+        if (v == null) {
+            if (SCORES.size() > 50_000) SCORES.clear();
+            v = faceScoreNow(c, d, jb, joint, straight, width, run);
+            SCORES.put(k, v);
+        }
+        return v;
+    }
+
+    /** {@link #faceScore} without the cache. */
+    public static double faceScoreNow(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run) {
         Fit f = fit(c, d, jb, joint, straight, width, run, Math.max(3, width));
         if (f.depth() < 0) return 0;
         int si = straight.inset((d + 2) % 4), ref = d % 2 == 0 ? c[1] : c[0];

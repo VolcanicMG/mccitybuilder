@@ -1240,6 +1240,17 @@ public final class SelfCheck {
      */
     private static void continuity() throws Exception {
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        // Memoised fits equal fresh ones, and don't depend on where the joint is.
+        PieceLayout.Grid tw = PackPieces.grid("medievaloak/walls/tower/tower5.blueprint").turned(1), sgm = PackPieces.grid("medievaloak/walls/segment/segment5.blueprint");
+        for (int d = 0; d < 4; d++) {
+            PieceLayout.Grid st = sgm.turned(PieceLayout.turns(sgm.sx(), sgm.sz(), d));
+            int[] c0 = {0, 0}, c1 = {37, -12};
+            int[] jb0 = PieceLayout.centred(c0, tw.sx(), tw.sz()), jb1 = PieceLayout.centred(c1, tw.sx(), tw.sz());
+            var cached = PieceLayout.fit(c0, d, jb0, tw, st, 6, 9, 6);
+            check(cached.equals(PieceLayout.fitNow(c0, d, jb0, tw, st, 6, 9, 6)) && cached.equals(PieceLayout.fit(c0, d, jb0, tw, st, 6, 9, 6))
+                    && cached.equals(PieceLayout.fitNow(c1, d, jb1, tw, st, 6, 9, 6)) && cached.equals(PieceLayout.fit(c1, d, jb1, tw, st, 6, 9, 6)), "cached fit = fresh fit, anywhere");
+            check(PieceLayout.faceScore(c1, d, jb1, tw, st, 6, 9) == PieceLayout.faceScoreNow(c0, d, jb0, tw, st, 6, 9), "cached face score = fresh");
+        }
         List<String> ok = new java.util.ArrayList<>(), bad = new java.util.ArrayList<>();
         for (var cs : JointCases.all()) {
             String id = cs.family() + " " + cs.name() + " (" + cs.jointPath().substring(cs.jointPath().lastIndexOf('/') + 1) + ")";

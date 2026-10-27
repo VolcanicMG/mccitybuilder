@@ -75,6 +75,7 @@ final class LineView {
     // A live piece would clear or replace a planned one (crossing without a joint).
     static boolean liveClash;
     private static int[] liveKey;
+    private static boolean liveIncomplete;
     private static int ghosts;
     // A short hint at the cursor (a refused click).
     static String flash;
@@ -194,7 +195,8 @@ final class LineView {
             }
         }
         int[] key = {a[0], a[1], b[0], b[1], start == null ? 0 : 1, PlanView.layoutVersion,
-                Objects.hash(tool, fam, PlannerScreen.pack(), level, variant, towers, gate, flip, heightMode, dy, chainBase)};
+                Objects.hash(tool, fam, PlannerScreen.pack(), level, variant, towers, gate, flip, heightMode, dy, chainBase),
+                liveIncomplete ? PieceCatalog.loadVersion * 31 + (int) (System.currentTimeMillis() / 500) : 0};
         if (!LineSnap.relayout(liveKey, key)) return;
         liveKey = key;
         Plan.Line nl = next(a, b);
@@ -268,7 +270,8 @@ final class LineView {
         liveBad = bad;
         showGhosts();
         // Pieces still loading: lay out again next frame.
-        if (!complete) liveKey = null;
+        // Pieces still loading: laid out again when one finishes (or twice a second), not every frame.
+        liveIncomplete = !complete;
     }
 
     /** @return true when cell c is on the segment (ends included) */

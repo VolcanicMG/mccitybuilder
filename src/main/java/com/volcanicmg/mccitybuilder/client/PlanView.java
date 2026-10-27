@@ -491,7 +491,12 @@ final class PlanView {
 
     /** Lays out the lines into pieces (when they or the loaded pieces changed), their conflicts and ghosts. */
     static void refreshLines() {
-        if (!linesDirty) return;
+        // An incomplete layout (pieces still loading) is redone when a piece finished loading, or twice a second for
+        // what that doesn't count (style folder lists), not every frame.
+        long now = System.currentTimeMillis();
+        if (!linesDirty && !(waitingForPieces && (PieceCatalog.loadVersion != seenLoads || now - lastTry > 500))) return;
+        seenLoads = PieceCatalog.loadVersion;
+        lastTry = now;
         PieceCatalog.Layout lay = PieceCatalog.layout(lines, jointTypes);
         layoutVersion++;
         linePieces = lay.lines();
@@ -535,7 +540,8 @@ final class PlanView {
                     data.setPos(p.anchor());
                     RenderingCache.queue(Planner.PREVIEW_KEY + "_piece_" + linePreviews++, data);
                 }
-        linesDirty = !lay.complete();
+        linesDirty = false;
+        waitingForPieces = !lay.complete();
     }
 
     /** @return the colony's building boxes {x0, y0, z0, x1, y1, z1} */
@@ -553,6 +559,10 @@ final class PlanView {
         for (int[] x : buildings) if (bx[0] <= x[3] && x[0] <= bx[2] && bx[1] <= x[5] && x[2] <= bx[3] && p.anchor().getY() <= x[4] && x[1] <= p.anchor().getY() + 4) return true;
         return false;
     }
+
+    private static boolean waitingForPieces;
+    private static int seenLoads;
+    private static long lastTry;
 
     static void linesChanged() {
         linesDirty = true;

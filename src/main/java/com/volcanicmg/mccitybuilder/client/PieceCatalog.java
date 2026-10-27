@@ -47,6 +47,8 @@ final class PieceCatalog {
     private static final Map<String, CompletableFuture<Blueprint>> loads = new HashMap<>();
     private static final Map<String, Blueprint> rotated = new HashMap<>();
     private static final Map<String, Integer> blockCounts = new HashMap<>();
+    /** Bumped whenever a piece finishes loading (or fails): an incomplete layout is worth redoing only then. */
+    static int loadVersion;
     // Pieces whose blueprint failed to load ("pack|path"): skipped, so their pack doesn't wait for them forever.
     private static final Set<String> failed = new HashSet<>();
     // Overrides: pack -> "family|ROLE" -> group base name ("-" = role disabled).
@@ -61,6 +63,7 @@ final class PieceCatalog {
         rotated.clear();
         blockCounts.clear();
         grids.clear();
+        PieceLayout.clearCache();
         failed.clear();
         PieceView.clear();
         overrides.clear();
@@ -77,13 +80,17 @@ final class PieceCatalog {
         if (!f.isDone()) return null;
         Blueprint bp = f.isCompletedExceptionally() ? null : f.getNow(null);
         if (bp == null) {
-            if (failed.add(pack + "|" + path)) CityBuilder.LOGGER.warn("City Builder: can't load piece {} of {}; skipping it", path, pack);
+            if (failed.add(pack + "|" + path)) {
+                CityBuilder.LOGGER.warn("City Builder: can't load piece {} of {}; skipping it", path, pack);
+                loadVersion++;
+            }
             return null;
         }
         RotationMirror rm = RotationMirror.NONE;
         for (int i = 0; i < turns; i++) rm = rm.rotate(Rotation.CLOCKWISE_90);
         bp.setRotationMirror(rm, mc.level);
         rotated.put(key, bp);
+        loadVersion++;
         return bp;
     }
 
