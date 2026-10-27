@@ -91,33 +91,6 @@ public final class PieceLayout {
         return new int[]{c[0] - (sx - 1) / 2, c[1] - (sz - 1) / 2, c[0] + sx / 2, c[1] + sz / 2};
     }
 
-    /**
-     * Profile alignment: a face profile is a set of {@code y << 16 | lateral} cells (world lateral coordinate) where
-     * a piece is solid at that face. The shift of {@code b} (within ±max) that overlaps {@code a} most; among equal
-     * overlaps (a thin wall inside a wide tower face fits at several) the one that centres b on a, then 0.
-     */
-    public static int bestShift(Set<Long> a, Set<Long> b, int max) {
-        int best = 0;
-        double bestScore = jaccard(a, b, 0), ca = centre(a), cb = centre(b), bestOff = Math.abs(ca - cb);
-        for (int s = -max; s <= max; s++) {
-            double sc = jaccard(a, b, s), off = Math.abs(ca - cb - s);
-            if (sc > bestScore + 1e-9 || sc > bestScore - 1e-9 && off < bestOff - 1e-9) {
-                bestScore = sc;
-                best = s;
-                bestOff = off;
-            }
-        }
-        return best;
-    }
-
-    /** @return the mean lateral coordinate of a profile (its low 16 bits) */
-    private static double centre(Set<Long> p) {
-        if (p.isEmpty()) return 0;
-        double sum = 0;
-        for (long v : p) sum += v & 0xFFFF;
-        return sum / p.size();
-    }
-
     /** @return |A ∩ shifted B| / |A ∪ shifted B| (1 when both are empty) */
     public static double jaccard(Set<Long> a, Set<Long> b, int shift) {
         if (a.isEmpty() && b.isEmpty()) return 1;
@@ -274,28 +247,91 @@ public final class PieceLayout {
     }
 
     /**
-     * Where a run leaving a joint piece starts, and how far sideways it shifts, so it meets the piece's body: its end
-     * touches the body's face (trim and margins skipped on both pieces) and its profile lines up with that face.
+     * How a run meets a joint piece's face: where it starts, its sideways shift, and how well it continues the piece.
+     *
+     * @param off   cells from the joint cell to the run's first cell; @param shift its lateral shift
+     * @param match how well the run's visible end face continues the joint layer it meets (Jaccard over the cells
+     *              above ground, 1 = the same cross-section: no air gap, no sideways step); @param depth that layer
+     *              (from the joint's face inward; -1 when the run stops at the box with nothing to meet)
+     */
+    public record Fit(int off, int shift, double match, int depth) {
+    }
+
+    /** Cells of a profile from the ground layer up (height 0: a road's surface sits there): what shows once the piece stands. */
+    public static Set<Long> visible(Set<Long> profile) {
+        Set<Long> out = new java.util.HashSet<>();
+        for (long v : profile) if (((v >> 16) & 0xFFFF) - 1000 >= 0) out.add(v);
+        return out;
+    }
+
+    /**
+     * Brute force over the sideways shift (within ±maxShift): the run's end face (the straight's solid face toward the
+     * joint, trim skipped) meets the joint at the first layer from its face inward holding blocks in front of at least
+     * half its visible cells ({@link #visible}: foundations are buried, so they never decide), scored by how well the
+     * two visible cross-sections match (Jaccard: 1 = the same shape, no air gap, no sideways step). A contact whose
+     * overlap would be destructive in either build order, or no contact at all (a tower whose ring is air), stops the
+     * run at the joint's box with match 0 (a few stray blocks touching aren't a joint). Best match first, then the shallowest contact, then the run centred on the
+     * joint's fullest visible layer, then the smallest shift.
      *
      * @param jb       the joint's world box; @param joint the joint piece as placed (turned)
      * @param straight the run's straight as placed (turned for the run's direction); its face toward the joint is (d+2)%4
      * @param d        the direction from the joint cell into the run
-     * @return {cells from the joint cell to the run's first cell, lateral shift}
      */
-    public static int[] attach(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
-        int ji = joint.inset(d), si = straight.inset((d + 2) % 4), edge = reach(c, d, jb);
-        int ref = d % 2 == 0 ? c[1] : c[0];
-        int[] sbox = boxes(c, d, Math.max(1, edge - ji - si), List.of(run), width, 0).get(0);
-        Set<Long> a = joint.profile(d, ji, (d % 2 == 0 ? jb[1] : jb[0]) - ref, false);
-        Set<Long> b = straight.profile((d + 2) % 4, si, (d % 2 == 0 ? sbox[1] : sbox[0]) - ref, false);
-        int shift = bestShift(a, b, maxShift);
-        // Into the joint's trim only as far as no block of either piece is cleared or replaced, in either build order
-        // (survival builders work in any order); else the run stops at the joint's box (a cosmetic gap at most).
-        for (int k = ji + si; k > 0; k--) {
-            int[] bx = boxes(c, d, edge - k, List.of(run), width, shift).get(0);
-            if (!destructive(joint, jb[0], -joint.ground(), jb[1], straight, bx[0], -straight.ground(), bx[1])) return new int[]{edge - k, shift};
+    public static Fit fit(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
+        int si = straight.inset((d + 2) % 4), edge = reach(c, d, jb), ref = d % 2 == 0 ? c[1] : c[0];
+        int[] sbox0 = boxes(c, d, edge, List.of(run), width, 0).get(0);
+        int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox0[1] : sbox0[0]) - ref;
+        Set<Long> S = visible(straight.profile((d + 2) % 4, si, sa, false));
+        int layers = d % 2 == 0 ? joint.sx() : joint.sz();
+        List<Set<Long>> J = new ArrayList<>();
+        Set<Long> fullest = Set.of();
+        for (int i = 0; i < layers; i++) {
+            J.add(visible(joint.profile(d, i, ja, false)));
+            if (J.get(i).size() > fullest.size()) fullest = J.get(i);
         }
-        return new int[]{edge, shift};
+        double cj = centre(fullest), cs = S.isEmpty() ? cj : centre(S);
+        Fit best = null;
+        double bestOff = 0;
+        for (int s = -maxShift; s <= maxShift; s++) {
+            double off = Math.abs(cj - cs - s);
+            Fit f = new Fit(edge, s, 0, -1);
+            for (int i = 0; i < layers && !S.isEmpty(); i++) {
+                int hit = 0;
+                for (long v : S) if (J.get(i).contains(v + s)) hit++;
+                if (hit * 2 < S.size()) continue;
+                int[] bx = boxes(c, d, edge - i - si, List.of(run), width, s).get(0);
+                if (i + si == 0 || !destructive(joint, jb[0], -joint.ground(), jb[1], straight, bx[0], -straight.ground(), bx[1]))
+                    f = new Fit(edge - i - si, s, jaccard(J.get(i), S, s), i);
+                break;
+            }
+            if (better(f, off, best, bestOff)) {
+                best = f;
+                bestOff = off;
+            }
+        }
+        return best;
+    }
+
+    /** @return true when f beats best: more match, then shallower, then more centred ({@code off}), then a smaller shift */
+    private static boolean better(Fit f, double off, Fit best, double bestOff) {
+        if (best == null || f.match() > best.match() + 1e-9) return true;
+        if (f.match() < best.match() - 1e-9 || f.depth() > best.depth()) return false;
+        if (f.depth() < best.depth() || off < bestOff - 1e-9) return true;
+        return off < bestOff + 1e-9 && Math.abs(f.shift()) < Math.abs(best.shift());
+    }
+
+    /** @return the mean lateral coordinate of a profile (its low 16 bits) */
+    private static double centre(Set<Long> p) {
+        if (p.isEmpty()) return 0;
+        double sum = 0;
+        for (long v : p) sum += v & 0xFFFF;
+        return sum / p.size();
+    }
+
+    /** @return {cells from the joint cell to the run's first cell, lateral shift} ({@link #fit}) */
+    public static int[] attach(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
+        Fit f = fit(c, d, jb, joint, straight, width, run, maxShift);
+        return new int[]{f.off(), f.shift()};
     }
 
     /**
@@ -320,14 +356,18 @@ public final class PieceLayout {
         return first > 0 && second != 0 && second != first;
     }
 
-    /** @return how well a turned joint piece's face toward {@code d} matches a straight's end there: shape + blocks, 0..2 */
+    /**
+     * @return how well a turned joint piece's face toward {@code d} continues a straight leaving it there ({@link #fit}'s
+     * match), plus how well the visible blocks match at the contact (a road corner's open and closed sides can share
+     * a shape)
+     */
     public static double faceScore(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run) {
-        int ji = joint.inset(d), si = straight.inset((d + 2) % 4), ref = d % 2 == 0 ? c[1] : c[0];
-        int[] sbox = boxes(c, d, 1, List.of(run), width, 0).get(0);
+        Fit f = fit(c, d, jb, joint, straight, width, run, Math.max(3, width));
+        if (f.depth() < 0) return 0;
+        int si = straight.inset((d + 2) % 4), ref = d % 2 == 0 ? c[1] : c[0];
+        int[] sbox = boxes(c, d, f.off(), List.of(run), width, 0).get(0);
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox[1] : sbox[0]) - ref;
-        Set<Long> jf = joint.profile(d, ji, ja, false), sf = straight.profile((d + 2) % 4, si, sa, false);
-        int sh = bestShift(jf, sf, Math.max(3, width));
-        return jaccard(jf, sf, sh) + jaccard(joint.profile(d, ji, ja, true), straight.profile((d + 2) % 4, si, sa, true), sh);
+        return f.match() + jaccard(visible(joint.profile(d, f.depth(), ja, true)), visible(straight.profile((d + 2) % 4, si, sa, true)), f.shift());
     }
 
     // ---- heights ----
@@ -412,5 +452,20 @@ public final class PieceLayout {
         // Directions run clockwise seen from above (east, south, west, north): +1 is a right turn.
         boolean left = turn == 3;
         return left != flip;
+    }
+
+    /** Auto joint roles: none (a straight line), outer corner, inner corner, T, cross. */
+    public static final int NONE = 0, CORNER = 1, INNER = 2, TEE = 3, CROSS = 4;
+
+    /**
+     * Auto's joint from the topology alone: how many lines meet, straight on or not, and for an L which way it bends
+     * relative to the first line's outside ({@link #innerTurn}). Never from what fits, so mirror-image shapes (a left
+     * turn, and the right turn with the walls flipped) get the same piece.
+     */
+    public static int autoRole(int degree, boolean collinear, int outA, int outB, boolean flip) {
+        if (degree >= 4) return CROSS;
+        if (degree == 3) return TEE;
+        if (collinear) return NONE;
+        return innerTurn(outA, outB, flip) ? INNER : CORNER;
     }
 }

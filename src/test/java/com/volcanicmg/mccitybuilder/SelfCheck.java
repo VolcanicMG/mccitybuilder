@@ -717,6 +717,8 @@ public final class SelfCheck {
         buildQueue();
         joining();
         editing();
+        continuity();
+        editRules();
         // Saved lines round trip; hostile rows (huge segments, old vanilla rows) are skipped.
         var line = new com.volcanicmg.mccitybuilder.planner.Plan.Line("wall", 1, 2, 30, 2, "medievaloak", "wall:walls/segment", 3, -1, true, true);
         String text = com.volcanicmg.mccitybuilder.planner.Plan.write(List.of(), List.of(line));
@@ -768,15 +770,6 @@ public final class SelfCheck {
         check(com.volcanicmg.mccitybuilder.planner.PieceLayout.turns(12, 6, 1) == 1 && com.volcanicmg.mccitybuilder.planner.PieceLayout.turns(5, 8, 1) == 0
                 && com.volcanicmg.mccitybuilder.planner.PieceLayout.turns(5, 8, 0) == 3, "quarter turns to the run direction");
         check(java.util.Arrays.equals(com.volcanicmg.mccitybuilder.planner.PieceLayout.centred(new int[]{10, 10}, 7, 7), new int[]{7, 7, 13, 13}), "joint centred");
-        // Profile alignment: a wall face whose solid rows sit 2 to the side is shifted back onto the corner's face.
-        java.util.Set<Long> corner = new java.util.HashSet<>(), straight = new java.util.HashSet<>();
-        for (int y = 0; y < 5; y++)
-            for (int l = 0; l < 3; l++) {
-                corner.add((long) y * 65536 + 30000 + l);
-                straight.add((long) y * 65536 + 30000 + l - 2);
-            }
-        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.bestShift(corner, straight, 3) == 2
-                && com.volcanicmg.mccitybuilder.planner.PieceLayout.jaccard(corner, straight, 2) == 1.0, "profile alignment shift");
         check(com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{0, 0}, new int[]{0, -9}) == 3, "direction north");
     }
 
@@ -1236,6 +1229,76 @@ public final class SelfCheck {
         check(jt.size() == 1 && jt.containsKey(Plan.cell(20, 0)), "joint types of vanished joints pruned");
         var t = Plan.readJoints(Plan.write(List.of(), List.of(h), java.util.Map.of(Plan.cell(20, 0), Plan.J_INNER, Plan.cell(-3, 7), Plan.J_TOWER)));
         check(t.get(Plan.cell(20, 0)) == Plan.J_INNER && t.get(Plan.cell(-3, 7)) == Plan.J_TOWER && t.size() == 2, "joint types round trip");
+    }
+
+    /**
+     * Continuity on the real blueprints, measured on the placed blocks ({@link JointCases#report}): every bundled road /
+     * wall family, every joint role it has (corner, inner corner, T, cross, tower, end cap), both turn directions,
+     * flipped and unflipped. Each run's visible cross-section at its face must match the joint's next layer as well
+     * as any turn / shift / depth could (the layout is optimal), and the fit's own metric must agree with the blocks.
+     * Prints which joints are continuous and a table of those that can't be, with the rows that differ.
+     */
+    private static void continuity() throws Exception {
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        List<String> ok = new java.util.ArrayList<>(), bad = new java.util.ArrayList<>();
+        for (var cs : JointCases.all()) {
+            String id = cs.family() + " " + cs.name() + " (" + cs.jointPath().substring(cs.jointPath().lastIndexOf('/') + 1) + ")";
+            var rep = JointCases.report(cs);
+            check(rep.match() >= rep.best() - 1e-9, "layout as continuous as the pieces allow: " + id + String.format(" %.2f < %.2f", rep.match(), rep.best()));
+            for (var r : cs.runs())
+                check(Math.abs(JointCases.measure(cs, r) - r.fit().match()) < 1e-9, "fit metric agrees with the placed blocks: " + id + " run " + "ESWN".charAt(r.out()));
+            if (rep.match() >= 1 - 1e-9) ok.add(id);
+            else bad.add(String.format("%-62s %.2f  %s", id, rep.match(), rep.reason()));
+        }
+        // The family in Ethan's screenshots: at every corner and T (it has no cross piece) the wall's body (rows
+        // 3..6: above the plinth, below the walkway, which its corner piece lacks) continues without a sideways step.
+        for (var cs : JointCases.cases("medievaloak", "wall:walls"))
+            for (var r : cs.runs())
+                if (!cs.name().contains("tower") && (cs.name().startsWith("L-") || cs.name().startsWith("T")))
+                    check(JointCases.measure(cs, r, 3, 6) >= 1 - 1e-9, "medievaloak " + cs.name() + " run " + "ESWN".charAt(r.out()) + " body continues: " + JointCases.report(cs).reason());
+        System.out.println("CityBuilder self-check: continuous joints (" + ok.size() + "): " + ok);
+        System.out.println("CityBuilder self-check: joints that can't be continuous (" + bad.size() + "):");
+        for (String b : bad) System.out.println("  " + b);
+    }
+
+    /** Auto joints from the shape alone, edit handles, wall grouping, fitting moves and re-fits, the tools' Clear. */
+    private static void editRules() {
+        // Auto: a left turn and its mirror (a right turn with the walls flipped) get the same piece; nothing else counts.
+        for (int a = 0; a < 4; a++) {
+            int left = (a + 1) % 4, right = (a + 3) % 4;
+            check(PieceLayout.autoRole(2, false, a, left, false) == PieceLayout.autoRole(2, false, a, right, true), "mirror-image L's get the same joint");
+            check(PieceLayout.autoRole(2, false, a, left, false) != PieceLayout.autoRole(2, false, a, right, false), "left and right differ only by the outside side");
+        }
+        check(PieceLayout.autoRole(3, false, 0, 1, false) == PieceLayout.TEE && PieceLayout.autoRole(4, false, 0, 1, true) == PieceLayout.CROSS
+                && PieceLayout.autoRole(2, true, 0, 2, false) == PieceLayout.NONE, "T, cross, straight on");
+        // Handles: a node beats a middle handle even when the middle one is nearer; beyond 12 px nothing.
+        List<double[]> hs = List.of(new double[]{100, 100, 1}, new double[]{109, 100, 0}, new double[]{140, 100, 0});
+        check(LineSnap.pickHandle(hs, 101, 100, 12) == 1 && LineSnap.pickHandle(hs, 70, 100, 12) == -1 && LineSnap.pickHandle(List.of(hs.get(0)), 101, 100, 12) == 0,
+                "handle priority");
+        // Whole walls: through joints, T's (a branch splits the bar there) and loops; a separate wall stays apart.
+        List<Plan.Line> w = new java.util.ArrayList<>();
+        int[][][] segs = {{{0, 0}, {10, 0}}, {{10, 0}, {10, 10}}, {{10, 10}, {0, 10}}, {{0, 10}, {0, 0}}, {{10, 0}, {20, 0}}, {{20, 0}, {20, -5}}, {{50, 50}, {60, 50}}};
+        for (int[][] sg : segs) w.add(new Plan.Line("wall", sg[0][0], sg[0][1], sg[1][0], sg[1][1], "p", "f", 1, -1, false, false));
+        check(Plan.connected(w, 2).equals(List.of(0, 1, 2, 3, 4, 5)) && Plan.connected(w, 6).equals(List.of(6)), "connected wall: " + Plan.connected(w, 2));
+        // A run fixed at both ends (towers both sides, 9-long straights, joints taking 4 each): a drag of the far
+        // joint snaps only to lengths that keep whole straights; the near wall's free end then re-fits.
+        List<Plan.Line> two = List.of(new Plan.Line("wall", 0, 0, 25, 0, "p", "f", 1, -1, false, false), new Plan.Line("wall", 25, 0, 25, 30, "p", "f", 1, -1, false, false),
+                new Plan.Line("wall", 0, 0, 0, 20, "p", "f", 1, -1, false, false));
+        List<int[]> offs = List.of(new int[]{4, 4}, new int[]{4, 0}, new int[]{4, 0}), lens = List.of(new int[]{9}, new int[]{9}, new int[]{9});
+        int[] f = Plan.fitMove(two, List.of(new int[]{25, 0}), 2, 0, l -> false, offs, lens, 9);
+        check(f != null && LineSnap.exact(Plan.cells(Plan.move(two, List.of(new int[]{25, 0}), f[0], f[1], l -> false).get(0)), 4, 4, new int[]{9}), "drag snaps to a fitting length " + java.util.Arrays.toString(f));
+        check(Plan.fitMove(two, List.of(new int[]{25, 0}), 2, 0, l -> false, offs, lens, 0) == null, "no fitting position within reach: none");
+        // The screenshot: a tower (reach 5) replaces a corner (4) between fixed joints: no free end, so nothing re-fits
+        // (the type change is refused); with a free end, the wall grows to fit.
+        var fixed = Plan.refitFree(two, List.of(0), List.of(new int[]{5, 5}, new int[]{4, 0}, new int[]{4, 0}), lens, l -> false, 12);
+        check(fixed.get(0).equals(two.get(0)), "a run fixed at both ends isn't moved (the change is refused instead)");
+        var free = Plan.refitFree(List.of(new Plan.Line("wall", 0, 0, 16, 0, "p", "f", 1, -1, false, false)), List.of(0), List.of(new int[]{5, 0}), List.of(new int[]{9}), l -> false, 12);
+        check(Plan.cells(free.get(0)) == 23 && free.get(0).x0() == 0, "a free end grows to fit: " + free.get(0));
+        // The tools' Clear: walls only, not built or sending ones, not roads.
+        var mixed = List.of(new Plan.Line("wall", 0, 0, 9, 0, "p", "f", 1, -1, false, false), new Plan.Line("road", 0, 5, 9, 5, "p", "f", 1, -1, false, false),
+                new Plan.Line("wall", 0, 9, 9, 9, "p", "f", 1, -1, false, false).asBuilt());
+        var kept = Plan.clearTool(mixed, "wall", Plan.Line::built);
+        check(kept.size() == 2 && kept.get(0).tool().equals("road") && kept.get(1).built(), "clearing walls leaves roads and built walls");
     }
 
     private static void overlays() {

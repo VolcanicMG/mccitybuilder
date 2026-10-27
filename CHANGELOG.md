@@ -2,6 +2,18 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Fix: joints (corners, inner corners, T's, crosses, towers, end caps) line up with the walls and roads they join.
+  Continuity is now measured on the placed blocks from the ground layer up (the old rule lined up the buried
+  foundations and stepped the visible wall by a block); end caps follow the run. The self-check covers every bundled
+  road / wall family's joints, both turn directions and flips, and prints which can't be continuous and why.
+- Walls meet their corners, T's and crosses continuously: runs butt flush on the joint piece, the joint turns the
+  right way for left and right turns (the arriving wall was scored the wrong way round), no sideways step.
+- Auto joints depend only on the shape (corner / inner corner, T, cross); towers only when chosen. A chain's
+  corner grows the previous wall so its pieces stay whole; edits never silently drop a piece (drags snap to fitting
+  positions, joint types that don't fit are refused with the blocks they need).
+- Edit mode: visible nodes and handles, hover / selected / dragging colours, segment or whole-wall selection (Tab,
+  Alt, double-click), live status, Esc cancels, a result flash; a big Edit button. Road / wall Clear in their panel.
+
 - Fix: walls no longer lose pieces when a third wall joins a corner (the T piece was bigger; auto now uses a tower
   there when that keeps the walls whole). Starting on a wall's free end grows it so its pieces still fit.
 - Joint choice: auto (corner or inner corner by turn and side, T, cross), tower, corner, inner corner, T, cross or

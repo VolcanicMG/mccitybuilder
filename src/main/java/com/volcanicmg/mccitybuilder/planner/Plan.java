@@ -323,6 +323,110 @@ public final class Plan {
         joints.keySet().retainAll(ends);
     }
 
+    /** @return how many segment ends there are at each cell */
+    public static java.util.Map<Long, Integer> endCounts(List<Line> lines) {
+        java.util.Map<Long, Integer> out = new java.util.HashMap<>();
+        for (Line l : lines) for (int[] e : l.ends()) out.merge(cell(e[0], e[1]), 1, Integer::sum);
+        return out;
+    }
+
+    /** @return the segments connected to segment {@code start} through shared ends (branches, T's and loops included), sorted */
+    public static List<Integer> connected(List<Line> lines, int start) {
+        List<Integer> out = new ArrayList<>();
+        if (start < 0 || start >= lines.size()) return out;
+        boolean[] seen = new boolean[lines.size()];
+        java.util.ArrayDeque<Integer> q = new java.util.ArrayDeque<>(List.of(start));
+        seen[start] = true;
+        while (!q.isEmpty()) {
+            int i = q.poll();
+            out.add(i);
+            for (int[] e : lines.get(i).ends())
+                for (int j = 0; j < lines.size(); j++)
+                    if (!seen[j])
+                        for (int[] f : lines.get(j).ends())
+                            if (f[0] == e[0] && f[1] == e[1]) {
+                                seen[j] = true;
+                                q.add(j);
+                                break;
+                            }
+        }
+        java.util.Collections.sort(out);
+        return out;
+    }
+
+    /** @return a segment's length in cells, both ends included */
+    public static int cells(Line l) {
+        return Math.max(Math.abs(l.x1() - l.x0()), Math.abs(l.z1() - l.z0())) + 1;
+    }
+
+    /**
+     * A move that keeps every run whole: the delta nearest (dx, dz), within {@code max} of it, for which each segment
+     * whose length changes and that has joints at both ends is still filled exactly by its straights (a segment with
+     * a free end is re-fitted afterwards, {@link #refitFree}).
+     *
+     * @param offs per segment, the cells its joints / caps take at {start, end}; @param lens per segment, its straights
+     * @return {dx, dz} to use, or null when no position within reach fits
+     */
+    public static int[] fitMove(List<Line> lines, List<int[]> points, int dx, int dz, java.util.function.Predicate<Line> locked, List<int[]> offs,
+                                List<int[]> lens, int max) {
+        List<int[]> cand = new ArrayList<>();
+        for (int ex = dx - max; ex <= dx + max; ex++) for (int ez = dz - max; ez <= dz + max; ez++) cand.add(new int[]{ex, ez});
+        cand.sort(java.util.Comparator.comparingInt(c -> Math.abs(c[0] - dx) + Math.abs(c[1] - dz)));
+        for (int[] c : cand) {
+            List<Line> m = move(lines, points, c[0], c[1], locked);
+            if (m != null && allFit(lines, m, offs, lens)) return c;
+        }
+        return null;
+    }
+
+    /** @return true when every segment of {@code after} whose length changed and whose both ends are joints fits exactly */
+    public static boolean allFit(List<Line> before, List<Line> after, List<int[]> offs, List<int[]> lens) {
+        java.util.Map<Long, Integer> ends = endCounts(after);
+        for (int i = 0; i < after.size() && i < before.size(); i++) {
+            Line a = after.get(i);
+            if (cells(a) == cells(before.get(i)) || i >= offs.size() || i >= lens.size()) continue;
+            boolean fixed = ends.getOrDefault(cell(a.x0(), a.z0()), 0) > 1 && ends.getOrDefault(cell(a.x1(), a.z1()), 0) > 1;
+            if (fixed && !LineSnap.exact(cells(a), offs.get(i)[0], offs.get(i)[1], lens.get(i))) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Re-fits segments with a free end so their straights fill them exactly: that end moves to the nearest length that
+     * fits, growing by preference (up to {@code max}), else shrinking (never below one straight).
+     *
+     * @param which the segments to re-fit (indices)
+     */
+    public static List<Line> refitFree(List<Line> lines, java.util.Collection<Integer> which, List<int[]> offs, List<int[]> lens,
+                                       java.util.function.Predicate<Line> locked, int max) {
+        List<Line> out = new ArrayList<>(lines);
+        java.util.Map<Long, Integer> ends = endCounts(lines);
+        for (int i : which) {
+            if (i < 0 || i >= out.size() || i >= offs.size() || i >= lens.size() || locked.test(out.get(i))) continue;
+            Line l = out.get(i);
+            boolean free1 = ends.getOrDefault(cell(l.x1(), l.z1()), 0) == 1, free0 = ends.getOrDefault(cell(l.x0(), l.z0()), 0) == 1;
+            if (!free0 && !free1) continue;
+            int n = cells(l), o0 = offs.get(i)[0], o1 = offs.get(i)[1];
+            if (LineSnap.exact(n, o0, o1, lens.get(i))) continue;
+            int grow = LineSnap.extension(n, o0, o1, lens.get(i), max), d = grow;
+            if (grow < 0) {
+                d = 0;
+                for (int s = 1; s < n && d == 0; s++) if (LineSnap.exact(n - s, o0, o1, lens.get(i))) d = -s;
+            }
+            if (d == 0) continue;
+            int dx = Integer.signum(l.x1() - l.x0()), dz = Integer.signum(l.z1() - l.z0());
+            out.set(i, free1 ? l.between(l.x0(), l.z0(), l.x1() + dx * d, l.z1() + dz * d) : l.between(l.x0() - dx * d, l.z0() - dz * d, l.x1(), l.z1()));
+        }
+        return out;
+    }
+
+    /** @return the plan without one tool's segments that may still change (built and in-flight ones stay) */
+    public static List<Line> clearTool(List<Line> lines, String tool, java.util.function.Predicate<Line> locked) {
+        List<Line> out = new ArrayList<>();
+        for (Line l : lines) if (!l.tool().equals(tool) || locked.test(l)) out.add(l);
+        return out;
+    }
+
     /** @return true when two inclusive boxes share a block */
     public static boolean overlaps(int[] a, int[] b) {
         return a[0] <= b[3] && b[0] <= a[3] && a[1] <= b[4] && b[1] <= a[4] && a[2] <= b[5] && b[2] <= a[5];

@@ -238,4 +238,27 @@ public final class LineSnap {
         for (int l : lens) if (l > 0) min = Math.min(min, l);
         return min != Integer.MAX_VALUE && cells - offOther - reach >= min;
     }
+
+    /**
+     * Edit-mode handles under the cursor: {screen x, screen y, kind} with kind 0 = a segment end / joint, 1 = a
+     * segment's middle. Ends and joints beat middles; among the same kind the nearest wins.
+     *
+     * @return the handle's index, or -1 when none is within {@code r} pixels
+     */
+    public static int pickHandle(List<double[]> handles, double mx, double my, double r) {
+        int best = -1;
+        double bd = Double.MAX_VALUE;
+        for (int i = 0; i < handles.size(); i++) {
+            double[] h = handles.get(i);
+            double d = Math.hypot(h[0] - mx, h[1] - my);
+            if (d > r) continue;
+            // Kind first (0 beats 1), then distance.
+            double key = h[2] * 1e6 + d;
+            if (key < bd) {
+                bd = key;
+                best = i;
+            }
+        }
+        return best;
+    }
 }

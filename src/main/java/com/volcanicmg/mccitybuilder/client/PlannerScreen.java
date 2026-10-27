@@ -179,6 +179,7 @@ final class PlannerScreen extends Screen {
         linePanel(g, mouseX, mouseY);
         planPanel(g, mouseX, mouseY);
         lineLabels(g, mouseX, mouseY);
+        editOverlay(g, mouseX, mouseY);
         actionBar(g, mouseX, mouseY);
         guide(g, mouseX, mouseY);
         status(g);
@@ -317,7 +318,7 @@ final class PlannerScreen extends Screen {
         String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
         String status = sel != null ? null : LineView.status();
         String fam = sel != null ? sel.family() : status == null ? LineView.family() : null;
-        int w = 220, h = status != null ? 40 : 252, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
+        int w = 220, h = status != null ? 40 : 276, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
         stackTop = y - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
@@ -336,7 +337,17 @@ final class PlannerScreen extends Screen {
             click();
             editorOpen = !editorOpen;
         }, Component.translatable("mccitybuilder.line.pieces.tip")));
-        int iy = picker(g, ix, y + PAD + 11, iw, Component.translatable("mccitybuilder.line.family", fam == null ? "-" : fam.substring(fam.indexOf(':') + 1)).getString(),
+        // Edit mode: a full-width button with a clearly pressed look while on.
+        int ey = y + PAD + 11;
+        boolean overEd = mx >= ix && mx < ix + iw && my >= ey && my < ey + 20;
+        VanillaUi.button(g, ix, ey, iw, 20, LineView.edit, false, overEd);
+        String el = Component.translatable(LineView.edit ? "mccitybuilder.line.editing" : "mccitybuilder.line.edit_button").getString();
+        g.drawString(font, el, ix + (iw - font.width(el)) / 2, ey + 6, LineView.edit ? 0xFFFFFF60 : VanillaUi.INK, LineView.edit);
+        hits.add(new Hit(ix, ey, iw, 20, () -> {
+            click();
+            LineView.toggleEdit();
+        }, Component.translatable("mccitybuilder.line.edit.tip")));
+        int iy = picker(g, ix, ey + 24, iw, Component.translatable("mccitybuilder.line.family", fam == null ? "-" : fam.substring(fam.indexOf(':') + 1)).getString(),
                 mx, my, d -> {
                     LineView.cycleFamily(d);
                     click();
@@ -369,8 +380,8 @@ final class PlannerScreen extends Screen {
         }, Component.translatable("mccitybuilder.line.joint.tip"));
         // A gate (walls: the selected segment or the next one), the other side out, edit mode.
         boolean wall = "wall".equals(tool);
-        boolean[] on = {sel != null ? sel.gate() : LineView.gate, sel != null ? sel.flip() : LineView.flip, LineView.edit};
-        String[] keys = {"gate", "flip", "edit"};
+        boolean[] on = {sel != null ? sel.gate() : LineView.gate, sel != null ? sel.flip() : LineView.flip, LineView.wholeMode};
+        String[] keys = {"gate", "flip", LineView.wholeMode ? "select_wall" : "select_segment"};
         int bw3 = (iw - 4) / 3;
         for (int i = 0; i < 3; i++) {
             int bx = ix + i * (bw3 + 2);
@@ -384,8 +395,8 @@ final class PlannerScreen extends Screen {
                 click();
                 if (fi == 0) LineView.toggleGate();
                 else if (fi == 1) LineView.toggleFlip();
-                else LineView.toggleEdit();
-            }, Component.translatable("mccitybuilder.line." + keys[i] + ".tip")));
+                else LineView.wholeMode = !LineView.wholeMode;
+            }, Component.translatable(i == 2 ? "mccitybuilder.line.select.tip" : "mccitybuilder.line." + keys[i] + ".tip")));
         }
         iy += 20;
         iy = pieceCard(g, ix, iy, iw, mx, my, sel, pk);
@@ -413,15 +424,15 @@ final class PlannerScreen extends Screen {
         g.drawString(font, font.plainSubstrByWidth(info, iw), ix + 1, iy, 0xFF555555, false);
         iy += 12;
         boolean server = Planner.serverInstant();
-        String[] bkeys = {"done", "undo", "remove", "build"};
-        boolean canRemove = LineView.hoverLine >= 0 || sel != null;
+        String[] bkeys = {"done", "undo", "remove", "build", "clear"};
+        boolean canRemove = LineView.hoverLine >= 0 || sel != null || !LineView.sel.isEmpty();
         boolean[] off = {LineView.start == null, LineView.chain.isEmpty() && LineView.removed.isEmpty(), !canRemove,
-                PlanView.lines.isEmpty() && PlanView.entries.isEmpty()};
+                PlanView.lines.isEmpty() && PlanView.entries.isEmpty(), PlanView.lines.stream().noneMatch(l -> l.tool().equals(tool) && !PlanView.locked(l))};
         Runnable[] run = {LineView::finishChain, LineView::undo, () -> {
             if (LineView.removeHovered()) toast(Component.translatable("mccitybuilder.line.removed"));
-        }, () -> toast(PlanView.commit(false))};
-        int bw = (iw - 6) / 4;
-        for (int i = 0; i < 4; i++) {
+        }, () -> toast(PlanView.commit(false)), LineView::clearTool};
+        int bw = (iw - 8) / 5;
+        for (int i = 0; i < 5; i++) {
             int bx = ix + i * (bw + 2);
             boolean over = mx >= bx && mx < bx + bw && my >= iy && my < iy + 20;
             VanillaUi.button(g, bx, iy, bw, 20, false, off[i], over);
@@ -432,7 +443,7 @@ final class PlannerScreen extends Screen {
                 if (off[fi]) return;
                 click();
                 run[fi].run();
-            }, Component.translatable(i == 3 && !server ? "mccitybuilder.line.needs_server" : "mccitybuilder.line." + bkeys[i] + ".tip")));
+            }, Component.translatable(i == 3 && !server ? "mccitybuilder.line.needs_server" : i == 4 ? "mccitybuilder.line.clear.tip." + tool : "mccitybuilder.line." + bkeys[i] + ".tip")));
         }
         if (editorOpen && fam != null) pieceEditor(g, x - 4 - w, Math.max(4, y + h - (PAD * 2 + 22 + EDIT_ROLES.length * 18)), w, pk, fam, mx, my);
     }
@@ -602,6 +613,119 @@ final class PlannerScreen extends Screen {
         int w = font.width(warn);
         g.fill(mx + 10, my + 10, mx + 16 + w, my + 23, 0xC0202020);
         g.drawString(font, warn, mx + 13, my + 13, LineView.snap != null && warnColour == 0xFFFFC040 && LineView.liveShort == 0 ? 0xFF80E0FF : warnColour, false);
+    }
+
+    /**
+     * Edit mode on screen: a node at every segment end / joint and a handle in every segment's middle (constant size,
+     * picked within 12 GUI pixels, nodes before handles; white idle, yellow hovered, cyan selected, green / red while
+     * a drag fits / doesn't), the joint types over the joints, a label for the selection, a status line while dragging,
+     * a banner, and a hint at the cursor for what a click or drag does.
+     */
+    private void editOverlay(GuiGraphics g, int mx, int my) {
+        if (!LineView.active() || !LineView.edit) {
+            LineView.hoverJoint = null;
+            LineView.hoverMid = -1;
+            return;
+        }
+        List<double[]> hs = new ArrayList<>();
+        List<Object> what = new ArrayList<>();
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        List<com.volcanicmg.mccitybuilder.planner.Plan.Line> ls = PlanView.lines;
+        for (var l : ls)
+            for (int[] e : l.ends())
+                if (seen.add(com.volcanicmg.mccitybuilder.planner.Plan.cell(e[0], e[1]))) {
+                    double[] p = screen(e[0], e[1], 1.5);
+                    if (p != null) {
+                        hs.add(new double[]{p[0], p[1], 0});
+                        what.add(e);
+                    }
+                }
+        for (int i = 0; i < ls.size(); i++) {
+            var l = ls.get(i);
+            double[] p = screen((l.x0() + l.x1()) / 2, (l.z0() + l.z1()) / 2, 1.5);
+            if (p != null) {
+                hs.add(new double[]{p[0], p[1], 1});
+                what.add(i);
+            }
+        }
+        int hv = overPanel(mx, my) || LineView.dragging() ? -1 : com.volcanicmg.mccitybuilder.planner.LineSnap.pickHandle(hs, mx, my, 12);
+        if (!LineView.dragging()) {
+            LineView.hoverJoint = hv >= 0 && hs.get(hv)[2] == 0 ? (int[]) what.get(hv) : null;
+            LineView.hoverMid = hv >= 0 && hs.get(hv)[2] == 1 ? (Integer) what.get(hv) : -1;
+        }
+        // Joint types over the joints (from the last layout): "corner", "T · gap 4 (tower: 0)".
+        for (var en : PlanView.jointNotes.entrySet()) {
+            int jx = com.volcanicmg.mccitybuilder.planner.Plan.cellX(en.getKey()), jz = com.volcanicmg.mccitybuilder.planner.Plan.cellZ(en.getKey());
+            double[] p = screen(jx, jz, 5);
+            if (p == null) continue;
+            int[] n = en.getValue();
+            String t = Component.translatable("mccitybuilder.line.role." + com.volcanicmg.mccitybuilder.planner.PieceSets.Role.values()[n[0]].name().toLowerCase(java.util.Locale.ROOT)).getString()
+                    + (n[1] > 0 ? " · " + Component.translatable("mccitybuilder.edit.gap", n[1]).getString() + (n[2] >= 0 && n[2] < n[1] ? " " + Component.translatable("mccitybuilder.edit.try_tower", n[2]).getString() : "") : "");
+            int tw = font.width(t);
+            g.fill((int) p[0] - tw / 2 - 2, (int) p[1] - 5, (int) p[0] + tw / 2 + 2, (int) p[1] + 5, 0xA0202020);
+            g.drawString(font, t, (int) p[0] - tw / 2, (int) p[1] - 4, n[1] > 0 ? 0xFFFFC040 : 0xFFE0E0E0, false);
+        }
+        boolean dragging = LineView.dragging();
+        for (int k = 0; k < hs.size(); k++) {
+            double[] h = hs.get(k);
+            boolean joint = h[2] == 0, hover = k == hv;
+            boolean selected = joint ? LineView.selectedJoint != null && ((int[]) what.get(k))[0] == LineView.selectedJoint[0] && ((int[]) what.get(k))[1] == LineView.selectedJoint[1]
+                    : LineView.sel.contains((Integer) what.get(k));
+            int c = dragging && selected ? (LineView.dragPreview == null ? 0xFFFF4040 : LineView.dragFits ? 0xFF40E040 : 0xFFFFA020)
+                    : selected ? 0xFF40E0FF : hover ? 0xFFFFE040 : 0xFFF0F0F0;
+            int x = (int) h[0], y = (int) h[1], r = joint ? 5 : 4;
+            if (joint) {
+                g.fill(x - r - 1, y - r - 1, x + r + 1, y + r + 1, 0xFF202020);
+                g.fill(x - r, y - r, x + r, y + r, c);
+            } else {
+                // A diamond for a segment's middle handle.
+                for (int d = -r; d <= r; d++) {
+                    int half = r - Math.abs(d);
+                    g.fill(x - half - 1, y + d, x + half + 2, y + d + 1, 0xFF202020);
+                    if (half > 0) g.fill(x - half, y + d, x + half + 1, y + d + 1, c);
+                }
+            }
+        }
+        // The selection's label.
+        if (!LineView.sel.isEmpty() && LineView.sel.get(0) < ls.size()) {
+            var first = ls.get(LineView.sel.get(0));
+            var wall = com.volcanicmg.mccitybuilder.planner.Plan.connected(ls, LineView.sel.get(0));
+            int blocks = 0;
+            for (int i : LineView.sel) if (i < ls.size()) blocks += com.volcanicmg.mccitybuilder.planner.Plan.cells(ls.get(i));
+            String t = LineView.selWhole ? Component.translatable("mccitybuilder.edit.whole", LineView.sel.size(), blocks).getString()
+                    : Component.translatable("mccitybuilder.edit.segment", wall.indexOf(LineView.sel.get(0)) + 1, wall.size(), blocks).getString();
+            double[] p = screen((first.x0() + first.x1()) / 2, (first.z0() + first.z1()) / 2, 8);
+            if (p != null) {
+                int tw = font.width(t);
+                g.fill((int) p[0] - tw / 2 - 3, (int) p[1] - 6, (int) p[0] + tw / 2 + 3, (int) p[1] + 6, 0xC0103040);
+                g.drawString(font, t, (int) p[0] - tw / 2, (int) p[1] - 4, 0xFF80F0FF, false);
+            }
+        }
+        // Banner and drag status, top centre.
+        String top = LineView.dragStatus != null ? LineView.dragStatus
+                : Component.translatable("mccitybuilder.edit.banner", Component.translatable(LineView.wholeMode ? "mccitybuilder.line.select_wall" : "mccitybuilder.line.select_segment")).getString();
+        int tw = font.width(top);
+        g.fill(width / 2 - tw / 2 - 4, 46, width / 2 + tw / 2 + 4, 60, LineView.dragStatus != null && !LineView.dragFits ? 0xE0503010 : 0xE0103040);
+        g.drawString(font, top, width / 2 - tw / 2, 49, 0xFFFFFFFF, false);
+        // What a click / drag does here.
+        if (!dragging && !overPanel(mx, my)) {
+            String hint = LineView.hoverJoint != null ? "mccitybuilder.edit.hint_joint" : LineView.hoverMid >= 0 ? "mccitybuilder.edit.hint_mid"
+                    : LineView.hoverLine >= 0 ? (LineView.wholeMode ? "mccitybuilder.edit.hint_body_wall" : "mccitybuilder.edit.hint_body") : null;
+            if (hint != null) {
+                String t = Component.translatable(hint).getString();
+                int w2 = font.width(t);
+                g.fill(mx + 10, my - 14, mx + 16 + w2, my - 1, 0xC0202020);
+                g.drawString(font, t, mx + 13, my - 11, 0xFFFFE080, false);
+            }
+        }
+    }
+
+    /** @return where cell (x, z) at {@code up} blocks over its ground appears on screen (GUI pixels), or null */
+    private double[] screen(int x, int z, double up) {
+        Integer gy = Planner.groundAt(x, z);
+        double[] ndc = Planner.project(x + 0.5, (gy == null ? 64 : gy) + up, z + 0.5);
+        if (ndc == null || Math.abs(ndc[0]) > 1.2 || Math.abs(ndc[1]) > 1.2) return null;
+        return new double[]{(ndc[0] + 1) / 2 * width, (1 - ndc[1]) / 2 * height};
     }
 
     /** Road / wall tool on or off (they replace each other; neither changes hut placement). */
@@ -1323,7 +1447,7 @@ final class PlannerScreen extends Screen {
         // Road / wall tool: clicks start a chain or drop the live segment.
         if (LineView.active()) {
             if (hit != null) {
-                if (LineView.edit) LineView.press(hit);
+                if (LineView.edit) LineView.press(hit, hasAltDown());
                 else LineView.click(hit);
                 click();
             }
@@ -1344,7 +1468,7 @@ final class PlannerScreen extends Screen {
 
     private boolean draggedImpl(double mx, double my, double dx, double dy) {
         if (LineView.dragging()) {
-            LineView.dragTo(Planner.pick(mx / width, my / height));
+            LineView.dragTo(Planner.pick(mx / width, my / height), hasShiftDown());
             return true;
         }
         if (cardDrag) {
@@ -1447,6 +1571,14 @@ final class PlannerScreen extends Screen {
                 searchFocused = false;
             } else if (key == GLFW.GLFW_KEY_BACKSPACE && !search.isEmpty()) search = search.substring(0, search.length() - 1);
             else if (key == GLFW.GLFW_KEY_ENTER) searchFocused = false;
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_ESCAPE && LineView.dragging()) {
+            LineView.cancelDrag();
+            return true;
+        }
+        if (key == GLFW.GLFW_KEY_TAB && LineView.active() && LineView.edit) {
+            LineView.wholeMode = !LineView.wholeMode;
             return true;
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {

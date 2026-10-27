@@ -64,6 +64,13 @@ tasks.register('plannerPreview', JavaExec) {
     args = [project.findProperty('out') ?: "${buildDir}/planner-preview.png"]
     jvmArgs '-Djava.awt.headless=true'
 }
+// Top-down pictures of real wall joints as laid out (not part of check).
+tasks.register('wallJoints', JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.volcanicmg.mccitybuilder.WallJoints'
+    args = [project.findProperty('out') ?: "${buildDir}/wall-joints"]
+    jvmArgs '-Djava.awt.headless=true'
+}
 tasks.named('test') { failOnNoDiscoveredTests = false }
 
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {

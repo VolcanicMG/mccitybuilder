@@ -258,6 +258,7 @@ final class PieceCatalog {
      * asked; straights fill the rest, and what can't be covered is left at a free end and reported.
      */
     static Layout layout(List<Plan.Line> lines, Map<Long, Integer> jointTypes) {
+        jointNotes.clear();
         List<List<Placed>> out = new ArrayList<>();
         List<Integer> shortened = new ArrayList<>(), need = new ArrayList<>();
         List<int[]> gaps = new ArrayList<>();
@@ -302,6 +303,8 @@ final class PieceCatalog {
             boolean[] free = new boolean[2];
             boolean aligned = false, ok = true;
             int shift = 0;
+            // End caps: {piece, quarter turns, the run's shift relative to a cap on the line}, placed once the shift is known.
+            Object[][] caps = new Object[2][];
             for (int end = 0; end < 2; end++) {
                 int[] c = end == 0 ? a : b;
                 int d = end == 0 ? dir : (dir + 2) % 4;
@@ -311,16 +314,31 @@ final class PieceCatalog {
                     if (m[0] != i && lines.get(m[0]).family().equals(l.family()) && lines.get(m[0]).pack().equals(l.pack())) meet.add(m);
                 if (meet.isEmpty()) {
                     free[end] = true;
-                    // A free end: an end cap, if the family has one.
-                    List<PieceSets.Group> caps = groups(l.pack(), f, PieceSets.Role.END);
-                    if (!caps.isEmpty()) {
-                        PieceSets.Piece cap = caps.get(0).pick(l.level(), i);
-                        int run = cap.run(), turns = PieceLayout.turns(cap.sx(), cap.sz(), (d + 2) % 4);
-                        List<int[]> bx = PieceLayout.boxes(c, d, 0, List.of(run), cap.across(), 0);
-                        Placed p = place(l.pack(), cap.path(), turns, bx.get(0), PieceSets.Role.END);
-                        if (p == null) ok &= failed(l.pack(), cap.path());
-                        else placed.add(p);
-                        off[end] = run;
+                    // A free end: an end cap, if the family has one; the run meets it like a joint (fit, turn by face score).
+                    List<PieceSets.Group> capGroups = groups(l.pack(), f, PieceSets.Role.END);
+                    if (!capGroups.isEmpty()) {
+                        PieceSets.Piece cap = capGroups.get(0).pick(l.level(), i);
+                        int[] cb = PieceLayout.boxes(c, d, 0, List.of(cap.run()), cap.across(), 0).get(0);
+                        PieceLayout.Grid sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
+                        int turns = PieceLayout.turns(cap.sx(), cap.sz(), (d + 2) % 4), rel = 0;
+                        double bestScore = -1;
+                        for (int k2 = turns; k2 < turns + 4; k2 += 2) {
+                            PieceLayout.Grid cg = grid(l.pack(), cap.path(), k2);
+                            if (cg == null || sg == null) {
+                                ok &= failed(l.pack(), cg == null ? cap.path() : primary.path());
+                                continue;
+                            }
+                            double sc = PieceLayout.faceScore(c, d, cb, cg, sg, width, primary.run());
+                            if (sc > bestScore + 1e-9) {
+                                bestScore = sc;
+                                turns = k2;
+                                int[] att = PieceLayout.attach(c, d, cb, cg, sg, width, primary.run(), Math.max(3, width));
+                                off[end] = att[0];
+                                rel = att[1];
+                            }
+                        }
+                        if (bestScore < 0) off[end] = cap.run();
+                        caps[end] = new Object[]{cap, turns, rel};
                     }
                     continue;
                 }
@@ -374,6 +392,21 @@ final class PieceCatalog {
                     off[end] = PieceLayout.offset(c, d, bt, bt[4] == i);
                     if (bt[5] == 1) ok = false;
                 }
+            }
+            // Caps sit across from the run: on the line when no joint set the run's shift, else moved with it.
+            for (int end = 0; end < 2; end++) {
+                if (caps[end] == null) continue;
+                PieceSets.Piece cap = (PieceSets.Piece) caps[end][0];
+                int rel = (Integer) caps[end][2];
+                if (!aligned) {
+                    shift = rel;
+                    aligned = true;
+                }
+                int[] c = end == 0 ? a : b;
+                int[] cb = PieceLayout.boxes(c, end == 0 ? dir : (dir + 2) % 4, 0, List.of(cap.run()), cap.across(), shift - rel).get(0);
+                Placed p = place(l.pack(), cap.path(), (Integer) caps[end][1], cb, PieceSets.Role.END);
+                if (p == null) ok &= failed(l.pack(), cap.path());
+                else placed.add(p);
             }
             // The run between the joints / caps: a gate in the middle when asked, straights around it.
             int n = len - off[0] - off[1];
@@ -474,17 +507,23 @@ final class PieceCatalog {
      * @return the cells such a joint takes from a run meeting it (0 while loading or with no such piece)
      */
     static int expectedReach(Plan.Line l, int type) {
-        Map<String, PieceSets.Family> fs = families(l.pack());
-        PieceSets.Family f = fs == null ? null : fs.get(l.family());
-        PieceSets.Piece st = primary(l, 0);
-        if (f == null || st == null || type == Plan.J_NONE) return 0;
-        PieceSets.Role r = switch (type) {
+        return reachOf(l, switch (type) {
             case Plan.J_TOWER -> PieceSets.Role.TOWER;
             case Plan.J_INNER -> PieceSets.Role.INNER;
             case Plan.J_TEE -> PieceSets.Role.TEE;
             case Plan.J_CROSS -> PieceSets.Role.CROSS;
+            case Plan.J_NONE -> null;
             default -> l.towers() ? PieceSets.Role.TOWER : PieceSets.Role.CORNER;
-        };
+        });
+    }
+
+    /** @return the cells a joint piece of role {@code r} takes from a run meeting it (0 for none or while loading) */
+    static int reachOf(Plan.Line l, PieceSets.Role r) {
+        if (r == null) return 0;
+        Map<String, PieceSets.Family> fs = families(l.pack());
+        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        PieceSets.Piece st = primary(l, 0);
+        if (f == null || st == null) return 0;
         List<PieceSets.Group> gs = groups(l.pack(), f, r);
         if (gs.isEmpty()) gs = groups(l.pack(), f, PieceSets.Role.CORNER);
         if (gs.isEmpty()) return 0;
@@ -566,6 +605,10 @@ final class PieceCatalog {
         return od == (d + 2) % 4;
     }
 
+    // Per joint cell, from the last layout: {role ordinal, cells the meeting runs leave uncovered, the same with a
+    // tower (-1: no tower)}, for the edit-mode labels and the "try Tower" hint.
+    static final Map<Long, int[]> jointNotes = new HashMap<>();
+
     // Set by joint() when it returned null only because a blueprint is still loading.
     private static boolean jointLoading;
 
@@ -600,9 +643,13 @@ final class PieceCatalog {
         else if (type == Plan.J_TEE) primary.add(PieceSets.Role.TEE);
         else if (type == Plan.J_CROSS) primary.add(PieceSets.Role.CROSS);
         else {
-            primary.add(degree >= 4 ? PieceSets.Role.CROSS : degree == 3 ? PieceSets.Role.TEE : inner(outs, at) ? PieceSets.Role.INNER : PieceSets.Role.CORNER);
-            fallback.add(PieceSets.Role.TOWER);
+            // Auto: from the topology alone (never from what fits), so the same shape always gets the same piece.
+            int auto = PieceLayout.autoRole(degree, collinear, outs.get(0), outs.size() > 1 ? outs.get(1) : 0, at.get(0).flip());
+            primary.add(auto == PieceLayout.CROSS ? PieceSets.Role.CROSS : auto == PieceLayout.TEE ? PieceSets.Role.TEE
+                    : auto == PieceLayout.INNER ? PieceSets.Role.INNER : PieceSets.Role.CORNER);
         }
+        // A tower, for the hint only ("try Tower: 0 gap"), never picked here.
+        if (!primary.contains(PieceSets.Role.TOWER)) fallback.add(PieceSets.Role.TOWER);
         // A missing role falls back to a corner (as before), then nothing.
         if (primary.stream().allMatch(r -> groups(l.pack(), f, r).isEmpty())) primary = new ArrayList<>(List.of(PieceSets.Role.CORNER));
         List<PieceSets.Piece> cands = new ArrayList<>();
@@ -632,15 +679,20 @@ final class PieceCatalog {
                 }
                 int[] jb = PieceLayout.centred(c, jg.sx(), jg.sz());
                 double score = 0;
-                for (int out : outs) {
-                    // The straight as it would leave the joint along `out` (its face toward the joint is (out + 2) % 4).
-                    PieceLayout.Grid sg = grid(l.pack(), straight.path(), sturn(straight, out, l.flip()));
+                for (int o = 0; o < outs.size(); o++) {
+                    // Each line's straight as it is really placed: turned for that line's own direction and flip (a line
+                    // arriving at the joint runs the other way from one leaving it).
+                    Plan.Line ln = at.get(o);
+                    PieceSets.Piece st = primary(ln, 0);
+                    if (st == null) continue;
+                    int ldir = PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()});
+                    PieceLayout.Grid sg = grid(ln.pack(), st.path(), sturn(st, ldir, ln.flip()));
                     if (sg == null) {
-                        jointLoading = !failed(l.pack(), straight.path());
+                        jointLoading = !failed(ln.pack(), st.path());
                         return null;
                     }
                     // By shape and material: a road corner's faces can share a shape, its open sides share the road's blocks.
-                    score += PieceLayout.faceScore(c, out, jb, jg, sg, width, straight.run());
+                    score += PieceLayout.faceScore(c, outs.get(o), jb, jg, sg, st.across(), st.run());
                 }
                 if (score > bestScore + 1e-9) {
                     bestScore = score;
@@ -667,22 +719,15 @@ final class PieceCatalog {
             }
             fits.add(new int[]{pieces, left});
         }
-        int q = PieceLayout.pickJoint(fits, primaries);
+        int q = PieceLayout.pickJoint(fits.subList(0, primaries), primaries);
+        int towerGap = -1;
+        for (int k = primaries; k < fits.size(); k++) towerGap = towerGap < 0 ? fits.get(k)[1] : Math.min(towerGap, fits.get(k)[1]);
+        jointNotes.put(Plan.cell(c[0], c[1]), new int[]{roles.get(q).ordinal(), fits.get(q)[1], towerGap});
         Blueprint jbp = rotated(l.pack(), cands.get(q).path(), turns[q]);
         if (jbp == null) return null;
         return place(l.pack(), cands.get(q).path(), turns[q], PieceLayout.centred(c, jbp.getSizeX(), jbp.getSizeZ()), roles.get(q));
     }
 
-    /**
-     * @param outs the directions out of an L joint (the first line's first); @param at the lines
-     * @return true when the L bends toward the walls' outside (an inner corner): unflipped, the outside is left of the
-     * first segment's travel into the joint
-     */
-    private static boolean inner(List<Integer> outs, List<Plan.Line> at) {
-        if (outs.size() != 2) return false;
-        // The first line (the lowest index, which places the joint): travel arrives along it, leaves along the other.
-        return PieceLayout.innerTurn(outs.get(0), outs.get(1), at.get(0).flip());
-    }
 
     /**
      * @return true when the two placed pieces overlap destructively: pasting either after the other would clear or

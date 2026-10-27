@@ -60,6 +60,8 @@ final class PlanView {
     static Map<Long, Integer> jointTypes = new HashMap<>();
     static List<int[]> lineOffs = new ArrayList<>();
     static List<Integer> lineNeed = new ArrayList<>();
+    /** Per joint cell from the last plan layout: {role, uncovered cells, the same with a tower} (edit-mode labels). */
+    static Map<Long, int[]> jointNotes = new HashMap<>();
     static List<List<PieceCatalog.Placed>> linePieces = new ArrayList<>();
     static List<Boolean> lineBad = new ArrayList<>();
     static List<Integer> lineShort = new ArrayList<>();
@@ -263,13 +265,17 @@ final class PlanView {
         if (on || LineView.active())
             for (int i = 0; i < linePieces.size() && i < PlanView.lines.size(); i++) {
                 List<Boolean> bs = i < pieceBad.size() ? pieceBad.get(i) : List.of();
-                boolean hover = i == LineView.hoverLine;
+                boolean hover = LineView.edit ? LineView.hoverPreview(net.minecraft.client.gui.screens.Screen.hasAltDown()).contains(i) : i == LineView.hoverLine;
+                if (LineView.selected(i)) {
+                    outline(pose, lines, linePieces.get(i), List.of(), false, 0.25f, 0.9f, 1f, 1f);
+                    continue;
+                }
                 if (PlanView.lines.get(i).built() && !hover && i != selectedLine) {
                     // Built records: faint grey, no ghost (the real wall is there).
                     outline(pose, lines, linePieces.get(i), List.of(), false, 0.55f, 0.55f, 0.55f, 0.5f);
                     continue;
                 }
-                if (hover) outline(pose, lines, linePieces.get(i), List.of(), false, 1f, 0.85f, 0.2f, 1f);
+                if (hover) outline(pose, lines, linePieces.get(i), List.of(), false, 1f, 0.9f, 0.5f, 0.8f);
                 else outline(pose, lines, linePieces.get(i), bs, i == selectedLine);
                 if (i < lineGaps.size() && lineGaps.get(i) != null && !linePieces.get(i).isEmpty()) gap(pose, lines, lineGaps.get(i), linePieces.get(i).get(0).anchor().getY());
                 floating(pose, lines, linePieces.get(i));
@@ -495,6 +501,7 @@ final class PlanView {
         lineHeights = lay.heights();
         lineOffs = lay.offs();
         lineNeed = lay.need();
+        jointNotes = new HashMap<>(PieceCatalog.jointNotes);
         lineBad = new ArrayList<>();
         pieceBad = new ArrayList<>();
         List<int[]> boxes = buildingBoxes();

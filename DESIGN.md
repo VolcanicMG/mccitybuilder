@@ -378,6 +378,47 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   kept, built / sending segments never move, a single dragged point snaps onto another end, joint types move with
   their joints. R flips, Del removes, C sets the joint type, Esc deselects (then leaves edit mode); leaving clears
   the selection. Draw mode keeps no selection.
+- Joint continuity (`PieceLayout.fit`, replacing the inset rule): the ground truth is the placed blocks. For each
+  sideways shift (within max(3, width)) the run's end face (the straight's solid face toward the joint, trim skipped)
+  meets the joint at the first layer from its face inward that holds blocks in front of at least half the face's
+  visible cells (`PieceLayout.visible`: the ground layer and up; foundations are buried and never decide), unless
+  that overlap is destructive in either build order (then the run stops at the joint's box). The shift with the
+  best match of the two visible cross-sections wins (Jaccard: 1 = same shape, no air gap, no sideways step), then
+  the shallowest contact, then centring on the joint's fullest visible layer, then the smallest shift. The joint's
+  turn maximises every run's match plus block match, each line's straight as it is really placed (a line arriving
+  at the joint runs the other way from one leaving it). The old rule scored the rows "as wide as most rows", which
+  for the medieval walls were the nine buried foundation rows: it lined up the foundations and stepped the visible
+  wall by one block (Ethan's screenshots). End caps meet their run the same way (turn along the line by face score;
+  the cap follows the run's shift). SelfCheck (`JointCases`) lays out every bundled road / wall family's corner,
+  inner corner, T, cross, tower and end cap, both turn directions, flipped and unflipped, voxelises the result
+  (blueprint blocks at their final turned / offset positions, the same path as the ghosts) and asserts per run that
+  the placed cross-sections match as well as any shift could (brute force on the blocks) and that the fit's own
+  number equals the one measured on the blocks; medievaloak's wall body (rows 3..6) must continue exactly at every
+  corner and T. It prints the continuous joints and a table of the rest with the rows that differ (most are a
+  joint arm wider or narrower than the straight, or a tower's air ring). `./gradlew wallJoints -Pout=dir` writes
+  top-down PNGs of every case (columns by highest block, joint box yellow, run boxes green, one contact strip per
+  run). The test reader (`PackPieces`) takes the ground layer like the game: primary offset y minus the
+  `groundlevel` tag's depth below the anchor (1 without one).
+- Auto is from the topology only (`PieceLayout.autoRole`): L = corner or inner corner by the outside side, three = T,
+  four = cross; never a tower unless chosen. The tower's gap is still computed, for the edit-mode hint
+  ("T · gap 4 (tower: 0)").
+- Lengths: a chain's free end tiles exactly (no reserved room); when the next segment turns, the last one grows at
+  the corner by what the corner takes (`chainGrowth`, shown live) and the new segment moves out with it. Edits never
+  silently drop a straight: an edit drag snaps (without Shift) to positions where every run with joints at both
+  ends still fits exactly (`Plan.fitMove`; the status turns amber with Shift when a piece would be lost), runs with a
+  free end re-fit after a move or a joint-type change (`Plan.refitFree`, growing first), a joint type that would cost
+  a run fixed at both ends a straight is refused with how many blocks it needs, and a drop that turns a corner into
+  a T grows the affected walls' free ends (or warns).
+- Edit mode UX: nodes at every segment end / joint and a diamond handle mid-segment, constant size, picked within
+  12 GUI pixels (nodes first, `LineSnap.pickHandle`); white idle, yellow hover, cyan selected, green / amber / red
+  while dragging; the joint types over the joints; a label for the selection ("Segment 2/5 · 9 blocks", "Whole wall
+  · 5 segments · 47 blocks"); a status line while dragging, Esc cancels; a flash on release ("Moved", or why not);
+  a hint at the cursor. Selection: a body click = that segment; Alt, a double-click or the Whole wall mode (Tab /
+  the panel toggle) = every segment connected through joints (`Plan.connected`); a body drag moves the selection,
+  attached ends follow. R and Del act on all selected segments, C only on a selected joint. The panel's Edit button
+  is full width ("✎ Edit (X)" / "✎ Editing — click to draw", header "Wall · Editing").
+- Clear (line panel): removes the tool's planned segments (built and sending ones, huts, decorations and the
+  other tool's segments stay; `Plan.clearTool`), after a second click within 3 s; Undo restores them as one group.
 - Removing (line tool): the planned segment under the cursor is highlighted; Del, right-click (no chain active) or
   Remove deletes it, and its neighbours' joints are laid out again; Undo (Backspace) with no chain brings removed
   segments back (last 32).
