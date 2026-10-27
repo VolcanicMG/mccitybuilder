@@ -84,11 +84,15 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   and the zoom-in floor underground.
 - The per-frame loop is `planner/CameraRig` (pure, driven by a `World` of column heights): baseline sampling at 4 Hz,
   terrain follow, ceiling, then `DroneCamera.step` with two surface inputs (leaves included): the **clearance**
-  obstacle (within 2 blocks of the drawn and target position, 4 and 8 blocks ahead along the view, and ahead along
-  the pan velocity by one frame + 1.5 s + 4 blocks), which lifts the camera through the eased clearance and the speed
-  cap; and the **hard floor** (within 2 blocks of the drawn and target position only), applied last as an instant
-  raise to floor + 3. Things coming into view therefore lift the camera smoothly; only ground right under it can
-  snap it. The vertical cap is max(16, 3 x height over the obstacle, 8 x the remaining gap) blocks/s. While a turn
+  obstacle (within 2 blocks of the drawn and target position, and every 4 blocks ahead along the pan velocity up to
+  one frame + 1.5 s + 4 blocks, at most 64; nothing ahead while not panning, so turning in place never reacts to
+  what the view sweeps across), which lifts the camera through the eased clearance (held 0.6 s before it releases,
+  so it doesn't flicker) and the speed cap; and the **hard floor** (within 2 blocks of the drawn and target position only), applied last as an instant
+  raise to floor + 3. The hard floor is the drawn position's footprint only; the target's footprint (and the way the
+  drawn camera still has to glide to it) feeds the eased clearance, half a block high so the climb really reaches
+  it, and the drawn x / z is held back while the next step would be over something it can't clear yet. A target jump
+  (V, zoom-to-cursor, an orbit step) beside a tall building therefore glides up instead of snapping ~13 blocks.
+  Things coming into view lift the camera smoothly; only ground right under it can snap it. The vertical cap is max(16, 3 x height over the obstacle, 8 x the remaining gap) blocks/s. While a turn
   holds terrain follow back, the ceiling and the saved height use the baseline minus the held change; yaw-only
   turns keep the current distance to the pivot. The zoom minimum is `max(baseline, last floor) + minHeight`. SelfCheck runs
   the rig end to end (open, zoom fully out / in, flat / hill / tower / trees, panning into a 60-block wall).
@@ -230,7 +234,12 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   existing building's box, overlapping another entry.
 - Saved on every change to `mccitybuilder/plans/<sp_world or mp_server>/<dimension>_<colonyId>.txt` under the game
   directory: a header line and one tab-separated line per entry; damaged lines are skipped.
-- Build all / Build selected: outside-the-colony entries stay. Creative: a client queue sends one request at a time
+- Build all / Build selected cover structures and road / wall segments (`Plan.decide` / `decideLine`, pure). Every
+  Build answers in chat and as a toast: "Building N structures and M segments", or "Nothing to build", plus each
+  reason something stayed (outside or into a building, no hut item / research, decorations or segments needing
+  the server part, segments still loading or without pieces, or already sending). The plan and line panels show "Building i / n".
+  The plan panel stacks above the line panel (it used to sit under it and take its clicks, and Build all was
+  disabled for a plan of segments only, the "Build all does nothing" bug). Outside-the-colony entries stay. Creative: a client queue sends one request at a time
   (server part PLACE / DECO, next once the hut's building view appears or after 15 s / 3 s; without the server part
   Structurize Pretty pastes 1.5 s apart). Survival: huts with an item in the inventory and no research lock are
   placed at level 1 with MineColonies' survival handler and get their build requests when the building views appear;
@@ -269,9 +278,36 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   the ground at its own centre (stepped; slope pieces are not used in v1), anchored like the hut ghost (top ground
   block + the blueprint's ground anchor offset - 1). Planned pieces show as Structurize ghosts with footprint outlines
   (red: outside the claims or into an existing building).
-- Options for the next segments or the selected one: family, level or variant (variants: one, or mixed by piece
-  index), towers. The piece-set editor (Pieces) overrides which group plays each role (auto / none / any group of the
-  family), saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
+- Joints, reserved before the runs (`PieceLayout.reach / square / owner / offset`, SelfCheck covers L both ways, T,
+  cross and a straight chain): with a joint piece every run starts right past its face. Without one (e.g. spacewars
+  roads have no corner) it is a butt joint: the square where the lines' bands cross is covered by one line (one with
+  a line straight opposite, so a T's bar runs through, else the first drawn), which reaches back across it; the
+  others stop at its face. Straight chains therefore no longer share their joint row. Cells no piece fits go to a free
+  end (`runStart`), so runs always meet their joints; they are drawn as an amber box. With joints at both ends there is
+  no free end: the gap stays beside the second joint (by design; it is reported as "short" and drawn). The joint's quarter turn scores
+  each face toward a line against a straight's end face by shape and by block (a road corner's open and closed sides
+  can share a shape; the open ones share the road's blocks), and every turn must be loaded before one is picked.
+  The layout reports completeness per line: a line whose pieces or joint piece were still loading (a missing piece,
+  or a butt joint standing in for a corner / T / cross) is never built (`Plan.decideLine` → LOADING, "still
+  loading"). A blueprint that failed to load is logged once and skipped, never waited for.
+  The straights' lateral shift comes from the start's joint, else the end's.
+- Drawing: before the first click, a ghost of the current straight lies across the screen under the cursor. While
+  dragging, the live segment is laid out (with the plan, so its joints are real) into Structurize ghosts (`_live_<n>`
+  cache keys) with an outline per piece (green, red outside the claims or into a building) and the amber gap, only
+  when the key (start, snapped end, plan layout version, options) changes (`LineSnap.relayout`). A label at the
+  midpoint shows "N blocks · M pieces" or "Too short: needs ≥ N"; the cursor shows the gap or the too-short hint. A
+  click on a segment shorter than its need (`PieceLayout.need`: the joint / cap offsets plus the shortest straight;
+  `LineSnap.canDrop`) is refused with a hint instead of planning a 0-piece segment.
+- Committed pieces: each gets its own outline the height of its blueprint box, inset (Structurize draws its own
+  white box around every ghost, which can't be turned off), green / red per piece, white for the selected segment.
+- Panel: family, level or variant (variants: one, or mixed by piece index), Towers / Gate (walls: the selected segment,
+  or the next one drawn; reset after a drop) / Pieces, a card with the piece being laid (top-down render from the
+  blueprint's map colours, name, length x width x height, role), the segment's numbers, Done / Undo / Build. Pieces
+  opens the piece-set editor as a popup beside the panel: which group plays each role (auto / none / any group of
+  the family), saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
+- Style: the palette and the line tools use the colony's own style pack (`IColonyView.getStructurePack`) each time,
+  unless the player picked another for that colony this client session; a style that isn't installed falls back to
+  the first pack with a chat hint (once per colony and session).
 - Build: each piece is a normal decoration from the real pack, through the server part as `piece_batch` messages of
   up to 16 pieces in drawing order; the server runs them one by one through the same DECO (creative paste) /
   DECO_ORDER (survival builder work order) checks as single decorations, plus: every path must be a road / wall
@@ -285,6 +321,20 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   channel instead of mis-decoding; answers go only to clients that have the `batch_result` channel. Busy marks are
   time-stamped, and a request releases only its own (a stuck piece finishing late can't clear a newer mark). Survival is checked when ordered: builders later replace what is there
   when they build.
+
+### Opening and staying inside the colony
+
+- J opens only where the player stands in a chunk claimed by a colony (MineColonies' client claim data,
+  `IColonyManager.getClaimData(dim, chunk).getOwningColony()`, 0 = none) whose view the client has, with the player a
+  member (`IPermissions.isColonyMember`) and allowed `ACCESS_HUTS` (`ColonyGeometry.openCheck`, pure); otherwise an
+  action-bar message: outside, not a member, no permission, or "still loading" (no claim data for the player's
+  chunk and none within 8 chunks - `getClaimData` is null both for unclaimed and for not-yet-synced chunks - or the
+  owning colony's view not synced yet). (It used to take the closest colony view, which from
+  outside left the colony box and the loaded circle disjoint: the clamps fought and the camera glitched.)
+- While open: the player's chunk owned by another colony or unclaimed closes it (`ColonyGeometry.leftColony`; a
+  missing entry counts as unclaimed only when claim data exists within 2 chunks), and so does a colony
+  box that overlaps the loaded circle by less than 8 blocks (`DroneCamera.outOfBounds`), before the clamps can pin the
+  camera over unloaded land.
 
 ### Height, fog and what stays visible
 

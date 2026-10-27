@@ -115,4 +115,71 @@ public final class PieceLayout {
         for (long v : b) if (a.contains(v + shift)) inter++;
         return (double) inter / (a.size() + b.size() - inter);
     }
+
+    // ---- joints: who covers the joint square, where each run starts ----
+
+    /** @return the cells of {@code box} from {@code c} going in direction {@code d}, c included (0 when c is past it) */
+    public static int reach(int[] c, int d, int[] box) {
+        return Math.max(0, switch (d) {
+            case 0 -> box[2] - c[0] + 1;
+            case 2 -> c[0] - box[0] + 1;
+            case 1 -> box[3] - c[1] + 1;
+            default -> c[1] - box[1] + 1;
+        });
+    }
+
+    /**
+     * The square a butt joint (no joint piece) must cover once: each line's band across its run, where the lines
+     * meet. East / west runs give the Z extent, north / south runs the X extent; along an axis no line crosses, the
+     * joint cell alone.
+     *
+     * @param dirs   each meeting line's direction out of {@code c}
+     * @param widths each line's piece width
+     * @return {x0, z0, x1, z1}
+     */
+    public static int[] square(int[] c, int[] dirs, int[] widths) {
+        int x0 = c[0], x1 = c[0], z0 = c[1], z1 = c[1];
+        for (int k = 0; k < dirs.length; k++) {
+            int lo = -(widths[k] - 1) / 2, hi = widths[k] / 2;
+            if (dirs[k] % 2 == 0) {
+                z0 = Math.min(z0, c[1] + lo);
+                z1 = Math.max(z1, c[1] + hi);
+            } else {
+                x0 = Math.min(x0, c[0] + lo);
+                x1 = Math.max(x1, c[0] + hi);
+            }
+        }
+        return new int[]{x0, z0, x1, z1};
+    }
+
+    /** @return the line (index into {@code dirs}) that runs through a butt joint: the first with a line straight opposite, else the first */
+    public static int owner(int[] dirs) {
+        for (int k = 0; k < dirs.length; k++)
+            for (int d : dirs) if (d == (dirs[k] + 2) % 4) return k;
+        return 0;
+    }
+
+    /**
+     * Where a run starts at a joint end, in cells from the joint cell along {@code d} (into the line): past the joint
+     * piece's (or butt square's) far face, or for the butt joint's owner, back across the square so it covers it once.
+     */
+    public static int offset(int[] c, int d, int[] box, boolean owner) {
+        return owner ? 1 - reach(c, (d + 2) % 4, box) : reach(c, d, box);
+    }
+
+    /** @return the segment length (cells) a piece needs: the joint / cap offsets plus the shortest straight; MAX_VALUE without one */
+    public static int need(int off0, int off1, int[] lens) {
+        int min = Integer.MAX_VALUE;
+        for (int l : lens) if (l > 0) min = Math.min(min, l);
+        return min == Integer.MAX_VALUE ? min : Math.max(1, off0 + off1 + min);
+    }
+
+    /**
+     * @param left cells no piece covers
+     * @return where the first piece starts (cells from the segment's start): uncovered cells go to a free end, so a
+     * run always meets its joint
+     */
+    public static int runStart(int off0, int left, boolean free0, boolean free1) {
+        return off0 + (free0 && !free1 ? left : 0);
+    }
 }

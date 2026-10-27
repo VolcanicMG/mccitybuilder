@@ -16,6 +16,8 @@ public final class DroneCamera {
     public static final double MIN_VSPEED = 16, VSPEED_PER_BLOCK = 3;
     /** ...and at least this many times the remaining gap per second (a glide that catches up within ~0.5 s). */
     public static final double VSPEED_GAP = 8;
+    /** Seconds the clearance holds before it starts to release (no release / re-trigger flicker). */
+    public static final double CLEAR_HOLD = 0.6;
     /** Horizontal speed cap for the rendered position, blocks/s (same idea; a turn or a clamp becomes a glide). */
     public static final double MIN_HSPEED = 32, HSPEED_PER_BLOCK = 6;
     /** A turn pivot farther than this many times the height above it is not trusted: turn in place instead. */
@@ -38,7 +40,7 @@ public final class DroneCamera {
     /** The surface right under the camera's footprint (set by the rig): the zoom minimum sits above it. */
     public double groundTop = Double.NEGATIVE_INFINITY;
     // The last finite obstacle height, used when a frame has no loaded columns.
-    private double lastObstacle = Double.NaN, lastFloor = Double.NaN, vStep;
+    private double lastObstacle = Double.NaN, lastFloor = Double.NaN, vStep, clearHeld;
     /** Where x / z may go: a circle (the loaded area) and a box (the colony + margin, or null); the circle wins. */
     public double circleX, circleZ, circleR = Double.POSITIVE_INFINITY;
     public double[] box;
@@ -74,6 +76,12 @@ public final class DroneCamera {
 
     public double camZ() {
         return zOut;
+    }
+
+    /** Puts the drawn x / z back (the rig holds it while the camera still climbs to clear what is ahead). */
+    public void holdDrawn(double x, double z) {
+        xOut = x;
+        zOut = z;
     }
 
     /** @return the camera's actual height: the user's altitude plus any clearance, reached at a capped vertical speed */
@@ -162,7 +170,9 @@ public final class DroneCamera {
         if (Double.isFinite(floorTop)) lastFloor = floorTop;
         else floorTop = Double.isNaN(lastFloor) ? yOut - 2 * CLEARANCE : lastFloor;
         double needed = Math.max(0, obstacleTop + CLEARANCE - altitude);
-        clearance = CameraMath.ease(clearance, needed, dt, CLEAR_TAU);
+        // Hysteresis: rises at once, releases only after the need stayed lower for CLEAR_HOLD.
+        clearHeld = needed >= clearance - 1e-9 ? 0 : clearHeld + dt;
+        clearance = CameraMath.ease(clearance, needed < clearance && clearHeld < CLEAR_HOLD ? clearance : needed, dt, CLEAR_TAU);
         // Safety net: whatever moves the height, the camera glides there.
         // The cap grows with the gap itself, so a climb toward an obstacle never stalls at the minimum.
         double target = altitude + clearance;
@@ -232,6 +242,19 @@ public final class DroneCamera {
         double[] c = CameraMath.clampToCircle(x, z, circleX, circleZ, circleR);
         x = c[0];
         z = c[1];
+    }
+
+    /** Least overlap (blocks) between the colony box and the loaded circle for the camera to have room to move. */
+    public static final double MIN_OVERLAP = 8;
+
+    /**
+     * @return true when the colony box and the loaded circle (barely) overlap: the clamps would pin the camera over
+     * unloaded land or fight each other, so the planner should close
+     */
+    public boolean outOfBounds() {
+        if (box == null || Double.isInfinite(circleR)) return false;
+        double nx = CameraMath.clamp(circleX, box[0], box[2]), nz = CameraMath.clamp(circleZ, box[1], box[3]);
+        return Math.hypot(nx - circleX, nz - circleZ) > circleR - MIN_OVERLAP;
     }
 
     /** @return where the screen-centre ray meets the horizontal plane at {@code groundY}, or null if it never does */

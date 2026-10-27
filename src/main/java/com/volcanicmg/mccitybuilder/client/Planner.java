@@ -177,13 +177,35 @@ public final class Planner {
         else enter();
     }
 
-    /** Enters planner view over the colony the player is in or nearest to; needs hut access there. */
+    /**
+     * @return the id of the colony owning the chunk the player stands in; 0 for none; -1 when the client has no claim
+     * data there (unclaimed, or not synced yet: {@link #claimsAround} tells which)
+     */
+    private static int owner(Minecraft mc) {
+        var claim = IColonyManager.getInstance().getClaimData(mc.level.dimension(), new net.minecraft.world.level.ChunkPos(mc.player.blockPosition()));
+        return claim == null ? -1 : claim.getOwningColony();
+    }
+
+    /** @return true when the client has claim data for some chunk within {@code r} chunks of the player */
+    private static boolean claimsAround(Minecraft mc, int r) {
+        var all = IColonyManager.getInstance().getClaimData(mc.level.dimension());
+        if (all == null) return false;
+        var here = new net.minecraft.world.level.ChunkPos(mc.player.blockPosition());
+        for (var p : all.keySet()) if (Math.abs(p.x - here.x) <= r && Math.abs(p.z - here.z) <= r) return true;
+        return false;
+    }
+
+    /** Enters planner view over the colony the player stands in; needs membership and hut access there. */
     static void enter() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
-        IColonyView c = IColonyManager.getInstance().getClosestColonyView(mc.level, mc.player.blockPosition());
-        if (c == null || !c.getPermissions().hasPermission(mc.player, Action.ACCESS_HUTS)) {
-            mc.player.displayClientMessage(Component.translatable("mccitybuilder.no_colony"), true);
+        // Only from inside a colony the player belongs to: the owner of the chunk they stand in (MineColonies' claims).
+        int owner = owner(mc);
+        IColonyView c = owner > 0 ? IColonyManager.getInstance().getColonyView(owner, mc.level.dimension()) : null;
+        String why = ColonyGeometry.openCheck(owner, owner >= 0 || claimsAround(mc, 8), c != null, c != null && c.getPermissions().isColonyMember(mc.player),
+                c != null && c.getPermissions().hasPermission(mc.player, Action.ACCESS_HUTS));
+        if (why != null) {
+            mc.player.displayClientMessage(Component.translatable("mccitybuilder.open." + why), true);
             return;
         }
         colony = c;
@@ -244,6 +266,8 @@ public final class Planner {
         if (mc.player.isDeadOrDying()) exit(Component.translatable("mccitybuilder.exit.died"));
         else if (mc.player.hurtTime > 0) exit(Component.translatable("mccitybuilder.exit.hurt"));
         else if (camera.level() != mc.level) exit(Component.translatable("mccitybuilder.exit.dimension"));
+        // Out of the colony (teleported, pushed): another colony's or unclaimed land, once claims around are known.
+        else if (ColonyGeometry.leftColony(owner(mc), colony.getID(), claimsAround(mc, 2))) exit(Component.translatable("mccitybuilder.exit.left_colony"));
         if (!active) return;
         // A hut window (or any screen) opened from the planner: come back when it closes.
         if (mc.screen == null) mc.setScreen(new PlannerScreen());
@@ -309,6 +333,11 @@ public final class Planner {
         drone.circleZ = mc.player.getZ();
         drone.circleR = Math.max(16, (mc.options.getEffectiveRenderDistance() - 1) * 16.0);
         drone.box = bounds;
+        // The colony out of the loaded area (a teleport): the clamps would fight over unloaded land, so close instead.
+        if (drone.outOfBounds()) {
+            exit(Component.translatable("mccitybuilder.exit.left_colony"));
+            return;
+        }
         double right = 0, ahead = 0, turn = 0;
         // Shift: faster panning; the velocity eases to the new speed, so no jump on press or release.
         boolean fast = mc.screen instanceof PlannerScreen && mc.isWindowActive() && !PlannerScreen.typing() && Screen.hasShiftDown();

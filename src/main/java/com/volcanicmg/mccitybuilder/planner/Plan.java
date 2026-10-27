@@ -61,6 +61,36 @@ public final class Plan {
     /** Why an entry can't be built as planned. */
     public enum Conflict { NONE, OVERLAP_PLAN, OVERLAP_BUILDING, OUTSIDE }
 
+    /** What Build all does with one planned item: send it, or keep it in the plan for a reason the player is told. */
+    public enum Build { SEND, OUTSIDE, NO_ITEM, DECO_WINDOW, NEEDS_SERVER, NO_PIECES, LOADING, IN_FLIGHT }
+
+    /**
+     * @param outside  the entry is outside the colony's claims
+     * @param haveItem survival: the hut item is in the inventory and its research is done
+     * @return Build all's decision for a hut or decoration entry
+     */
+    public static Build decide(boolean outside, boolean creative, boolean server, boolean hut, boolean haveItem) {
+        if (outside) return Build.OUTSIDE;
+        if (creative) return Build.SEND;
+        if (!hut) return server ? Build.SEND : Build.DECO_WINDOW;
+        return haveItem ? Build.SEND : Build.NO_ITEM;
+    }
+
+    /**
+     * @param bad     a piece is outside the claims or runs into a building
+     * @param empty   no pieces laid out (still loading, or too short)
+     * @param sending  its batches are already on their way
+     * @param complete every blueprint of its layout was loaded (else pieces could be missing or a joint wrong)
+     * @return Build all's decision for a road / wall segment (pieces always go through the server part)
+     */
+    public static Build decideLine(boolean server, boolean bad, boolean empty, boolean sending, boolean complete) {
+        if (sending) return Build.IN_FLIGHT;
+        if (!server) return Build.NEEDS_SERVER;
+        if (!complete) return Build.LOADING;
+        if (empty) return Build.NO_PIECES;
+        return bad ? Build.OUTSIDE : Build.SEND;
+    }
+
     public static final int VERSION = 1;
 
     private Plan() {

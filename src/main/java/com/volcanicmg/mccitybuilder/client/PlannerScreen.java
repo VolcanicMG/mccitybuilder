@@ -43,6 +43,10 @@ import org.lwjgl.glfw.GLFW;
 final class PlannerScreen extends Screen {
     private static final int PAD = 7, SLOT = 18, COLS = 9, PALETTE_W = PAD * 2 + COLS * SLOT, QUEUE_W = 210, ROW_H = 24;
     private static String pack, category;
+    // The pack the player picked this client session, per colony id: it wins over the colony's own style.
+    private static final java.util.Map<Integer, String> pickedPack = new java.util.HashMap<>();
+    // Colonies already told their style isn't installed (once per session).
+    private static final java.util.Set<Integer> missingTold = new java.util.HashSet<>();
     private static int queueScroll;
 
     /** A clickable area this frame. */
@@ -72,17 +76,29 @@ final class PlannerScreen extends Screen {
         super(Component.translatable("mccitybuilder.title"));
     }
 
-    /** @return the style pack the palette uses: the chosen one, else the colony's / Structurize's selected pack */
+    /**
+     * @return the style pack the palette and the road / wall tools use: the one the player picked for this colony this
+     * session, else the colony's own style (town hall setting), else the first installed pack (with a one-time hint)
+     */
     static String pack() {
-        if (pack == null || StructurePacks.getStructurePack(pack) == null) {
-            List<String> all = Blueprints.packs();
-            // The colony's own style first, then the build tool's selected pack.
-            IColonyView c = Planner.colony();
-            String sel = c != null && all.contains(c.getStructurePack()) ? c.getStructurePack()
-                    : StructurePacks.selectedPack != null ? StructurePacks.selectedPack.getName() : null;
-            pack = sel != null && all.contains(sel) ? sel : all.isEmpty() ? "" : all.get(0);
+        List<String> all = Blueprints.packs();
+        IColonyView c = Planner.colony();
+        String picked = c == null ? null : pickedPack.get(c.getID());
+        String want = picked != null && all.contains(picked) ? picked : c != null ? c.getStructurePack() : pack;
+        if (want != null && all.contains(want)) pack = want;
+        else if (pack == null || !all.contains(pack)) {
+            pack = all.isEmpty() ? "" : all.get(0);
+            if (c != null && !all.isEmpty() && want != null && !want.isEmpty() && missingTold.add(c.getID()) && Minecraft.getInstance().player != null)
+                Minecraft.getInstance().player.displayClientMessage(Component.translatable("mccitybuilder.pack.missing", want, pack), false);
         }
         return pack;
+    }
+
+    /** The player picks a pack: it stays for this colony until the game closes. */
+    private static void pickPack(String p) {
+        pack = p;
+        IColonyView c = Planner.colony();
+        if (c != null) pickedPack.put(c.getID(), p);
     }
 
     @Override
@@ -158,8 +174,11 @@ final class PlannerScreen extends Screen {
         palette(g, mouseX, mouseY);
         queue(g, colony, mouseX, mouseY);
         selection(g, mouseX, mouseY);
-        planPanel(g, mouseX, mouseY);
+        // The line panel first: it sits lowest and the plan panel stacks above it (never under it, where its
+        // hit boxes would take the line panel's clicks).
         linePanel(g, mouseX, mouseY);
+        planPanel(g, mouseX, mouseY);
+        lineLabels(g, mouseX, mouseY);
         actionBar(g, mouseX, mouseY);
         guide(g, mouseX, mouseY);
         status(g);
@@ -263,32 +282,31 @@ final class PlannerScreen extends Screen {
         return out;
     }
 
-    /** Road / wall tool on or off (they replace each other; neither changes hut placement). */
-    private void useTool(String t) {
-        LineView.use(t);
-        PlanView.linesChanged();
-        PlanView.selectedLine = -1;
-        click();
-        toast(Component.translatable(LineView.active() ? "mccitybuilder.line.on." + LineView.tool : "mccitybuilder.line.off"));
-    }
-
     private static boolean editorOpen;
     private static final com.volcanicmg.mccitybuilder.planner.PieceSets.Role[] EDIT_ROLES = {com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT,
             com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TEE,
             com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CROSS, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.END,
             com.volcanicmg.mccitybuilder.planner.PieceSets.Role.GATE, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TOWER};
+    // Top of the bottom-right panel stack this frame (the line panel sits lowest, the plan panel above it).
+    private int stackTop;
 
     /**
-     * The road / wall panel: the style's piece family, level or variant, towers, gate (selected segment), lengths and
-     * block counts, End / Undo / Build, and the piece-set editor (which piece plays each role).
+     * The road / wall panel: family, level or variant, towers / gate / Pieces (the per-role editor opens as its own
+     * popup), a card showing the piece being laid (top-down render, name, size, role), the segment's numbers, and
+     * Done / Undo / Build.
      */
     private void linePanel(GuiGraphics g, int mx, int my) {
-        if (!LineView.active() && PlanView.selectedLine() == null) return;
+        stackTop = height - 4;
+        if (!LineView.active() && PlanView.selectedLine() == null) {
+            editorOpen = false;
+            return;
+        }
         com.volcanicmg.mccitybuilder.planner.Plan.Line sel = PlanView.selectedLine();
         String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
         String status = sel != null ? null : LineView.status();
         String fam = sel != null ? sel.family() : status == null ? LineView.family() : null;
-        int w = 220, h = status != null ? 40 : editorOpen ? 104 + EDIT_ROLES.length * 18 : 140, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
+        int w = 220, h = status != null ? 40 : 182, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
+        stackTop = y - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         int ix = x + PAD, iw = w - 2 * PAD;
@@ -310,19 +328,20 @@ final class PlannerScreen extends Screen {
             LineView.cycleLevel(d, li[0], li[1] == 1);
             click();
         }, Component.translatable("mccitybuilder.line.level.tip"));
-        // Towers at joints, gate in the selected segment, and the piece-set editor.
-        boolean[] on = {sel != null ? sel.towers() : LineView.towers, sel != null && sel.gate(), editorOpen};
+        // Towers at joints, a gate (walls: the selected segment or the next one), and the per-role editor.
+        boolean wall = "wall".equals(tool);
+        boolean[] on = {sel != null ? sel.towers() : LineView.towers, sel != null ? sel.gate() : LineView.gate, editorOpen};
         String[] keys = {"towers", "gate", "pieces"};
         int bw3 = (iw - 4) / 3;
         for (int i = 0; i < 3; i++) {
             int bx = ix + i * (bw3 + 2);
-            boolean off = i == 1 && (sel == null || !sel.isWall()), over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
+            boolean off = i == 1 && !wall, over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
             VanillaUi.button(g, bx, iy, bw3, 16, on[i], off, over);
             String l = Component.translatable("mccitybuilder.line." + keys[i]).getString();
             g.drawString(font, l, bx + (bw3 - font.width(l)) / 2, iy + 4, off ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
             int fi = i;
             hits.add(new Hit(bx, iy, bw3, 16, () -> {
-                if (fi == 1 && (PlanView.selectedLine() == null || !PlanView.selectedLine().isWall())) return;
+                if (fi == 1 && !wall) return;
                 click();
                 if (fi == 0) LineView.toggleTowers();
                 else if (fi == 1) LineView.toggleGate();
@@ -330,52 +349,31 @@ final class PlannerScreen extends Screen {
             }, Component.translatable("mccitybuilder.line." + keys[i] + ".tip")));
         }
         iy += 20;
-        if (editorOpen && fam != null) {
-            var fs = PieceCatalog.families(pk);
-            var f = fs == null ? null : fs.get(fam);
-            if (f != null) {
-                java.util.List<com.volcanicmg.mccitybuilder.planner.PieceSets.Group> all = PieceCatalog.allGroups(f);
-                for (var role : EDIT_ROLES) {
-                    String cur = PieceCatalog.overrides(pk).get(fam + "|" + role.name());
-                    var used = PieceCatalog.groups(pk, f, role);
-                    String label = Component.translatable("mccitybuilder.line.role." + role.name().toLowerCase(java.util.Locale.ROOT)).getString() + ": "
-                            + (cur == null ? (used.isEmpty() ? "-" : used.get(0).base()) + " (auto)" : cur.equals("-") ? "none" : cur);
-                    // Choices: auto, none, then every piece group of the family.
-                    java.util.List<String> choices = new java.util.ArrayList<>(java.util.Arrays.asList(null, "-"));
-                    for (var gr : all) choices.add(gr.base());
-                    iy = picker(g, ix, iy, iw, label, mx, my, d -> {
-                        int k = choices.indexOf(cur);
-                        String nx = choices.get(Math.floorMod(k + d, choices.size()));
-                        PieceCatalog.override(pk, fam, role, nx);
-                        PlanView.linesChanged();
-                        click();
-                    }, Component.translatable("mccitybuilder.line.role.tip")) - 2;
-                }
-            }
-        }
-        // Length, pieces and blocks: the live segment and the chain, or the selected segment.
-        int segLen = LineView.start != null && LineView.end != null ? com.volcanicmg.mccitybuilder.planner.LineSnap.length(LineView.start, LineView.end) : 0;
-        int chainPieces = 0, chainBlocks = 0;
-        for (var l : LineView.chain) {
-            int idx = PlanView.lines.indexOf(l);
-            if (idx >= 0 && idx < PlanView.linePieces.size()) {
-                chainPieces += PlanView.linePieces.get(idx).size();
-                chainBlocks += LineView.cost(PlanView.linePieces.get(idx));
-            }
-        }
+        iy = pieceCard(g, ix, iy, iw);
+        // The segment's numbers: the live one and the chain, or the selected segment.
         String info;
         if (sel != null) {
             int idx = PlanView.selectedLine;
             var ps = idx < PlanView.linePieces.size() ? PlanView.linePieces.get(idx) : java.util.List.<PieceCatalog.Placed>of();
             int sh = idx < PlanView.lineShort.size() ? PlanView.lineShort.get(idx) : 0;
             info = Component.translatable("mccitybuilder.line.cost_selected", com.volcanicmg.mccitybuilder.planner.LineSnap.length(new int[]{sel.x0(), sel.z0()},
-                    new int[]{sel.x1(), sel.z1()}), ps.size(), LineView.cost(ps), sh).getString();
-        } else info = Component.translatable("mccitybuilder.line.cost", segLen, LineView.live.size(), LineView.liveShort, LineView.chain.size(), chainPieces, chainBlocks).getString();
+                    new int[]{sel.x1(), sel.z1()}) + 1, ps.size(), LineView.cost(ps), sh).getString();
+        } else if (LineView.start == null) info = Component.translatable("mccitybuilder.line.click_start").getString();
+        else {
+            int chainPieces = 0;
+            for (var l : LineView.chain) {
+                int idx = PlanView.lines.indexOf(l);
+                if (idx >= 0 && idx < PlanView.linePieces.size()) chainPieces += PlanView.linePieces.get(idx).size();
+            }
+            info = Component.translatable("mccitybuilder.line.chain", LineView.chain.size(), chainPieces).getString();
+        }
+        Component prog = PlanView.progress();
+        if (prog != null) info = prog.getString();
         g.drawString(font, font.plainSubstrByWidth(info, iw), ix + 1, iy, 0xFF555555, false);
         iy += 12;
         boolean server = Planner.serverInstant();
-        String[] bkeys = {"end", "undo", "build"};
-        boolean[] off = {LineView.start == null, LineView.chain.isEmpty(), PlanView.lines.isEmpty() || !server};
+        String[] bkeys = {"done", "undo", "build"};
+        boolean[] off = {LineView.start == null, LineView.chain.isEmpty(), PlanView.lines.isEmpty() && PlanView.entries.isEmpty()};
         Runnable[] run = {LineView::endChain, LineView::undo, () -> toast(PlanView.commit(false))};
         int bw = (iw - 4) / 3;
         for (int i = 0; i < 3; i++) {
@@ -391,6 +389,130 @@ final class PlannerScreen extends Screen {
                 run[fi].run();
             }, Component.translatable(i == 2 && !server ? "mccitybuilder.line.needs_server" : "mccitybuilder.line." + bkeys[i] + ".tip")));
         }
+        if (editorOpen && fam != null) pieceEditor(g, x - 4 - w, Math.max(4, y + h - (PAD * 2 + 22 + EDIT_ROLES.length * 18)), w, pk, fam, mx, my);
+    }
+
+    /**
+     * "What am I placing": a top-down render of the current straight (or the selected segment's), its name, its size
+     * (length x width x height along the run) and role.
+     *
+     * @return the y below the card
+     */
+    private int pieceCard(GuiGraphics g, int x, int y, int w) {
+        int ch = 44;
+        VanillaUi.slot(g, x, y, w, ch);
+        com.volcanicmg.mccitybuilder.planner.PieceSets.Piece p = LineView.current();
+        if (p == null) {
+            g.drawString(font, Component.translatable("mccitybuilder.line.card.loading"), x + 6, y + 6, 0xFFFFFFFF, true);
+            return y + ch + 4;
+        }
+        String pk = PlanView.selectedLine() != null ? PlanView.selectedLine().pack() : pack();
+        int box = ch - 4;
+        int[] top = PieceCatalog.topView(pk, p.path());
+        if (top != null) {
+            // Laid along the screen's X: the run left to right.
+            boolean turn = p.sz() > p.sx();
+            int rw = turn ? p.sz() : p.sx(), rh = turn ? p.sx() : p.sz(), cell = Math.max(1, Math.min(box / Math.max(1, rw), box / Math.max(1, rh)));
+            int ox = x + 2 + (box - rw * cell) / 2, oy = y + 2 + (box - rh * cell) / 2;
+            for (int u = 0; u < rw; u++)
+                for (int v = 0; v < rh; v++) {
+                    int c = turn ? top[u * p.sx() + v] : top[v * p.sx() + u];
+                    if (c != 0) g.fill(ox + u * cell, oy + v * cell, ox + (u + 1) * cell, oy + (v + 1) * cell, c);
+                }
+        }
+        int tx = x + box + 8, tw = w - box - 12;
+        String name = p.path().substring(p.path().lastIndexOf('/') + 1).replace(".blueprint", "");
+        g.drawString(font, font.plainSubstrByWidth(name, tw), tx, y + 4, 0xFFFFFFFF, true);
+        g.drawString(font, Component.translatable("mccitybuilder.line.card.size", p.run(), p.across(), p.sy()), tx, y + 16, 0xFFD0D0D0, false);
+        g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.line.card.role",
+                Component.translatable("mccitybuilder.line.role.straight")).getString(), tw), tx, y + 28, 0xFFA0A0A0, false);
+        return y + ch + 4;
+    }
+
+    /** The per-role piece editor, a popup beside the line panel: which piece group plays each role (auto / none / any). */
+    private void pieceEditor(GuiGraphics g, int x, int y, int w, String pk, String fam, int mx, int my) {
+        var fs = PieceCatalog.families(pk);
+        var f = fs == null ? null : fs.get(fam);
+        if (f == null) return;
+        int h = PAD * 2 + 22 + EDIT_ROLES.length * 18;
+        x = Math.max(4, x);
+        panels.add(new int[]{x, y, w, h});
+        VanillaUi.panel(g, x, y, w, h);
+        int ix = x + PAD, iw = w - 2 * PAD;
+        g.drawString(font, Component.translatable("mccitybuilder.line.editor"), ix + 1, y + PAD, VanillaUi.LABEL, false);
+        int cx = x + w - PAD - 12;
+        boolean overX = mx >= cx && mx < cx + 12 && my >= y + PAD - 2 && my < y + PAD + 10;
+        VanillaUi.button(g, cx, y + PAD - 2, 12, 12, false, false, overX);
+        g.drawString(font, "x", cx + 3, y + PAD, VanillaUi.INK, false);
+        hits.add(new Hit(cx, y + PAD - 2, 12, 12, () -> {
+            click();
+            editorOpen = false;
+        }, null));
+        int iy = y + PAD + 14;
+        java.util.List<com.volcanicmg.mccitybuilder.planner.PieceSets.Group> all = PieceCatalog.allGroups(f);
+        for (var role : EDIT_ROLES) {
+            String cur = PieceCatalog.overrides(pk).get(fam + "|" + role.name());
+            var used = PieceCatalog.groups(pk, f, role);
+            String label = Component.translatable("mccitybuilder.line.role." + role.name().toLowerCase(java.util.Locale.ROOT)).getString() + ": "
+                    + (cur == null ? (used.isEmpty() ? "-" : used.get(0).base()) + " (auto)" : cur.equals("-") ? "none" : cur);
+            // Choices: auto, none, then every piece group of the family.
+            java.util.List<String> choices = new java.util.ArrayList<>(java.util.Arrays.asList(null, "-"));
+            for (var gr : all) choices.add(gr.base());
+            iy = picker(g, ix, iy, iw, label, mx, my, d -> {
+                int k = choices.indexOf(cur);
+                String nx = choices.get(Math.floorMod(k + d, choices.size()));
+                PieceCatalog.override(pk, fam, role, nx);
+                PlanView.linesChanged();
+                click();
+            }, Component.translatable("mccitybuilder.line.role.tip")) - 2;
+        }
+    }
+
+    /**
+     * In the world while drawing: the live segment's length and piece count at its midpoint, and at the cursor the
+     * short-gap hint, "too short", or a refused click's hint.
+     */
+    private void lineLabels(GuiGraphics g, int mx, int my) {
+        if (!LineView.active()) return;
+        String warn = null;
+        int warnColour = 0xFFFFC040;
+        if (LineView.start != null && LineView.end != null && LineView.liveLen > 1) {
+            boolean fits = com.volcanicmg.mccitybuilder.planner.LineSnap.canDrop(LineView.liveLen, LineView.liveNeed);
+            Component t = fits ? Component.translatable("mccitybuilder.line.label", LineView.liveLen, LineView.live.size())
+                    : LineView.liveNeed == Integer.MAX_VALUE ? Component.translatable("mccitybuilder.line.no_fit")
+                    : Component.translatable("mccitybuilder.line.too_short", LineView.liveNeed);
+            double wx = (LineView.start[0] + LineView.end[0]) / 2.0 + 0.5, wz = (LineView.start[1] + LineView.end[1]) / 2.0 + 0.5;
+            Integer gy = Planner.groundAt((int) Math.floor(wx), (int) Math.floor(wz));
+            int top = 0;
+            for (PieceCatalog.Placed p : LineView.live) top = Math.max(top, p.y0() + p.h());
+            double[] ndc = Planner.project(wx, Math.max(top, (gy == null ? 64 : gy) + 2) + 1, wz);
+            if (ndc != null && Math.abs(ndc[0]) <= 1 && Math.abs(ndc[1]) <= 1) {
+                int sx = (int) Math.round((ndc[0] + 1) / 2 * width), sy = (int) Math.round((1 - ndc[1]) / 2 * height), tw = font.width(t);
+                g.fill(sx - tw / 2 - 3, sy - 6, sx + tw / 2 + 3, sy + 6, 0xC0202020);
+                g.drawString(font, t, sx - tw / 2, sy - 4, fits ? 0xFFFFFFFF : 0xFFFF8080, false);
+            }
+            if (!fits) {
+                warn = t.getString();
+                warnColour = 0xFFFF8080;
+            } else if (LineView.liveShort > 0) warn = Component.translatable("mccitybuilder.line.short", LineView.liveShort).getString();
+        }
+        if (LineView.flash != null && System.currentTimeMillis() < LineView.flashUntil) {
+            warn = Component.translatable(LineView.flash, LineView.flashArg).getString();
+            warnColour = 0xFFFF8080;
+        }
+        if (warn == null || overPanel(mx, my)) return;
+        int w = font.width(warn);
+        g.fill(mx + 10, my + 10, mx + 16 + w, my + 23, 0xC0202020);
+        g.drawString(font, warn, mx + 13, my + 13, warnColour, false);
+    }
+
+    /** Road / wall tool on or off (they replace each other; neither changes hut placement). */
+    private void useTool(String t) {
+        LineView.use(t);
+        PlanView.linesChanged();
+        PlanView.selectedLine = -1;
+        click();
+        toast(Component.translatable(LineView.active() ? "mccitybuilder.line.on." + LineView.tool : "mccitybuilder.line.off"));
     }
 
     private void togglePlan() {
@@ -407,17 +529,18 @@ final class PlannerScreen extends Screen {
     /** Plan mode: the plan's state and its Build all / Build selected / Clear buttons. */
     private void planPanel(GuiGraphics g, int mx, int my) {
         if (!PlanView.on) return;
-        int w = 200, h = 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
+        int w = 200, h = 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = stackTop - h;
         if (Planner.selected != null) y -= 62;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         long bad = PlanView.conflicts.stream().filter(c -> c != com.volcanicmg.mccitybuilder.planner.Plan.Conflict.NONE).count();
-        g.drawString(font, Component.translatable("mccitybuilder.plan.title", PlanView.entries.size(), bad), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
-        String sub = PlanView.queued() > 0 ? Component.translatable("mccitybuilder.plan.queued", PlanView.queued()).getString()
+        g.drawString(font, Component.translatable("mccitybuilder.plan.title", PlanView.entries.size(), PlanView.lines.size(), bad), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
+        String sub = PlanView.progress() != null ? PlanView.progress().getString()
                 : PlanView.hasSelection() ? selectedPlanText() : Component.translatable("mccitybuilder.plan.hint").getString();
         g.drawString(font, font.plainSubstrByWidth(sub, w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
         String[] keys = {"build_all", "build_sel", "clear"};
-        boolean[] off = {PlanView.entries.isEmpty(), !PlanView.hasSelection(), PlanView.entries.isEmpty()};
+        boolean empty = PlanView.entries.isEmpty() && PlanView.lines.isEmpty();
+        boolean[] off = {empty, !PlanView.hasSelection() && PlanView.selectedLine() == null, empty};
         Runnable[] run = {() -> toast(PlanView.commit(false)), () -> toast(PlanView.commit(true)), PlanView::clear};
         int bw = (w - 2 * PAD - 4) / 3;
         for (int i = 0; i < 3; i++) {
@@ -585,7 +708,7 @@ final class PlannerScreen extends Screen {
         yy = picker(g, ix, yy, iw, cur.isEmpty() ? "-" : cur, mx, my, d -> {
             if (packs.isEmpty()) return;
             int i = Math.max(0, packs.indexOf(pack()));
-            pack = packs.get(Math.floorMod(i + d, packs.size()));
+            pickPack(packs.get(Math.floorMod(i + d, packs.size())));
             if (Planner.placing != null) Planner.startPlacing(Planner.placing);
             else if (Planner.deco != null) Planner.stopPlacing();
             click();
@@ -1036,14 +1159,16 @@ final class PlannerScreen extends Screen {
 
     private void status(GuiGraphics g) {
         if (toast == null || System.currentTimeMillis() > toastUntil) return;
-        int w = font.width(toast);
-        g.fill(width / 2 - w / 2 - 4, 6, width / 2 + w / 2 + 4, 20, 0xE0202020);
-        g.drawString(font, toast, width / 2 - w / 2, 9, 0xFFFFFFFF, false);
+        var rows = font.split(toast, Math.min(400, width - 40));
+        int w = 0;
+        for (var r : rows) w = Math.max(w, font.width(r));
+        g.fill(width / 2 - w / 2 - 4, 6, width / 2 + w / 2 + 4, 10 + rows.size() * 10, 0xE0202020);
+        for (int i = 0; i < rows.size(); i++) g.drawString(font, rows.get(i), width / 2 - w / 2, 9 + i * 10, 0xFFFFFFFF, false);
     }
 
     private void toast(Component c) {
         toast = c;
-        toastUntil = System.currentTimeMillis() + 2500;
+        toastUntil = System.currentTimeMillis() + Math.min(8000, 2500 + 30L * c.getString().length());
     }
 
     private static void outline(GuiGraphics g, int x, int y, int w, int h, int c) {

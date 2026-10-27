@@ -73,4 +73,18 @@ public final class LineSnap {
     public static int length(int[] a, int[] b) {
         return Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
     }
+
+    /** @return true when the live segment must be laid out again: no layout yet, or its key (ends, plan, options) changed */
+    public static boolean relayout(int[] prevKey, int[] key) {
+        return prevKey == null || !java.util.Arrays.equals(prevKey, key);
+    }
+
+    /**
+     * @param cells the segment's length in cells (both ends included)
+     * @param need  the cells it needs to fit a piece ({@code PieceLayout.need}; MAX_VALUE when nothing fits)
+     * @return true when a click may drop it (false = too short: a 0-piece segment would be planned)
+     */
+    public static boolean canDrop(int cells, int need) {
+        return need != Integer.MAX_VALUE && cells >= need;
+    }
 }

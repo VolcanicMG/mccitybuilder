@@ -31,14 +31,19 @@ import net.minecraft.world.level.block.state.BlockState;
  * by matching the solid profile of their faces to the neighbouring straights), end caps, gates.
  */
 final class PieceCatalog {
-    /** A piece to place: its blueprint path, quarter turns, anchor, footprint box {x0, z0, x1, z1}, role, block count. */
-    record Placed(String path, int turns, BlockPos anchor, int[] box, PieceSets.Role role, int blocks) {
+    /**
+     * A piece to place: its blueprint path, quarter turns, anchor, footprint box {x0, z0, x1, z1}, role, block count,
+     * and the bottom and height of its blueprint box (for outlines).
+     */
+    record Placed(String path, int turns, BlockPos anchor, int[] box, PieceSets.Role role, int blocks, int y0, int h) {
     }
 
     private static final Map<String, Map<String, PieceSets.Family>> families = new HashMap<>();
     private static final Map<String, CompletableFuture<Blueprint>> loads = new HashMap<>();
     private static final Map<String, Blueprint> rotated = new HashMap<>();
     private static final Map<String, Integer> blockCounts = new HashMap<>();
+    // Pieces whose blueprint failed to load ("pack|path"): skipped, so their pack doesn't wait for them forever.
+    private static final Set<String> failed = new HashSet<>();
     // Overrides: pack -> "family|ROLE" -> group base name ("-" = role disabled).
     private static final Map<String, Map<String, String>> overrides = new HashMap<>();
 
@@ -50,6 +55,8 @@ final class PieceCatalog {
         loads.clear();
         rotated.clear();
         blockCounts.clear();
+        failed.clear();
+        topViews.clear();
         overrides.clear();
     }
 
@@ -62,12 +69,20 @@ final class PieceCatalog {
         CompletableFuture<Blueprint> f = loads.computeIfAbsent(key, k -> StructurePacks.getBlueprintFuture(pack, path, true, mc.level.registryAccess()));
         if (!f.isDone()) return null;
         Blueprint bp = f.isCompletedExceptionally() ? null : f.getNow(null);
-        if (bp == null) return null;
+        if (bp == null) {
+            if (failed.add(pack + "|" + path)) CityBuilder.LOGGER.warn("City Builder: can't load piece {} of {}; skipping it", path, pack);
+            return null;
+        }
         RotationMirror rm = RotationMirror.NONE;
         for (int i = 0; i < turns; i++) rm = rm.rotate(Rotation.CLOCKWISE_90);
         bp.setRotationMirror(rm, mc.level);
         rotated.put(key, bp);
         return bp;
+    }
+
+    /** @return true when the piece's blueprint failed to load (it is skipped, not waited for) */
+    static boolean failed(String pack, String path) {
+        return failed.contains(pack + "|" + path);
     }
 
     static RotationMirror rotation(int turns) {
@@ -94,7 +109,7 @@ final class PieceCatalog {
             for (Blueprints.Hut d : ds) {
                 Blueprint bp = rotated(pack, d.path(), 0);
                 if (bp == null) {
-                    loading = true;
+                    loading |= !failed(pack, d.path());
                     continue;
                 }
                 String[] sn = PieceSets.split(d.path().substring(d.path().lastIndexOf('/') + 1));
@@ -186,19 +201,59 @@ final class PieceCatalog {
      * @param box  the piece's world box {x0, z0, x1, z1} (for the turned blueprint {@code bp})
      * @param face 0 = +X, 1 = +Z, 2 = -X, 3 = -Z
      * @param ref  the world coordinate lateral positions are measured from
-     * @return the solid cells of that face as {@code y * 65536 + lateral - ref + 30000}
+     * @param ids  true: each cell also carries its block (so a face matches by material too, not only by shape)
+     * @return the solid cells of that face as {@code y * 65536 + lateral - ref + 30000} (+ block id << 32)
      */
-    static Set<Long> face(Blueprint bp, int[] box, int face, int ref) {
+    static Set<Long> face(Blueprint bp, int[] box, int face, int ref, boolean ids) {
         Set<Long> out = new HashSet<>();
         int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
         for (int y = 0; y < sy; y++)
             if (face == 0 || face == 2)
                 for (int z = 0; z < sz; z++) {
-                    if (solid(bp.getBlockState(new BlockPos(face == 0 ? sx - 1 : 0, y, z)))) out.add((long) y * 65536 + box[1] + z - ref + 30000);
+                    BlockState st = bp.getBlockState(new BlockPos(face == 0 ? sx - 1 : 0, y, z));
+                    if (solid(st)) out.add(cell(st, y, box[1] + z - ref, ids));
                 }
             else
-                for (int x = 0; x < sx; x++)
-                    if (solid(bp.getBlockState(new BlockPos(x, y, face == 1 ? sz - 1 : 0)))) out.add((long) y * 65536 + box[0] + x - ref + 30000);
+                for (int x = 0; x < sx; x++) {
+                    BlockState st = bp.getBlockState(new BlockPos(x, y, face == 1 ? sz - 1 : 0));
+                    if (solid(st)) out.add(cell(st, y, box[0] + x - ref, ids));
+                }
+        return out;
+    }
+
+    private static long cell(BlockState st, int y, int lateral, boolean ids) {
+        long v = (long) y * 65536 + lateral + 30000;
+        return ids ? v + ((long) (net.minecraft.core.registries.BuiltInRegistries.BLOCK.getId(st.getBlock()) & 0x7FFF) << 32) : v;
+    }
+
+    private static final Map<String, int[]> topViews = new HashMap<>();
+
+    /**
+     * A top-down picture of a piece (unturned): per column {@code z * sizeX + x}, the map colour of its highest solid
+     * block, lighter the higher it is; 0 for empty columns.
+     *
+     * @return the colours, or null while the blueprint loads
+     */
+    static int[] topView(String pack, String path) {
+        int[] done = topViews.get(pack + "|" + path);
+        if (done != null) return done;
+        Blueprint bp = rotated(pack, path, 0);
+        Minecraft mc = Minecraft.getInstance();
+        if (bp == null || mc.level == null) return null;
+        int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
+        int[] out = new int[sx * sz];
+        for (int x = 0; x < sx; x++)
+            for (int z = 0; z < sz; z++)
+                for (int y = sy - 1; y >= 0; y--) {
+                    BlockState st = bp.getBlockState(new BlockPos(x, y, z));
+                    if (!solid(st)) continue;
+                    int c = st.getMapColor(mc.level, BlockPos.ZERO).col;
+                    float k = 0.6f + 0.4f * (y + 1) / sy;
+                    out[z * sx + x] = 0xFF000000 | Math.min(255, (int) ((c >> 16 & 255) * k)) << 16 | Math.min(255, (int) ((c >> 8 & 255) * k)) << 8
+                            | Math.min(255, (int) ((c & 255) * k));
+                    break;
+                }
+        topViews.put(pack + "|" + path, out);
         return out;
     }
 
@@ -214,19 +269,27 @@ final class PieceCatalog {
 
     // ---- layout ----
 
-    /** The result of laying out every planned line: placed pieces per line, and whether all blueprints were ready. */
-    record Layout(List<List<Placed>> lines, List<Integer> shortened, boolean complete) {
+    /**
+     * The result of laying out every planned line: placed pieces per line, cells left uncovered ("short"), where that
+     * gap is (box or null), the length each line needs to fit a piece, and whether all blueprints were ready (per line,
+     * and overall): an incomplete line may miss pieces or have a butt joint where a joint piece belongs, so it must
+     * not be built yet.
+     */
+    record Layout(List<List<Placed>> lines, List<Integer> shortened, List<int[]> gaps, List<Integer> need, List<Boolean> lineComplete, boolean complete) {
     }
 
     /**
-     * Lays out every line: joints (where 2+ lines of the same family meet: corner / T / cross, or a tower when the
-     * line asks for towers) are placed once each and turned / shifted by profile matching; end caps go at free ends,
-     * a gate in the middle when asked, and straights fill the rest (longest that fit, then shorter; what can't be
-     * covered is left over and reported).
+     * Lays out every line. Joints (2+ lines of the same family at a cell) are reserved first, once each: a corner /
+     * T / cross piece (or a tower when the line asks), turned and shifted by profile matching; with no such piece, a
+     * butt joint where one line runs through the joint square and the others stop at its face. Every run then starts
+     * exactly at the joint's face (no overlap, no gap); free ends get an end cap; a gate goes in the middle when
+     * asked; straights fill the rest, and what can't be covered is left at a free end and reported.
      */
     static Layout layout(List<Plan.Line> lines) {
         List<List<Placed>> out = new ArrayList<>();
-        List<Integer> shortened = new ArrayList<>();
+        List<Integer> shortened = new ArrayList<>(), need = new ArrayList<>();
+        List<int[]> gaps = new ArrayList<>();
+        List<Boolean> lineComplete = new ArrayList<>();
         boolean complete = true;
         // Endpoints: which lines meet at each cell.
         Map<Long, List<int[]>> at = new HashMap<>();
@@ -236,42 +299,40 @@ final class PieceCatalog {
             at.computeIfAbsent(key(l.x1(), l.z1()), k -> new ArrayList<>()).add(new int[]{i, 1});
         }
         Map<Long, Placed> joints = new HashMap<>();
+        // Butt joints: {x0, z0, x1, z1, owner line, 1 = only because the joint piece is still loading}.
+        Map<Long, int[]> butts = new HashMap<>();
         for (int i = 0; i < lines.size(); i++) {
             Plan.Line l = lines.get(i);
             List<Placed> placed = new ArrayList<>();
             out.add(placed);
             Map<String, PieceSets.Family> fs = families(l.pack());
             PieceSets.Family f = fs == null ? null : fs.get(l.family());
-            if (f == null) {
-                complete &= fs != null;
-                shortened.add(0);
-                continue;
-            }
-            List<PieceSets.Group> straights = groups(l.pack(), f, PieceSets.Role.STRAIGHT);
+            List<PieceSets.Group> straights = f == null ? List.of() : groups(l.pack(), f, PieceSets.Role.STRAIGHT);
             if (straights.isEmpty()) {
+                complete &= fs != null;
+                lineComplete.add(fs != null);
                 shortened.add(0);
+                gaps.add(null);
+                need.add(Integer.MAX_VALUE);
                 continue;
             }
             int[] a = {l.x0(), l.z0()}, b = {l.x1(), l.z1()};
             int dir = PieceLayout.dir(a, b), len = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])) + 1;
-            PieceSets.Piece primary = straights.get(0).pick(straights.get(0).levels() ? l.level() : l.variant(), i * 1000);
+            PieceSets.Piece primary = primary(l, i);
             int width = primary.across();
-            // Joints at both ends (placed by the first line that reaches them) and how far they reach into this line.
             int[] off = new int[2];
+            boolean[] free = new boolean[2];
+            boolean aligned = false, ok = true;
             int shift = 0;
             for (int end = 0; end < 2; end++) {
                 int[] c = end == 0 ? a : b;
                 int d = end == 0 ? dir : (dir + 2) % 4;
+                long k = key(c[0], c[1]);
                 List<int[]> meet = new ArrayList<>();
-                for (int[] m : at.get(key(c[0], c[1])))
+                for (int[] m : at.get(k))
                     if (m[0] != i && lines.get(m[0]).family().equals(l.family()) && lines.get(m[0]).pack().equals(l.pack())) meet.add(m);
-                Placed joint = joints.get(key(c[0], c[1]));
-                if (joint == null && !meet.isEmpty()) {
-                    joint = joint(l, f, c, d, meet, lines, i, primary, width);
-                    if (joint == null && !collinear(l, d, meet, lines)) complete &= families(l.pack()) != null;
-                    if (joint != null) joints.put(key(c[0], c[1]), joint);
-                    if (joint != null && joints.size() > 0 && joint != null) placed.add(joint);
-                } else if (meet.isEmpty()) {
+                if (meet.isEmpty()) {
+                    free[end] = true;
                     // A free end: an end cap, if the family has one.
                     List<PieceSets.Group> caps = groups(l.pack(), f, PieceSets.Role.END);
                     if (!caps.isEmpty()) {
@@ -279,26 +340,54 @@ final class PieceCatalog {
                         int run = cap.run(), turns = PieceLayout.turns(cap.sx(), cap.sz(), (d + 2) % 4);
                         List<int[]> bx = PieceLayout.boxes(c, d, 0, List.of(run), cap.across(), 0);
                         Placed p = place(l.pack(), cap.path(), turns, bx.get(0), PieceSets.Role.END);
-                        if (p == null) complete = false;
+                        if (p == null) ok &= failed(l.pack(), cap.path());
                         else placed.add(p);
                         off[end] = run;
+                    }
+                    continue;
+                }
+                Placed joint = joints.get(k);
+                if (joint == null && !butts.containsKey(k)) {
+                    jointLoading = false;
+                    joint = joint(l, f, c, d, meet, lines, i, primary, width);
+                    if (joint != null) {
+                        joints.put(k, joint);
+                        placed.add(joint);
+                    } else {
+                        // No joint piece: one line runs through the joint square, the others stop at its face.
+                        int[] who = new int[meet.size() + 1], dirs = new int[who.length], widths = new int[who.length];
+                        List<int[]> all = new ArrayList<>(meet);
+                        all.add(new int[]{i, end});
+                        all.sort(java.util.Comparator.comparingInt(m -> m[0]));
+                        for (int n = 0; n < all.size(); n++) {
+                            Plan.Line o = lines.get(all.get(n)[0]);
+                            int od = PieceLayout.dir(new int[]{o.x0(), o.z0()}, new int[]{o.x1(), o.z1()});
+                            who[n] = all.get(n)[0];
+                            dirs[n] = all.get(n)[1] == 0 ? od : (od + 2) % 4;
+                            PieceSets.Piece op = primary(o, who[n]);
+                            widths[n] = op == null ? width : op.across();
+                        }
+                        int[] sq = PieceLayout.square(c, dirs, widths);
+                        butts.put(k, new int[]{sq[0], sq[1], sq[2], sq[3], who[PieceLayout.owner(dirs)], jointLoading ? 1 : 0});
                     }
                 }
                 if (joint != null) {
                     int[] jb = joint.box();
-                    off[end] = switch (d) {
-                        case 0 -> jb[2] - c[0] + 1;
-                        case 2 -> c[0] - jb[0] + 1;
-                        case 1 -> jb[3] - c[1] + 1;
-                        default -> c[1] - jb[1] + 1;
-                    };
+                    off[end] = PieceLayout.reach(c, d, jb);
                     // Lateral alignment: shift the straights so their end face matches the joint's face profile.
                     Blueprint jbp = rotated(l.pack(), joint.path(), joint.turns()), sbp = rotated(l.pack(), primary.path(), PieceLayout.turns(primary.sx(), primary.sz(), dir));
-                    if (end == 0 && jbp != null && sbp != null) {
+                    // From the start's joint, else the end's (lateral positions don't depend on where along the run).
+                    if (sbp == null && !failed(l.pack(), primary.path())) ok = false;
+                    if ((end == 0 || !aligned) && jbp != null && sbp != null) {
                         int ref = dir % 2 == 0 ? c[1] : c[0];
-                        int[] sbox = PieceLayout.boxes(a, dir, off[0], List.of(primary.run()), width, 0).get(0);
-                        shift = PieceLayout.bestShift(face(jbp, jb, d, ref), face(sbp, sbox, (d + 2) % 4, ref), 3);
+                        int[] sbox = PieceLayout.boxes(a, dir, 0, List.of(primary.run()), width, 0).get(0);
+                        shift = PieceLayout.bestShift(face(jbp, jb, d, ref, false), face(sbp, sbox, (d + 2) % 4, ref, false), 3);
+                        aligned = true;
                     }
+                } else {
+                    int[] bt = butts.get(k);
+                    off[end] = PieceLayout.offset(c, d, bt, bt[4] == i);
+                    if (bt[5] == 1) ok = false;
                 }
             }
             // The run between the joints / caps: a gate in the middle when asked, straights around it.
@@ -307,6 +396,7 @@ final class PieceCatalog {
             // Lengths of the straights as picked for this line (levels can change a piece's size), same width only.
             int[] lens = straights.stream().map(g -> g.pick(g.levels() ? l.level() : l.variant(), 0)).filter(p -> p.across() == width)
                     .mapToInt(PieceSets.Piece::run).distinct().toArray();
+            need.add(PieceLayout.need(off[0], off[1], lens));
             List<Integer> tiles = new ArrayList<>();
             List<PieceSets.Piece> tilePieces = new ArrayList<>();
             int used;
@@ -324,18 +414,45 @@ final class PieceCatalog {
                 used = tiles.stream().mapToInt(Integer::intValue).sum();
                 for (int t : tiles) tilePieces.add(straightOf(straights, width, t, l, i * 1000 + tilePieces.size()));
             }
-            shortened.add(Math.max(0, n - used));
+            int left = Math.max(0, n - used);
+            shortened.add(left);
+            // What can't be covered goes to a free end, so runs always meet their joints.
+            int start = PieceLayout.runStart(off[0], left, free[0], free[1]);
+            gaps.add(left == 0 ? null : PieceLayout.boxes(a, dir, start == off[0] ? off[0] + used : off[0], List.of(left), width, shift).get(0));
             List<Integer> runs = new ArrayList<>();
             for (PieceSets.Piece p : tilePieces) runs.add(p.run());
-            List<int[]> boxes = PieceLayout.boxes(a, dir, off[0], runs, width, shift);
+            List<int[]> boxes = PieceLayout.boxes(a, dir, start, runs, width, shift);
             for (int k = 0; k < tilePieces.size(); k++) {
                 PieceSets.Piece p = tilePieces.get(k);
                 Placed pl = place(l.pack(), p.path(), PieceLayout.turns(p.sx(), p.sz(), dir), boxes.get(k), tiles.get(k) < 0 ? PieceSets.Role.GATE : PieceSets.Role.STRAIGHT);
-                if (pl == null) complete = false;
+                if (pl == null) ok &= failed(l.pack(), p.path());
                 else placed.add(pl);
             }
+            lineComplete.add(ok);
+            complete &= ok;
         }
-        return new Layout(out, shortened, complete);
+        return new Layout(out, shortened, gaps, need, lineComplete, complete);
+    }
+
+    /** @return the line's main straight at its level / variant (sets its width), or null without one */
+    static PieceSets.Piece primary(Plan.Line l, int seed) {
+        Map<String, PieceSets.Family> fs = families(l.pack());
+        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        List<PieceSets.Group> st = f == null ? List.of() : groups(l.pack(), f, PieceSets.Role.STRAIGHT);
+        return st.isEmpty() ? null : st.get(0).pick(st.get(0).levels() ? l.level() : l.variant(), seed * 1000);
+    }
+
+    /**
+     * A straight piece of the line's family at the line's start (the preview under the cursor before a chain starts).
+     *
+     * @return the piece, or null while it loads
+     */
+    static Placed preview(Plan.Line l) {
+        PieceSets.Piece p = primary(l, 0);
+        if (p == null) return null;
+        int[] a = {l.x0(), l.z0()};
+        int dir = PieceLayout.dir(a, new int[]{l.x1(), l.z1()});
+        return place(l.pack(), p.path(), PieceLayout.turns(p.sx(), p.sz(), dir), PieceLayout.boxes(a, dir, 0, List.of(p.run()), p.across(), 0).get(0), PieceSets.Role.STRAIGHT);
     }
 
     /** @return a straight of run length {@code run} and the line's width, at the line's level / variant */
@@ -354,6 +471,9 @@ final class PieceCatalog {
                 : (PieceLayout.dir(new int[]{o.x0(), o.z0()}, new int[]{o.x1(), o.z1()}) + 2) % 4;
         return od == (d + 2) % 4;
     }
+
+    // Set by joint() when it returned null only because a blueprint is still loading.
+    private static boolean jointLoading;
 
     /**
      * The joint piece at cell {@code c}: a tower when asked (and the family has one), else corner / T / cross by how
@@ -385,16 +505,26 @@ final class PieceCatalog {
         double bestScore = -1;
         for (int k = 0; k < 4; k++) {
             Blueprint jbp = rotated(l.pack(), p.path(), k);
-            if (jbp == null || sbp0 == null) continue;
+            // Every turn must be scored, or the pick could change once the rest loads.
+            if (jbp == null || sbp0 == null) {
+                jointLoading = !failed(l.pack(), p.path()) && !failed(l.pack(), straight.path());
+                return null;
+            }
             int[] jb = PieceLayout.centred(c, jbp.getSizeX(), jbp.getSizeZ());
             double score = 0;
             for (int out : outs) {
                 Blueprint sbp = rotated(l.pack(), straight.path(), PieceLayout.turns(straight.sx(), straight.sz(), out));
-                if (sbp == null) continue;
+                if (sbp == null) {
+                    jointLoading = !failed(l.pack(), straight.path());
+                    return null;
+                }
                 int ref = out % 2 == 0 ? c[1] : c[0];
                 int[] sbox = PieceLayout.boxes(c, out, 1, List.of(straight.run()), width, 0).get(0);
-                Set<Long> jf = face(jbp, jb, out, ref), sf = face(sbp, sbox, (out + 2) % 4, ref);
-                score += PieceLayout.jaccard(jf, sf, PieceLayout.bestShift(jf, sf, 3));
+                // By shape and material: a road corner's faces can share a shape, its open sides share the road's blocks.
+                Set<Long> jf = face(jbp, jb, out, ref, false), sf = face(sbp, sbox, (out + 2) % 4, ref, false);
+                Set<Long> jm = face(jbp, jb, out, ref, true), sm = face(sbp, sbox, (out + 2) % 4, ref, true);
+                int sh = PieceLayout.bestShift(jf, sf, 3);
+                score += PieceLayout.jaccard(jf, sf, sh) + PieceLayout.jaccard(jm, sm, sh);
             }
             if (score > bestScore + 1e-9) {
                 bestScore = score;
@@ -414,7 +544,7 @@ final class PieceCatalog {
         Integer g = Planner.groundAt((box[0] + box[2]) / 2, (box[1] + box[3]) / 2);
         int ground = (g == null ? 64 : g) - 1;
         int y = ground + BlueprintTagUtils.getGroundAnchorOffset(bp, 1) - 1;
-        return new Placed(path, turns, new BlockPos(box[0] + o.getX(), y, box[1] + o.getZ()), box, role, blocks(pack, path));
+        return new Placed(path, turns, new BlockPos(box[0] + o.getX(), y, box[1] + o.getZ()), box, role, blocks(pack, path), y - o.getY(), bp.getSizeY());
     }
 
     private static long key(int x, int z) {

@@ -83,4 +83,32 @@ public final class ColonyGeometry {
         }
         return best;
     }
+
+    /**
+     * Whether the planner may open where the player stands.
+     *
+     * @param owner       the colony id owning the player's chunk: 0 = unclaimed, -1 = no claim data there
+     * @param claimsKnown the client has claim data around the player (so a missing entry means unclaimed)
+     * @param viewKnown   the owning colony's view has synced to this client
+     * @param member      the player is a member of it
+     * @param access      the player may access its huts
+     * @return null to open, else the reason: "loading", "outside", "not_member" or "no_permission"
+     */
+    public static String openCheck(int owner, boolean claimsKnown, boolean viewKnown, boolean member, boolean access) {
+        if (owner < 0 && !claimsKnown) return "loading";
+        if (owner <= 0) return "outside";
+        if (!viewKnown) return "loading";
+        if (!member) return "not_member";
+        return access ? null : "no_permission";
+    }
+
+    /**
+     * @param owner       as for {@link #openCheck}
+     * @param claimsKnown the client has claim data right around the player
+     * @return true when the open planner should close: the player now stands on another colony's or unclaimed land
+     */
+    public static boolean leftColony(int owner, int colony, boolean claimsKnown) {
+        if (owner < 0) return claimsKnown;
+        return owner != colony;
+    }
 }

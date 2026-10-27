@@ -3,7 +3,7 @@
 Formerly ColonyPlanner. Mod id `mccitybuilder`.
 
 An overhead, RTS-style planner for [MineColonies](https://github.com/ldtteam/minecolonies) on NeoForge 1.21.1.
-Press **J** (rebindable, "Planner view") near your colony: the camera lifts above it while your character stays put.
+Press **J** (rebindable, "Planner view") while standing inside a colony you belong to (with hut access): the camera lifts above it while your character stays put. Outside a colony, or in someone else's, an action-bar message says why it won't open; a teleport out of the colony closes it.
 
 - **Pan** with WASD or the screen edge, **zoom** with the wheel, **turn** with Q/E or right-drag (a right-click without dragging still backs out / deselects).
 - **Place huts**: pick one in the palette (left; style pack and category pickers, greyed when you have none of that

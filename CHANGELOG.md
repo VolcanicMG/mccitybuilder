@@ -2,6 +2,28 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Road / wall drawing shows what you lay: a ghost of the current piece under the cursor before you click, then the
+  live segment as real ghost pieces (joints, end caps, gates) with an outline per piece (green, red outside the
+  colony or into a building, amber for uncovered cells), a "24 blocks · 3 pieces" label at its middle, and the gap
+  or "too short" hint at the cursor. A segment too short for any piece isn't dropped (a hint flashes).
+- Line panel: family, level / variant, Towers / Gate / Pieces, a card with the piece being laid (top-down picture,
+  name, size, role) and Done / Undo / Build. The per-role overrides moved into the Pieces popup. Gate also applies to
+  the next wall segment you draw.
+- Fix: corners and junctions no longer overlap. The joint piece's footprint is reserved first and each run ends at its
+  face; without a corner piece one run covers the joint square and the others stop at it (straight chains no longer
+  share a row). Corner pieces turn the right way for left and right turns (faces matched by block, not only shape).
+- Fix: Build all did nothing for a plan of roads / walls (disabled, and its panel sat under the line panel taking its
+  clicks). Every Build now says what it builds and why anything stays; panels show "Building i / n".
+- Build waits for segments whose pieces are still loading (they could miss pieces or get a butt joint instead of a
+  corner); a piece that fails to load is skipped instead of keeping the style "loading" forever.
+- Camera: V, zoom-to-cursor or an orbit step next to a tall building no longer snaps the camera up; it glides.
+- Camera: turning in place no longer lifts the camera for tall things the view sweeps over; only the ground under it
+  and ahead of where it moves count, and the lift holds briefly instead of flickering.
+- City Builder opens only while you stand inside a colony you belong to (with hut access); otherwise the action bar
+  says why (or that colony data is still loading). Leaving the colony (teleport, pushed onto unclaimed land) closes it (opening from outside used to glitch the camera).
+- The palette and road / wall tools start with the colony's own style each time (unless you picked another for that
+  colony this session); a missing style falls back with a hint.
+
 - Roads and walls are built from the style pack's own road and wall pieces (no vanilla blocks): straights tiled along
   each segment, corners / T / cross / towers at joints (turned and lined up by matching the pieces' faces), end
   caps, gates; family, level or variant (mixed variants for natural walls), and a piece-set editor per style for

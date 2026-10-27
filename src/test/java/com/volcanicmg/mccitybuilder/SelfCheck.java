@@ -11,6 +11,9 @@ import com.volcanicmg.mccitybuilder.planner.HutCatalog;
 import com.volcanicmg.mccitybuilder.planner.QueueOrder;
 import com.volcanicmg.mccitybuilder.planner.TerrainFollow;
 import com.volcanicmg.mccitybuilder.planner.CameraRig;
+import com.volcanicmg.mccitybuilder.planner.LineSnap;
+import com.volcanicmg.mccitybuilder.planner.PieceLayout;
+import com.volcanicmg.mccitybuilder.planner.Plan;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -305,6 +308,61 @@ public final class SelfCheck {
             }
             check(r.drone.camZ() > 110, "crossed the wall: " + r.drone.camZ());
         }
+        // Turning in place beside a 30-block tower (outside the footprint): the view sweeps it, the height must not move.
+        Terrain tower = new Terrain((x, z) -> Math.abs(x) <= 2 && Math.abs(z - 7) <= 2 ? 94 : 64, (x, z) -> 64);
+        var tr = new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 30, 0, 0));
+        for (int i = 0; i < 120; i++) tr.frame(tower, dt, 0, 0, 0, null, 1.2, Double.NaN);
+        double y0 = tr.drone.y(), maxMove = 0;
+        for (int i = 0; i < 480; i++) {
+            tr.frame(tower, dt, 0, 0, 90, null, 1.2, Double.NaN);
+            maxMove = Math.max(maxMove, Math.abs(tr.drone.y() - y0));
+        }
+        check(maxMove < 1e-9, "turning in place beside a tower moves the height: " + maxMove);
+        // Panning toward it still lifts smoothly and never clips.
+        var pr = new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 30, -30, 0));
+        double ppy = pr.drone.y(), peak = 0;
+        for (int i = 0; i < 300; i++) {
+            pr.frame(tower, dt, 0, 1, 0, null, 1.2, 64);
+            aboveSurface(pr, tower, "pan to tower");
+            ppy = capped(pr, ppy, "pan to tower");
+            peak = Math.max(peak, pr.drone.y());
+        }
+        check(peak >= 94 + DroneCamera.CLEARANCE - 1e-6, "panning over the tower lifted the camera: " + peak);
+        // V (straight down) beside a tall building: the target jumps over it, the drawn camera glides up, never snaps.
+        Terrain tall = new Terrain((x, z) -> Math.abs(x) <= 2 && z >= -26 && z <= -20 ? 104 : 64, (x, z) -> 64);
+        var vr = new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 30, -40, 0));
+        for (int i = 0; i < 120; i++) vr.frame(tall, dt, 0, 0, 0, null, 1.2, Double.NaN);
+        vr.drone.turn(vr.drone.centreOn(64), 0, DroneCamera.MAX_PITCH - vr.drone.pitch);
+        double vy = vr.drone.y();
+        for (int i = 0; i < 300; i++) {
+            vr.frame(tall, dt, 0, 0, 0, null, 1.2, Double.NaN);
+            aboveSurface(vr, tall, "V beside a tower");
+            vy = capped(vr, vy, "V beside a tower");
+        }
+        // Colony box out of the loaded circle (a teleport): close is signalled; the clamps settle, never flip-flop.
+        DroneCamera far = new DroneCamera(0, 100, 0, 0);
+        far.circleX = 0;
+        far.circleZ = 0;
+        far.circleR = 160;
+        far.box = new double[]{1000, 1000, 1100, 1100};
+        check(far.outOfBounds(), "disjoint bounds signal a close");
+        double fx = Double.NaN, fz = Double.NaN;
+        for (int i = 0; i < 60; i++) {
+            far.update(1 / 60.0, 1, 1, 1, 64, 64);
+            if (i > 0) check(Math.abs(far.x - fx) < 1e-9 && Math.abs(far.z - fz) < 1e-9, "disjoint bounds: camera oscillates");
+            fx = far.x;
+            fz = far.z;
+        }
+        far.box = new double[]{-50, -50, 50, 50};
+        check(!far.outOfBounds(), "overlapping bounds: stays open");
+        far.box = new double[]{155, -10, 400, 10};
+        check(far.outOfBounds(), "a sliver of overlap closes too");
+        check("outside".equals(ColonyGeometry.openCheck(0, true, false, false, false)) && "outside".equals(ColonyGeometry.openCheck(-1, true, false, false, false))
+                && "loading".equals(ColonyGeometry.openCheck(-1, false, false, false, false)) && "loading".equals(ColonyGeometry.openCheck(3, true, false, false, false))
+                && "not_member".equals(ColonyGeometry.openCheck(3, true, true, false, true)) && "no_permission".equals(ColonyGeometry.openCheck(3, true, true, true, false))
+                && ColonyGeometry.openCheck(3, true, true, true, true) == null, "planner opens only inside your colony");
+        check(ColonyGeometry.leftColony(0, 3, false) && ColonyGeometry.leftColony(4, 3, false) && ColonyGeometry.leftColony(-1, 3, true)
+                && !ColonyGeometry.leftColony(-1, 3, false) && !ColonyGeometry.leftColony(3, 3, true), "closes on leaving the colony, not on missing claim data");
     }
 
     /**
@@ -651,6 +709,8 @@ public final class SelfCheck {
         e = com.volcanicmg.mccitybuilder.planner.LineSnap.snapEnd(new int[]{0, 10}, 7.9, 18.6, null, false, List.of(), 90);
         check(e[0] == 0 || e[1] == 10, "90° snap for pieces: " + e[0] + "," + e[1]);
         pieces();
+        joints();
+        buildAll();
         // Saved lines round trip; hostile rows (huge segments, old vanilla rows) are skipped.
         var line = new com.volcanicmg.mccitybuilder.planner.Plan.Line("wall", 1, 2, 30, 2, "medievaloak", "wall:walls/segment", 3, -1, true, true);
         String text = com.volcanicmg.mccitybuilder.planner.Plan.write(List.of(), List.of(line));
@@ -712,6 +772,96 @@ public final class SelfCheck {
         check(com.volcanicmg.mccitybuilder.planner.PieceLayout.bestShift(corner, straight, 3) == 2
                 && com.volcanicmg.mccitybuilder.planner.PieceLayout.jaccard(corner, straight, 2) == 1.0, "profile alignment shift");
         check(com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{0, 0}, new int[]{0, -9}) == 3, "direction north");
+    }
+
+    /**
+     * Joints: L-turns both ways, a T, a cross and a straight chain, with a joint piece (as wide as the road, and a
+     * wall tower wider than the wall) and as butt joints. No two footprints overlap, the joint square and every
+     * run's band are covered exactly once (no gap between a run and its joint), and leftover cells go to the free end.
+     */
+    private static void joints() {
+        int[] c = {0, 0};
+        int[][][][] shapes = {
+                {{{-11, 0}, {0, 0}}, {{0, 0}, {0, 11}}},
+                {{{-11, 0}, {0, 0}}, {{0, 0}, {0, -11}}},
+                {{{0, 11}, {0, 0}}, {{0, 0}, {11, 0}}},
+                {{{-11, 0}, {0, 0}}, {{0, 0}, {11, 0}}, {{0, 0}, {0, 11}}},
+                {{{-11, 0}, {0, 0}}, {{0, 0}, {11, 0}}, {{0, 0}, {0, 11}}, {{0, -11}, {0, 0}}},
+                {{{-11, 0}, {0, 0}}, {{0, 0}, {11, 0}}}};
+        String[] names = {"L right", "L left", "L from the south", "T", "cross", "straight chain"};
+        int[][] cases = {{4, 0}, {4, 4}, {3, 0}, {6, 0}, {6, 11}, {5, 5}};
+        for (int s = 0; s < shapes.length; s++)
+            for (int[] cs : cases) {
+                int w = cs[0], jw = cs[1];
+                if (jw > 0 && s == shapes.length - 1) continue;
+                String what = names[s] + " width " + w + (jw > 0 ? " joint " + jw : " butt");
+                int[][][] ls = shapes[s];
+                int[] jb = jw > 0 ? PieceLayout.centred(c, jw, jw) : null;
+                int[] dirs = new int[ls.length], widths = new int[ls.length];
+                for (int k = 0; k < ls.length; k++) {
+                    int dir = PieceLayout.dir(ls[k][0], ls[k][1]);
+                    dirs[k] = java.util.Arrays.equals(ls[k][0], c) ? dir : (dir + 2) % 4;
+                    widths[k] = w;
+                }
+                int[] sq = PieceLayout.square(c, dirs, widths);
+                int owner = PieceLayout.owner(dirs);
+                java.util.Map<Long, Integer> cover = new java.util.HashMap<>();
+                java.util.Set<Long> want = new java.util.HashSet<>();
+                if (jb != null) for (int x = jb[0]; x <= jb[2]; x++) for (int z = jb[1]; z <= jb[3]; z++) {
+                    cover.merge((long) x << 32 ^ (z & 0xFFFFFFFFL), 1, Integer::sum);
+                    want.add((long) x << 32 ^ (z & 0xFFFFFFFFL));
+                }
+                for (int k = 0; k < ls.length; k++) {
+                    int[] a = ls[k][0], b = ls[k][1];
+                    int dir = PieceLayout.dir(a, b), len = LineSnap.length(a, b) + 1;
+                    boolean atStart = java.util.Arrays.equals(a, c);
+                    int off = jb != null ? PieceLayout.reach(c, dirs[k], jb) : PieceLayout.offset(c, dirs[k], sq, k == owner);
+                    int off0 = atStart ? off : 0, off1 = atStart ? 0 : off;
+                    List<Integer> fill = PieceLayout.fill(len - off0 - off1, new int[]{1});
+                    for (int[] bx : PieceLayout.boxes(a, dir, off0, fill, w, 0))
+                        for (int x = bx[0]; x <= bx[2]; x++) for (int z = bx[1]; z <= bx[3]; z++) cover.merge((long) x << 32 ^ (z & 0xFFFFFFFFL), 1, Integer::sum);
+                    // The band the line should cover: its full width, from the joint cell to its far end.
+                    for (int[] bx : PieceLayout.boxes(a, dir, 0, List.of(len), w, 0))
+                        for (int x = bx[0]; x <= bx[2]; x++) for (int z = bx[1]; z <= bx[3]; z++) want.add((long) x << 32 ^ (z & 0xFFFFFFFFL));
+                }
+                check(cover.values().stream().allMatch(v -> v == 1), what + ": footprints overlap");
+                check(cover.keySet().containsAll(want), what + ": gap between a run and its joint");
+                if (jb == null) for (int x = sq[0]; x <= sq[2]; x++) for (int z = sq[1]; z <= sq[3]; z++)
+                    check(cover.getOrDefault((long) x << 32 ^ (z & 0xFFFFFFFFL), 0) == 1, what + ": joint square not covered once at " + x + "," + z);
+            }
+        // A T's bar runs through; the stem stops at it.
+        check(PieceLayout.owner(new int[]{1, 2, 0}) == 1, "T: the bar owns the butt joint");
+        // Leftover cells go to the free end: a run into a joint starts after them, a run out of one right at it.
+        check(PieceLayout.runStart(0, 2, true, false) == 2 && PieceLayout.runStart(3, 2, false, true) == 3
+                && PieceLayout.runStart(3, 2, false, false) == 3, "leftover at the free end");
+        // Too short: the joint / cap offsets plus the shortest straight.
+        check(PieceLayout.need(3, 2, new int[]{8, 5}) == 10 && !LineSnap.canDrop(9, 10) && LineSnap.canDrop(10, 10), "too short = below need");
+        check(PieceLayout.need(0, 0, new int[]{}) == Integer.MAX_VALUE && !LineSnap.canDrop(500, Integer.MAX_VALUE), "nothing fits: never droppable");
+        check(PieceLayout.need(-2, 0, new int[]{4}) == 2, "a butt owner reaching back needs less");
+        // The live segment is laid out again only when its key changes.
+        int[] k1 = {0, 0, 5, 0, 1, 7, 42};
+        check(LineSnap.relayout(null, k1) && !LineSnap.relayout(k1, k1.clone()), "same key: no relayout");
+        check(LineSnap.relayout(k1, new int[]{0, 0, 6, 0, 1, 7, 42}) && LineSnap.relayout(k1, new int[]{0, 0, 5, 0, 1, 8, 42})
+                && LineSnap.relayout(k1, new int[]{0, 0, 5, 0, 1, 7, 43}), "end / plan / options change: relayout");
+    }
+
+    /** Build all: what is sent and what stays, with its reason, for every item kind, creative and survival. */
+    private static void buildAll() {
+        check(Plan.decide(false, true, false, true, false) == Plan.Build.SEND, "creative hut without the server part: Structurize paste");
+        check(Plan.decide(false, true, true, false, false) == Plan.Build.SEND, "creative decoration");
+        check(Plan.decide(true, true, true, true, true) == Plan.Build.OUTSIDE, "outside stays");
+        check(Plan.decide(false, false, true, true, false) == Plan.Build.NO_ITEM, "survival hut without its item");
+        check(Plan.decide(false, false, true, true, true) == Plan.Build.SEND, "survival hut with its item");
+        check(Plan.decide(false, false, false, false, false) == Plan.Build.DECO_WINDOW, "survival decoration without the server part");
+        check(Plan.decide(false, false, true, false, false) == Plan.Build.SEND, "survival decoration: work order");
+        check(Plan.decideLine(true, false, false, false, true) == Plan.Build.SEND, "segment sent");
+        check(Plan.decideLine(false, false, false, false, true) == Plan.Build.NEEDS_SERVER, "segment without the server part");
+        check(Plan.decideLine(true, false, true, false, true) == Plan.Build.NO_PIECES && Plan.decideLine(true, true, false, false, true) == Plan.Build.OUTSIDE
+                && Plan.decideLine(true, false, false, true, true) == Plan.Build.IN_FLIGHT, "segment kept reasons");
+        // Blueprints still loading: pieces could be missing or a joint a butt joint, so it waits (even with pieces).
+        check(Plan.decideLine(true, false, false, false, false) == Plan.Build.LOADING && Plan.decideLine(true, false, true, false, false) == Plan.Build.LOADING,
+                "incomplete layout is never sent");
+        check(Plan.Build.values().length == 8, "reasons");
     }
 
     private static void overlays() {
