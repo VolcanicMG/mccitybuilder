@@ -186,12 +186,12 @@ public final class Planner {
         return claim == null ? -1 : claim.getOwningColony();
     }
 
-    /** @return true when the client has claim data for some chunk within {@code r} chunks of the player */
+    /** @return true when the client has claim data for some chunk within {@code r} chunks of the player (probed per chunk) */
     private static boolean claimsAround(Minecraft mc, int r) {
-        var all = IColonyManager.getInstance().getClaimData(mc.level.dimension());
-        if (all == null) return false;
         var here = new net.minecraft.world.level.ChunkPos(mc.player.blockPosition());
-        for (var p : all.keySet()) if (Math.abs(p.x - here.x) <= r && Math.abs(p.z - here.z) <= r) return true;
+        for (int dx = -r; dx <= r; dx++)
+            for (int dz = -r; dz <= r; dz++)
+                if (IColonyManager.getInstance().getClaimData(mc.level.dimension(), new net.minecraft.world.level.ChunkPos(here.x + dx, here.z + dz)) != null) return true;
         return false;
     }
 
@@ -267,7 +267,7 @@ public final class Planner {
         else if (mc.player.hurtTime > 0) exit(Component.translatable("mccitybuilder.exit.hurt"));
         else if (camera.level() != mc.level) exit(Component.translatable("mccitybuilder.exit.dimension"));
         // Out of the colony (teleported, pushed): another colony's or unclaimed land, once claims around are known.
-        else if (ColonyGeometry.leftColony(owner(mc), colony.getID(), claimsAround(mc, 2))) exit(Component.translatable("mccitybuilder.exit.left_colony"));
+        else if (ColonyGeometry.leftColony(owner(mc), colony.getID(), owner(mc) < 0 && claimsAround(mc, 2))) exit(Component.translatable("mccitybuilder.exit.left_colony"));
         if (!active) return;
         // A hut window (or any screen) opened from the planner: come back when it closes.
         if (mc.screen == null) mc.setScreen(new PlannerScreen());
