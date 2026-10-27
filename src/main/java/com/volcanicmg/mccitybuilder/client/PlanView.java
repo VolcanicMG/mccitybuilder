@@ -117,6 +117,8 @@ final class PlanView {
         if (file == null) return;
         try {
             Files.createDirectories(file.getParent());
+            // Joint types of joints that no longer exist (removed, moved, replaced segments) go.
+            Plan.pruneJoints(jointTypes, lines);
             Files.writeString(file, Plan.write(entries, lines, jointTypes));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't save plan {}", file, e);

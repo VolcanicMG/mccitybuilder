@@ -305,6 +305,24 @@ public final class Plan {
         return out;
     }
 
+    /** @return where each of the given points went: before and after are the same segments in the same order */
+    public static java.util.Map<Long, int[]> moved(List<Line> before, List<Line> after, List<int[]> points) {
+        java.util.Map<Long, int[]> to = new java.util.HashMap<>();
+        for (int i = 0; i < before.size() && i < after.size(); i++)
+            for (int k = 0; k < 2; k++) {
+                int[] a = before.get(i).ends()[k], b = after.get(i).ends()[k];
+                for (int[] p : points) if (p[0] == a[0] && p[1] == a[1]) to.put(cell(a[0], a[1]), b);
+            }
+        return to;
+    }
+
+    /** Drops joint types whose cell is no longer any segment's end. */
+    public static void pruneJoints(java.util.Map<Long, Integer> joints, List<Line> lines) {
+        java.util.Set<Long> ends = new java.util.HashSet<>();
+        for (Line l : lines) for (int[] e : l.ends()) ends.add(cell(e[0], e[1]));
+        joints.keySet().retainAll(ends);
+    }
+
     /** @return true when two inclusive boxes share a block */
     public static boolean overlaps(int[] a, int[] b) {
         return a[0] <= b[3] && b[0] <= a[3] && a[1] <= b[4] && b[1] <= a[4] && a[2] <= b[5] && b[2] <= a[5];

@@ -408,10 +408,13 @@ final class PieceCatalog {
                     for (PieceSets.Group g : groups(l.pack(), f, r))
                         for (PieceSets.Piece p : g.pieces()) if (p.across() == width) fillers.add(p);
                 fillers.sort((x, y) -> y.run() - x.run());
-                for (PieceSets.Piece p : fillers)
+                // Never next to a joint (their faces weren't matched against it): between two main pieces, or at a free
+                // end; with neither, the gap stays.
+                int main = tiles.size(), fat = main >= 2 ? main / 2 : free[1] ? main : free[0] ? 0 : -1;
+                for (PieceSets.Piece p : fat < 0 ? List.<PieceSets.Piece>of() : fillers)
                     while (p.run() <= n - used) {
-                        tiles.add(p.run());
-                        tilePieces.add(p);
+                        tiles.add(fat, p.run());
+                        tilePieces.add(fat, p);
                         used += p.run();
                     }
             }

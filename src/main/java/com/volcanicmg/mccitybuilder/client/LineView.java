@@ -52,6 +52,7 @@ final class LineView {
     private static List<int[]> dragPoints = List.of();
     private static int[] dragFrom;
     static List<Plan.Line> dragPreview;
+    private static int[] dragDelta;
     // The joint default for new joints (Plan.J_*), set in the panel.
     static int jointDefault = Plan.J_AUTO;
     // The live end joins another segment's free end that moves onto this line: {line, end, x, z}; or the live
@@ -316,6 +317,7 @@ final class LineView {
         dragPoints = points;
         dragFrom = from;
         dragPreview = null;
+        dragDelta = null;
     }
 
     static boolean dragging() {
@@ -336,30 +338,29 @@ final class LineView {
             int[] e = LineSnap.nearEndpoint(hit.getLocation().x, hit.getLocation().z, others, radius(hit));
             if (e != null) c = new int[]{e[0] + dragFrom[0] - dragPoints.get(0)[0], e[1] + dragFrom[1] - dragPoints.get(0)[1]};
         }
-        dragPreview = Plan.move(PlanView.lines, dragPoints, c[0] - dragFrom[0], c[1] - dragFrom[1], PlanView::locked);
+        dragDelta = new int[]{c[0] - dragFrom[0], c[1] - dragFrom[1]};
+        dragPreview = Plan.move(PlanView.lines, dragPoints, dragDelta[0], dragDelta[1], PlanView::locked);
     }
 
     /** Release: the move goes into the plan (joint types move with their joints); the selection follows. */
     static void release() {
         if (dragKind < 0) return;
-        List<Plan.Line> moved = dragPreview;
         int kind = dragKind;
         dragKind = -1;
         dragPreview = null;
+        if (dragDelta == null) return;
+        // Moved again from the plan as it is now (a batch answer may have locked a segment, or a line count changed).
+        List<Plan.Line> before = PlanView.lines, moved = Plan.move(before, dragPoints, dragDelta[0], dragDelta[1], PlanView::locked);
+        dragDelta = null;
         if (moved == null) return;
-        // Where each moved point went, for joint types and the selection.
-        java.util.Map<Long, int[]> to = new java.util.HashMap<>();
-        for (int i = 0; i < moved.size(); i++) {
-            Plan.Line a = PlanView.lines.get(i), b = moved.get(i);
-            for (int k = 0; k < 2; k++) {
-                int[] ea = a.ends()[k], eb = b.ends()[k];
-                for (int[] p : dragPoints) if (p[0] == ea[0] && p[1] == ea[1]) to.put(Plan.cell(ea[0], ea[1]), eb);
-            }
-        }
+        // Joint types and the selected joint follow their points.
+        java.util.Map<Long, int[]> to = Plan.moved(before, moved, dragPoints);
+        java.util.Map<Long, Integer> types = new java.util.HashMap<>();
         for (var en : to.entrySet()) {
             Integer t = PlanView.jointTypes.remove(en.getKey());
-            if (t != null) PlanView.jointTypes.put(Plan.cell(en.getValue()[0], en.getValue()[1]), t);
+            if (t != null) types.put(Plan.cell(en.getValue()[0], en.getValue()[1]), t);
         }
+        PlanView.jointTypes.putAll(types);
         PlanView.setLines(moved);
         if (kind == 2 && selectedJoint != null) {
             int[] n = to.get(Plan.cell(selectedJoint[0], selectedJoint[1]));
@@ -459,6 +460,12 @@ final class LineView {
             int[] e = a.ends()[bestK];
             boolean free = endCount(e) == 1 && !PlanView.locked(a);
             int[] j = LineSnap.joinEnd(start, a.ends(), bestK, free, r);
+            if (j != null && (j[2] != e[0] || j[3] != e[1])) {
+                // The other segment's end moves: refused when that would leave it without a straight.
+                int[] o = a.ends()[1 - bestK];
+                int cells = Math.max(Math.abs(j[2] - o[0]), Math.abs(j[3] - o[1])) + 1, other = bestI < PlanView.lineOffs.size() ? PlanView.lineOffs.get(bestI)[1 - bestK] : 0;
+                if (!LineSnap.joinKeeps(cells, other, PieceCatalog.expectedReach(a, jointDefault), PieceCatalog.runLengths(a))) j = null;
+            }
             if (j != null) {
                 if (j[2] != e[0] || j[3] != e[1]) adjust = new int[]{bestI, bestK, j[2], j[3]};
                 snap = adjust != null ? "join_moved" : "joint";
@@ -485,7 +492,7 @@ final class LineView {
             // Room at the free end for the joint the next segment will bring (the chain usually goes on; Done trims it).
             int off1 = PieceCatalog.expectedReach(nl, jointDefault);
             Plan.Line prev = chain.isEmpty() ? null : chain.get(chain.size() - 1);
-            boolean straightOn = prev != null && prevDir != null && Integer.signum(prevDir[0]) == sx && Integer.signum(prevDir[1]) == sz;
+            boolean straightOn = prev != null && !PlanView.locked(prev) && prevDir != null && Integer.signum(prevDir[0]) == sx && Integer.signum(prevDir[1]) == sz;
             int base = 0, off0 = liveOffs[0];
             if (straightOn) {
                 // Straight on: one longer segment (dropped as an extension of the last), tiled as a whole.
@@ -570,14 +577,12 @@ final class LineView {
             PlanView.replaceLine(a, moveEnd(a, adjust[1], adjust[2], adjust[3]));
         }
         PlanView.splitAt(end);
-        // The joint default for the joints this segment makes.
-        for (int[] c : new int[][]{start, end})
-            if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         if (heightMode == Plan.CHAIN) {
             // The chain shares one level: high enough for this segment's ground too; earlier segments follow it.
             int nb = com.volcanicmg.mccitybuilder.planner.PieceLayout.chainBase(chainBase, liveSegMax);
             if (nb != chainBase)
                 for (int k = 0; k < chain.size(); k++) {
+                    if (PlanView.locked(chain.get(k))) continue;
                     Plan.Line o = chain.get(k), n = o.withHeight(o.height(), o.dy(), nb);
                     PlanView.replaceLine(o, n);
                     chain.set(k, n);
@@ -585,7 +590,7 @@ final class LineView {
             chainBase = nb;
         }
         Plan.Line l = next(start, end);
-        if (merge && !chain.isEmpty()) {
+        if (merge && !chain.isEmpty() && !PlanView.locked(chain.get(chain.size() - 1))) {
             // Straight on: the last segment grows instead of a second one butting against it.
             Plan.Line prev = chain.get(chain.size() - 1);
             l = prev.between(prev.x0(), prev.z0(), end[0], end[1]);
@@ -595,6 +600,9 @@ final class LineView {
             PlanView.addLine(l);
             chain.add(l);
         }
+        // The joint default for the joints this segment makes.
+        for (int[] c : new int[][]{start, end})
+            if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         prevDir = new int[]{end[0] - start[0], end[1] - start[1]};
         start = end;
         end = null;
@@ -666,7 +674,13 @@ final class LineView {
             else endChain();
             return;
         }
-        Plan.Line l = chain.remove(chain.size() - 1);
+        Plan.Line l = chain.get(chain.size() - 1);
+        // Built or on its way (or changed by the server's answer): not taken back; the chain just ends.
+        if (PlanView.locked(l) || !PlanView.lines.contains(l)) {
+            endChain();
+            return;
+        }
+        chain.remove(chain.size() - 1);
         PlanView.removeLineValue(l);
         start = new int[]{l.x0(), l.z0()};
         prevDir = chain.isEmpty() ? null : new int[]{chain.get(chain.size() - 1).x1() - chain.get(chain.size() - 1).x0(),

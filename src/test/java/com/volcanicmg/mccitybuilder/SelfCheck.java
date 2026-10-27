@@ -1221,6 +1221,19 @@ public final class SelfCheck {
         check(m != null && m.get(0).z0() == 4 && m.get(1).z0() == 4 && m.get(1).z1() == 20, "body drag: the neighbour stretches");
         check(Plan.move(List.of(h, v), List.of(new int[]{0, 0}), 25, 0, l -> false) == null, "an end can't pass the other");
         check(Plan.move(List.of(h.asBuilt(), v), List.of(new int[]{20, 0}), 1, 0, Plan.Line::built) == null, "built walls don't move");
+        // A batch answer arriving mid-drag: the release moves from the plan as it is then, so the built wall stays
+        // built and unmoved; a line added mid-drag doesn't break it either.
+        List<int[]> pts = List.of(new int[]{20, 0});
+        var preview = Plan.move(List.of(h, v), pts, 3, 0, l -> false);
+        var now = List.of(h.asBuilt(), v, new Plan.Line("wall", 50, 50, 60, 50, "p", "f", 1, -1, false, false));
+        check(preview != null && Plan.move(now, pts, 3, 0, Plan.Line::built) == null, "answer mid-drag: the built wall isn't moved back to unbuilt");
+        var later = Plan.move(List.of(h, v, now.get(2)), pts, 3, 0, Plan.Line::built);
+        check(later != null && later.size() == 3 && Plan.moved(List.of(h, v, now.get(2)), later, pts).get(Plan.cell(20, 0))[0] == 23, "count change mid-drag");
+        // M2: moving another wall's free end onto the line must leave it a straight.
+        check(LineSnap.joinKeeps(14, 0, 4, new int[]{9}) && !LineSnap.joinKeeps(12, 0, 4, new int[]{9}) && !LineSnap.joinKeeps(30, 0, 4, new int[]{}), "join keeps a straight");
+        java.util.Map<Long, Integer> jt = new java.util.HashMap<>(java.util.Map.of(Plan.cell(20, 0), Plan.J_TEE, Plan.cell(99, 99), Plan.J_TOWER));
+        Plan.pruneJoints(jt, List.of(h, v));
+        check(jt.size() == 1 && jt.containsKey(Plan.cell(20, 0)), "joint types of vanished joints pruned");
         var t = Plan.readJoints(Plan.write(List.of(), List.of(h), java.util.Map.of(Plan.cell(20, 0), Plan.J_INNER, Plan.cell(-3, 7), Plan.J_TOWER)));
         check(t.get(Plan.cell(20, 0)) == Plan.J_INNER && t.get(Plan.cell(-3, 7)) == Plan.J_TOWER && t.size() == 2, "joint types round trip");
     }

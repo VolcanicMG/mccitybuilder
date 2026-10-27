@@ -227,4 +227,15 @@ public final class LineSnap {
         for (int d = 0; d <= max; d++) if (exact(cells + d, off0, off1, lens)) return d;
         return -1;
     }
+
+    /**
+     * @param cells the other segment's length once its free end moved onto the live line; @param offOther the cells
+     *              its other end's joint / cap takes; @param reach what the new joint takes
+     * @return true when it still holds a straight (else the join would leave it with no piece or a big gap)
+     */
+    public static boolean joinKeeps(int cells, int offOther, int reach, int[] lens) {
+        int min = Integer.MAX_VALUE;
+        for (int l : lens) if (l > 0) min = Math.min(min, l);
+        return min != Integer.MAX_VALUE && cells - offOther - reach >= min;
+    }
 }
