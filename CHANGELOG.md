@@ -2,6 +2,19 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Road / wall tools: walls meet towers and corners on their real faces (overhangs skipped, centred on the face);
+  the joint with the last segment shows while you drag; remove a segment by hovering it (Del, right-click or Remove;
+  Undo brings it back); R flips a segment's side; heights: follow the ground, flat, flat for the whole chain, or smooth,
+  with PgUp / PgDn and a "Y 72 (+3)" readout (air under raised pieces shows amber; builders don't fill it).
+- Snapping: to joints and towers (snap points shown), onto a segment (a T at a piece's middle), onto the axes and
+  seam grid of other segments, and to lengths the pieces cover exactly (Shift: any length); the cursor says what
+  snapped. Built segments stay in the plan as faint records, so new walls connect to them.
+- The piece card is a 3D preview you can turn and zoom, browsing every piece the family uses; a gear opens the piece
+  editor; a larger preview opens from the card.
+- Fix: Build all built only one of two planned huts (the next request went out while the first paste still ran and
+  was refused). Entries now stay in the plan until the server confirms them, wait when it is busy, and the run ends
+  with "Built n / m" and why anything stayed. Network protocol 3 (client and server must be the same build).
+
 - Fix: citizen markers and builder badges no longer appear where nobody is; they're drawn only at citizens actually
   there (the old fallback used MineColonies' stale last-known position).
 - Road / wall drawing shows what you lay: a ghost of the current piece under the cursor before you click, then the

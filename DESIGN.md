@@ -241,6 +241,14 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   existing building's box, overlapping another entry.
 - Saved on every change to `mccitybuilder/plans/<sp_world or mp_server>/<dimension>_<colonyId>.txt` under the game
   directory: a header line and one tab-separated line per entry; damaged lines are skipped.
+- Single entries through the server part (creative huts and decorations, survival decorations) go one at a time
+  through `planner/BuildQueue` and stay in the plan until the server answers (`batch_result` with the request's id,
+  protocol "3"; the server answers with the request's own id, also late and also after an exception, which counts as
+  refused): accepted once the paste finished (or the work order was made), "busy" (another paste / batch /
+  rate limit: sent again after 1.5 s, up to 40 times) or "refused" (stays; the server log says why); no answer in
+  2 minutes: stays (a late yes still moves it to built, so it isn't sent twice). The run ends with "Built n / m" and each entry that stayed. (Before, the next request went out
+  when the previous hut's building view appeared, while its paste still ran: the server refused it as busy and the
+  entry was already gone from the plan, so only one of two huts was built.)
 - Build all / Build selected cover structures and road / wall segments (`Plan.decide` / `decideLine`, pure). Every
   Build answers in chat and as a toast: "Building N structures and M segments", or "Nothing to build", plus each
   reason something stayed (outside or into a building, no hut item / research, decorations or segments needing
@@ -301,17 +309,63 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Drawing: before the first click, a ghost of the current straight lies across the screen under the cursor. While
   dragging, the live segment is laid out (with the plan, so its joints are real) into Structurize ghosts (`_live_<n>`
   cache keys) with an outline per piece (green, red outside the claims or into a building) and the amber gap, only
-  when the key (start, snapped end, plan layout version, options) changes (`LineSnap.relayout`). A label at the
-  midpoint shows "N blocks · M pieces" or "Too short: needs ≥ N"; the cursor shows the gap or the too-short hint. A
-  click on a segment shorter than its need (`PieceLayout.need`: the joint / cap offsets plus the shortest straight;
-  `LineSnap.canDrop`) is refused with a hint instead of planning a 0-piece segment.
+  when the key (start, snapped end, plan layout version, options) changes (`LineSnap.relayout`). The live pieces
+  include the joint pieces at its ends that a planned segment owns in the layout (the joint between the last
+  dropped segment and the live one used to appear only after the next click). A label at the midpoint shows
+  "N blocks · M pieces" or "Too short: needs ≥ N"; the cursor shows the gap, the too-short hint or what snapped. A
+  click on a segment shorter than its need (`PieceLayout.need`; `LineSnap.canDrop`) is refused with a hint.
+- Snapping (radius `LineSnap.radius`: 2.5 blocks, growing with the camera's height to 10). Start: a segment's end
+  (its joint; a tower's centre and face middles are shown as cyan snap points), else onto a segment at the middle of
+  its nearest piece (the branch splits it there: a T away from seams), else onto the segments' axes and their seam
+  grid (start + whole straights), with a guide line. End: a segment's end in line with the start, else a
+  perpendicular segment the run crosses (`LineSnap.crossing`; previewed split, split on the click: a T), else the
+  nearest length the family's straights cover exactly between the joint / cap offsets (`LineSnap.snapLength`, no
+  "short" gap; Shift = any length). The offsets come from the previous live layout (same start).
+- Joint faces (`PieceLayout.Grid / attach / faceScore`, pure, from the turned blueprint's blocks): a run meets the
+  joint piece's body, not its box. `Grid.inset` skips layers holding under half the blocks of the fullest layer (a
+  tower's parapet overhang, an empty margin) on both the joint and the straight; the run starts right after the
+  body face, and the sideways shift (within max(3, width)) is the best profile overlap, ties broken by centring the
+  run on the face (a thin wall fits a wide tower face at several shifts; the old pick, 0, put it off-centre).
+  Profiles compare height above the ground anchor, so pieces with different foundations line up. SelfCheck reads
+  medievaloak's segment5 / tower5 from the MineColonies jar and checks every face and turn: the run never overlaps
+  destructively, starts on the body face where that is safe, and its centreline is within 0.75 of the face centre.
+- Overlap rule (`PieceLayout.destructive`, grids keep air apart from substitution): a run reaches into the joint's
+  trim only as far as no cell would clear or replace a block of the other piece in EITHER build order (air pasted
+  clears the world; substitution leaves it; survival builders work in any order); otherwise it stops at the joint's
+  box (centred, with a cosmetic gap). The medievaloak tower's ring holds air next to the parapet, so runs meet the
+  body on some faces and keep a 1-block gap on others. SelfCheck runs every bundled road / wall family's corner / T
+  / cross / tower in every turn against its main straight both ways round: no destructive overlap; it prints which
+  families meet the body exactly and which keep a gap. Planned and live pieces that would clear or replace each
+  other's blocks (crossing segments, a road through a wall) are drawn red (`PieceCatalog.clash`, all pairs).
+- Heights (`PieceLayout.levels`, per segment, saved): follow the ground (each piece at its centre's ground, as
+  before), flat (every piece at the highest ground under any of its pieces), flat chain (the chain's shared level:
+  `chainBase`, the highest ground of its segments so far; a higher segment lifts the earlier ones), smooth (raised so
+  neighbours differ by at most 1, never below their ground); plus `dy` blocks (PgUp / PgDn). Joint pieces stand as
+  high as their highest neighbouring piece (`jointLevel`). The panel reads "Y 72 (+3)" for flat modes. Air under a
+  raised piece (2+ blocks over the lowest ground under it) is drawn as an amber box: builders and pastes don't fill
+  it, the blueprint stays as it is (a "fill foundations" option could come later).
+- Flip (R, per segment): straights and gates turned 180° (a wall's other side out); joints re-score their turn
+  against the flipped straights.
+- Removing (line tool): the planned segment under the cursor is highlighted; Del, right-click (no chain active) or
+  Remove deletes it, and its neighbours' joints are laid out again; Undo (Backspace) with no chain brings removed
+  segments back (last 32).
+- Built records: a segment whose batches were all accepted stays in the plan as built (faint grey outline, no ghost,
+  never built again, removable), so new segments snap and join onto walls already built. Built segments and those
+  whose batches are on their way are never split (a T onto them gets no joint piece; overlaps show red). A built segment never owns
+  a new joint piece: an unbuilt segment meeting it places that one.
 - Committed pieces: each gets its own outline the height of its blueprint box, inset (Structurize draws its own
-  white box around every ghost, which can't be turned off), green / red per piece, white for the selected segment.
-- Panel: family, level or variant (variants: one, or mixed by piece index), Towers / Gate (walls: the selected segment,
-  or the next one drawn; reset after a drop) / Pieces, a card with the piece being laid (top-down render from the
-  blueprint's map colours, name, length x width x height, role), the segment's numbers, Done / Undo / Build. Pieces
-  opens the piece-set editor as a popup beside the panel: which group plays each role (auto / none / any group of
-  the family), saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
+  white box around every ghost, which can't be turned off), green / red per piece, white for the selected segment,
+  yellow for the hovered one.
+- Panel: family, level or variant (variants: one, or mixed by piece index), height, Towers / Gate (walls: the
+  selected segment, or the next one drawn; reset after a drop) / Flip, a 3D preview, the segment's numbers, Done /
+  Undo / Remove / Build. A gear opens the piece-set editor as a popup beside the panel: which group plays each role
+  (auto / none / any group of the family), saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
+- Preview (`client/PieceView`): Structurize has no GUI blueprint renderer (its `BlueprintRenderer` draws in the
+  world stage only), so each piece is baked once into vertex buffers (one per entity render type, the block models
+  the world uses, full-bright, at most 6000 blocks; animated / entity-model blocks such as chests are left out) and
+  drawn with inventory lighting in a scissored box: slow turn, drag to turn, wheel to zoom. Arrows browse every piece the line uses at its level / variant
+  (`PieceSets.browse`: straights, corner, inner corner, T, cross, end, gate, tower); the planned piece under the
+  cursor shows instead; the corner button opens a large view.
 - Style: the palette and the line tools use the colony's own style pack (`IColonyView.getStructurePack`) each time,
   unless the player picked another for that colony this client session; a style that isn't installed falls back to
   the first pack with a chat hint (once per colony and session).
@@ -324,7 +378,7 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   vs skipped). The server answers every batch (`batch_result`: accepted, or refused with a reason); the client sends
   the next batch only after that answer (10 s timeout) and keeps a segment in the plan until all its batches were
   accepted (refused: it stays, its other batches are dropped, the reason is shown). A run whose piece never released
-  is resumed by the player's next request. Payload protocol "2" (optional): a client and server of different builds refuse the
+  is resumed by the player's next request. Payload protocol "3" (optional; "2" before single requests got answers): a client and server of different builds refuse the
   channel instead of mis-decoding; answers go only to clients that have the `batch_result` channel. Busy marks are
   time-stamped, and a request releases only its own (a stuck piece finishing late can't clear a newer mark). Survival is checked when ordered: builders later replace what is there
   when they build.

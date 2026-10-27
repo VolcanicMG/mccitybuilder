@@ -33,9 +33,14 @@ import net.minecraft.world.level.block.state.BlockState;
 final class PieceCatalog {
     /**
      * A piece to place: its blueprint path, quarter turns, anchor, footprint box {x0, z0, x1, z1}, role, block count,
-     * and the bottom and height of its blueprint box (for outlines).
+     * the bottom and height of its blueprint box (for outlines), the ground level it stands on and the lowest ground
+     * under its footprint (a gap between them is air under the piece: a builder doesn't fill it).
      */
-    record Placed(String path, int turns, BlockPos anchor, int[] box, PieceSets.Role role, int blocks, int y0, int h) {
+    record Placed(String path, int turns, BlockPos anchor, int[] box, PieceSets.Role role, int blocks, int y0, int h, int level, int low) {
+        boolean joint() {
+            return role == PieceSets.Role.CORNER || role == PieceSets.Role.TEE || role == PieceSets.Role.CROSS || role == PieceSets.Role.TOWER
+                    || role == PieceSets.Role.INNER;
+        }
     }
 
     private static final Map<String, Map<String, PieceSets.Family>> families = new HashMap<>();
@@ -55,14 +60,16 @@ final class PieceCatalog {
         loads.clear();
         rotated.clear();
         blockCounts.clear();
+        grids.clear();
         failed.clear();
-        topViews.clear();
+        PieceView.clear();
         overrides.clear();
     }
 
     /** @return a fresh copy of the blueprint turned {@code turns} quarter turns, or null while it loads */
     static Blueprint rotated(String pack, String path, int turns) {
         Minecraft mc = Minecraft.getInstance();
+        turns = Math.floorMod(turns, 4);
         String key = pack + "|" + path + "|" + turns;
         Blueprint done = rotated.get(key);
         if (done != null || mc.level == null) return done;
@@ -197,64 +204,28 @@ final class PieceCatalog {
         return !st.isAir() && st.getBlock() != com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get();
     }
 
-    /**
-     * @param box  the piece's world box {x0, z0, x1, z1} (for the turned blueprint {@code bp})
-     * @param face 0 = +X, 1 = +Z, 2 = -X, 3 = -Z
-     * @param ref  the world coordinate lateral positions are measured from
-     * @param ids  true: each cell also carries its block (so a face matches by material too, not only by shape)
-     * @return the solid cells of that face as {@code y * 65536 + lateral - ref + 30000} (+ block id << 32)
-     */
-    static Set<Long> face(Blueprint bp, int[] box, int face, int ref, boolean ids) {
-        Set<Long> out = new HashSet<>();
-        int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
-        for (int y = 0; y < sy; y++)
-            if (face == 0 || face == 2)
-                for (int z = 0; z < sz; z++) {
-                    BlockState st = bp.getBlockState(new BlockPos(face == 0 ? sx - 1 : 0, y, z));
-                    if (solid(st)) out.add(cell(st, y, box[1] + z - ref, ids));
-                }
-            else
-                for (int x = 0; x < sx; x++) {
-                    BlockState st = bp.getBlockState(new BlockPos(x, y, face == 1 ? sz - 1 : 0));
-                    if (solid(st)) out.add(cell(st, y, box[0] + x - ref, ids));
-                }
-        return out;
-    }
+    private static final Map<String, PieceLayout.Grid> grids = new HashMap<>();
 
-    private static long cell(BlockState st, int y, int lateral, boolean ids) {
-        long v = (long) y * 65536 + lateral + 30000;
-        return ids ? v + ((long) (net.minecraft.core.registries.BuiltInRegistries.BLOCK.getId(st.getBlock()) & 0x7FFF) << 32) : v;
-    }
-
-    private static final Map<String, int[]> topViews = new HashMap<>();
-
-    /**
-     * A top-down picture of a piece (unturned): per column {@code z * sizeX + x}, the map colour of its highest solid
-     * block, lighter the higher it is; 0 for empty columns.
-     *
-     * @return the colours, or null while the blueprint loads
-     */
-    static int[] topView(String pack, String path) {
-        int[] done = topViews.get(pack + "|" + path);
+    /** @return the piece's blocks as placed (turned), for face matching; null while it loads */
+    static PieceLayout.Grid grid(String pack, String path, int turns) {
+        String key = pack + "|" + path + "|" + Math.floorMod(turns, 4);
+        PieceLayout.Grid done = grids.get(key);
         if (done != null) return done;
-        Blueprint bp = rotated(pack, path, 0);
-        Minecraft mc = Minecraft.getInstance();
-        if (bp == null || mc.level == null) return null;
+        Blueprint bp = rotated(pack, path, turns);
+        if (bp == null) return null;
         int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
-        int[] out = new int[sx * sz];
-        for (int x = 0; x < sx; x++)
+        int[] ids = new int[sx * sy * sz];
+        for (int y = 0; y < sy; y++)
             for (int z = 0; z < sz; z++)
-                for (int y = sy - 1; y >= 0; y--) {
+                for (int x = 0; x < sx; x++) {
                     BlockState st = bp.getBlockState(new BlockPos(x, y, z));
-                    if (!solid(st)) continue;
-                    int c = st.getMapColor(mc.level, BlockPos.ZERO).col;
-                    float k = 0.6f + 0.4f * (y + 1) / sy;
-                    out[z * sx + x] = 0xFF000000 | Math.min(255, (int) ((c >> 16 & 255) * k)) << 16 | Math.min(255, (int) ((c >> 8 & 255) * k)) << 8
-                            | Math.min(255, (int) ((c & 255) * k));
-                    break;
+                    // Air clears the world when pasted; substitution (0) leaves it.
+                    ids[(y * sz + z) * sx + x] = st.isAir() ? PieceLayout.Grid.AIR : solid(st) ? 1 + net.minecraft.core.registries.BuiltInRegistries.BLOCK.getId(st.getBlock()) : 0;
                 }
-        topViews.put(pack + "|" + path, out);
-        return out;
+        // Ground: the local y at ground level, as the anchor math in place() puts it.
+        PieceLayout.Grid g = new PieceLayout.Grid(sx, sy, sz, ids, bp.getPrimaryBlockOffset().getY() - BlueprintTagUtils.getGroundAnchorOffset(bp, 1));
+        grids.put(key, g);
+        return g;
     }
 
     static int blocks(String pack, String path) {
@@ -273,9 +244,10 @@ final class PieceCatalog {
      * The result of laying out every planned line: placed pieces per line, cells left uncovered ("short"), where that
      * gap is (box or null), the length each line needs to fit a piece, and whether all blueprints were ready (per line,
      * and overall): an incomplete line may miss pieces or have a butt joint where a joint piece belongs, so it must
-     * not be built yet.
+     * not be built yet. Offs per line: cells the joints / caps take at {start, end}. Heights per line: {flat level or MIN_VALUE when not flat, highest ground under its pieces}.
      */
-    record Layout(List<List<Placed>> lines, List<Integer> shortened, List<int[]> gaps, List<Integer> need, List<Boolean> lineComplete, boolean complete) {
+    record Layout(List<List<Placed>> lines, List<Integer> shortened, List<int[]> gaps, List<Integer> need, List<Boolean> lineComplete,
+                  List<int[]> heights, List<int[]> offs, boolean complete) {
     }
 
     /**
@@ -290,6 +262,10 @@ final class PieceCatalog {
         List<Integer> shortened = new ArrayList<>(), need = new ArrayList<>();
         List<int[]> gaps = new ArrayList<>();
         List<Boolean> lineComplete = new ArrayList<>();
+        List<int[]> heights = new ArrayList<>(), offs = new ArrayList<>();
+        // Joint pieces: where each sits (line, index) and the levels of the run pieces next to it.
+        Map<Long, int[]> jointAt = new HashMap<>();
+        Map<Long, List<Integer>> jointNext = new HashMap<>();
         boolean complete = true;
         // Endpoints: which lines meet at each cell.
         Map<Long, List<int[]>> at = new HashMap<>();
@@ -311,6 +287,8 @@ final class PieceCatalog {
             if (straights.isEmpty()) {
                 complete &= fs != null;
                 lineComplete.add(fs != null);
+                heights.add(new int[]{Integer.MIN_VALUE, Integer.MIN_VALUE});
+                offs.add(new int[2]);
                 shortened.add(0);
                 gaps.add(null);
                 need.add(Integer.MAX_VALUE);
@@ -347,11 +325,16 @@ final class PieceCatalog {
                     continue;
                 }
                 Placed joint = joints.get(k);
+                // A built segment never owns a new joint (it wouldn't be built): an unbuilt one meeting there places it.
+                boolean defer = false;
+                if (l.built()) for (int[] m : meet) defer |= !lines.get(m[0]).built();
+                if (defer && joint == null && !butts.containsKey(k)) continue;
                 if (joint == null && !butts.containsKey(k)) {
                     jointLoading = false;
                     joint = joint(l, f, c, d, meet, lines, i, primary, width);
                     if (joint != null) {
                         joints.put(k, joint);
+                        jointAt.put(k, new int[]{i, placed.size()});
                         placed.add(joint);
                     } else {
                         // No joint piece: one line runs through the joint square, the others stop at its face.
@@ -374,15 +357,17 @@ final class PieceCatalog {
                 if (joint != null) {
                     int[] jb = joint.box();
                     off[end] = PieceLayout.reach(c, d, jb);
-                    // Lateral alignment: shift the straights so their end face matches the joint's face profile.
-                    Blueprint jbp = rotated(l.pack(), joint.path(), joint.turns()), sbp = rotated(l.pack(), primary.path(), PieceLayout.turns(primary.sx(), primary.sz(), dir));
-                    // From the start's joint, else the end's (lateral positions don't depend on where along the run).
-                    if (sbp == null && !failed(l.pack(), primary.path())) ok = false;
-                    if ((end == 0 || !aligned) && jbp != null && sbp != null) {
-                        int ref = dir % 2 == 0 ? c[1] : c[0];
-                        int[] sbox = PieceLayout.boxes(a, dir, 0, List.of(primary.run()), width, 0).get(0);
-                        shift = PieceLayout.bestShift(face(jbp, jb, d, ref, false), face(sbp, sbox, (d + 2) % 4, ref, false), 3);
-                        aligned = true;
+                    // The run meets the joint's body (trim skipped) and lines up with its face; the sideways shift from
+                    // the start's joint, else the end's (lateral positions don't depend on where along the run).
+                    PieceLayout.Grid jg = grid(l.pack(), joint.path(), joint.turns()), sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
+                    if (sg == null && !failed(l.pack(), primary.path())) ok = false;
+                    if (jg != null && sg != null) {
+                        int[] att = PieceLayout.attach(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width));
+                        off[end] = att[0];
+                        if (end == 0 || !aligned) {
+                            shift = att[1];
+                            aligned = true;
+                        }
                     }
                 } else {
                     int[] bt = butts.get(k);
@@ -397,6 +382,7 @@ final class PieceCatalog {
             int[] lens = straights.stream().map(g -> g.pick(g.levels() ? l.level() : l.variant(), 0)).filter(p -> p.across() == width)
                     .mapToInt(PieceSets.Piece::run).distinct().toArray();
             need.add(PieceLayout.need(off[0], off[1], lens));
+            offs.add(off.clone());
             List<Integer> tiles = new ArrayList<>();
             List<PieceSets.Piece> tilePieces = new ArrayList<>();
             int used;
@@ -424,14 +410,79 @@ final class PieceCatalog {
             List<int[]> boxes = PieceLayout.boxes(a, dir, start, runs, width, shift);
             for (int k = 0; k < tilePieces.size(); k++) {
                 PieceSets.Piece p = tilePieces.get(k);
-                Placed pl = place(l.pack(), p.path(), PieceLayout.turns(p.sx(), p.sz(), dir), boxes.get(k), tiles.get(k) < 0 ? PieceSets.Role.GATE : PieceSets.Role.STRAIGHT);
+                Placed pl = place(l.pack(), p.path(), sturn(p, dir, l.flip()), boxes.get(k), tiles.get(k) < 0 ? PieceSets.Role.GATE : PieceSets.Role.STRAIGHT);
                 if (pl == null) ok &= failed(l.pack(), p.path());
                 else placed.add(pl);
             }
+            // Heights: the line's mode for its own pieces in order along the run; joints follow their neighbours below.
+            List<Integer> run = new ArrayList<>();
+            for (int q = 0; q < placed.size(); q++) if (!placed.get(q).joint()) run.add(q);
+            int fdir = dir;
+            run.sort(java.util.Comparator.comparingInt(q -> along(placed.get(q).box(), fdir)));
+            int[] own = new int[run.size()], hi = new int[run.size()];
+            for (int q = 0; q < run.size(); q++) {
+                own[q] = placed.get(run.get(q)).level();
+                hi[q] = under(placed.get(run.get(q)).box())[1];
+            }
+            int[] lv = PieceLayout.levels(l.height(), own, hi, l.dy(), l.base());
+            for (int q = 0; q < run.size(); q++) placed.set(run.get(q), relevel(l.pack(), placed.get(run.get(q)), lv[q]));
+            int segMax = Integer.MIN_VALUE;
+            for (int h : hi) segMax = Math.max(segMax, h);
+            boolean flat = l.height() == Plan.FLAT || l.height() == Plan.CHAIN;
+            heights.add(new int[]{flat && lv.length > 0 ? lv[0] : Integer.MIN_VALUE, segMax});
+            if (lv.length > 0)
+                for (int end = 0; end < 2; end++) {
+                    long k = end == 0 ? key(a[0], a[1]) : key(b[0], b[1]);
+                    if (joints.containsKey(k)) jointNext.computeIfAbsent(k, x -> new ArrayList<>()).add(end == 0 ? lv[0] : lv[lv.length - 1]);
+                }
             lineComplete.add(ok);
             complete &= ok;
         }
-        return new Layout(out, shortened, gaps, need, lineComplete, complete);
+        // A joint stands as high as its highest neighbour.
+        for (var en : jointAt.entrySet()) {
+            int[] where = en.getValue();
+            List<Placed> ps = out.get(where[0]);
+            Placed j = ps.get(where[1]);
+            List<Integer> next = jointNext.getOrDefault(en.getKey(), List.of());
+            int[] nb = new int[next.size()];
+            for (int q = 0; q < nb.length; q++) nb[q] = next.get(q);
+            ps.set(where[1], relevel(lines.get(where[0]).pack(), j, PieceLayout.jointLevel(j.level(), nb)));
+        }
+        return new Layout(out, shortened, gaps, need, lineComplete, heights, offs, complete);
+    }
+
+    /** @return the run lengths of the line's straights of its main width (what length snapping tiles with) */
+    static int[] runLengths(Plan.Line l) {
+        PieceSets.Piece p = primary(l, 0);
+        Map<String, PieceSets.Family> fs = families(l.pack());
+        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        if (p == null || f == null) return new int[0];
+        return groups(l.pack(), f, PieceSets.Role.STRAIGHT).stream().map(g -> g.pick(g.levels() ? l.level() : l.variant(), 0))
+                .filter(q -> q.across() == p.across()).mapToInt(PieceSets.Piece::run).distinct().toArray();
+    }
+
+    /**
+     * @return every piece the line's family uses at its level / variant, with its role, in browse order (straights,
+     * corner, inner corner, T, cross, end, gate, tower); empty while loading
+     */
+    static List<Map.Entry<PieceSets.Role, PieceSets.Piece>> browse(Plan.Line l) {
+        Map<String, PieceSets.Family> fs = families(l.pack());
+        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        if (f == null) return List.of();
+        Map<PieceSets.Role, List<PieceSets.Piece>> per = new java.util.EnumMap<>(PieceSets.Role.class);
+        Map<String, PieceSets.Role> roleOf = new HashMap<>();
+        for (PieceSets.Role r : PieceSets.BROWSE) {
+            List<PieceSets.Piece> ps = new ArrayList<>();
+            for (PieceSets.Group g : groups(l.pack(), f, r)) {
+                ps.add(g.pick(g.levels() ? l.level() : Math.max(0, l.variant()), 0));
+                if (r != PieceSets.Role.STRAIGHT) break;
+            }
+            per.put(r, ps);
+            for (PieceSets.Piece p : ps) roleOf.putIfAbsent(p.path(), r);
+        }
+        List<Map.Entry<PieceSets.Role, PieceSets.Piece>> out = new ArrayList<>();
+        for (PieceSets.Piece p : PieceSets.browse(per)) out.add(Map.entry(roleOf.get(p.path()), p));
+        return out;
     }
 
     /** @return the line's main straight at its level / variant (sets its width), or null without one */
@@ -452,7 +503,7 @@ final class PieceCatalog {
         if (p == null) return null;
         int[] a = {l.x0(), l.z0()};
         int dir = PieceLayout.dir(a, new int[]{l.x1(), l.z1()});
-        return place(l.pack(), p.path(), PieceLayout.turns(p.sx(), p.sz(), dir), PieceLayout.boxes(a, dir, 0, List.of(p.run()), p.across(), 0).get(0), PieceSets.Role.STRAIGHT);
+        return place(l.pack(), p.path(), sturn(p, dir, l.flip()), PieceLayout.boxes(a, dir, 0, List.of(p.run()), p.across(), 0).get(0), PieceSets.Role.STRAIGHT);
     }
 
     /** @return a straight of run length {@code run} and the line's width, at the line's level / variant */
@@ -500,31 +551,26 @@ final class PieceCatalog {
             int od = PieceLayout.dir(new int[]{o.x0(), o.z0()}, new int[]{o.x1(), o.z1()});
             outs.add(m[1] == 0 ? od : (od + 2) % 4);
         }
-        Blueprint sbp0 = rotated(l.pack(), straight.path(), PieceLayout.turns(straight.sx(), straight.sz(), 0));
         int best = 0;
         double bestScore = -1;
         for (int k = 0; k < 4; k++) {
-            Blueprint jbp = rotated(l.pack(), p.path(), k);
+            PieceLayout.Grid jg = grid(l.pack(), p.path(), k);
             // Every turn must be scored, or the pick could change once the rest loads.
-            if (jbp == null || sbp0 == null) {
-                jointLoading = !failed(l.pack(), p.path()) && !failed(l.pack(), straight.path());
+            if (jg == null) {
+                jointLoading = !failed(l.pack(), p.path());
                 return null;
             }
-            int[] jb = PieceLayout.centred(c, jbp.getSizeX(), jbp.getSizeZ());
+            int[] jb = PieceLayout.centred(c, jg.sx(), jg.sz());
             double score = 0;
             for (int out : outs) {
-                Blueprint sbp = rotated(l.pack(), straight.path(), PieceLayout.turns(straight.sx(), straight.sz(), out));
-                if (sbp == null) {
+                // The straight as it would leave the joint along `out` (its face toward the joint is (out + 2) % 4).
+                PieceLayout.Grid sg = grid(l.pack(), straight.path(), sturn(straight, out, l.flip()));
+                if (sg == null) {
                     jointLoading = !failed(l.pack(), straight.path());
                     return null;
                 }
-                int ref = out % 2 == 0 ? c[1] : c[0];
-                int[] sbox = PieceLayout.boxes(c, out, 1, List.of(straight.run()), width, 0).get(0);
                 // By shape and material: a road corner's faces can share a shape, its open sides share the road's blocks.
-                Set<Long> jf = face(jbp, jb, out, ref, false), sf = face(sbp, sbox, (out + 2) % 4, ref, false);
-                Set<Long> jm = face(jbp, jb, out, ref, true), sm = face(sbp, sbox, (out + 2) % 4, ref, true);
-                int sh = PieceLayout.bestShift(jf, sf, 3);
-                score += PieceLayout.jaccard(jf, sf, sh) + PieceLayout.jaccard(jm, sm, sh);
+                score += PieceLayout.faceScore(c, out, jb, jg, sg, width, straight.run());
             }
             if (score > bestScore + 1e-9) {
                 bestScore = score;
@@ -536,15 +582,67 @@ final class PieceCatalog {
         return place(l.pack(), p.path(), best, PieceLayout.centred(c, jbp.getSizeX(), jbp.getSizeZ()), role);
     }
 
+    /**
+     * @return true when the two placed pieces overlap destructively: pasting either after the other would clear or
+     * replace a block of the first (see {@link PieceLayout#destructive}); false while either loads
+     */
+    static boolean clash(String packA, Placed a, String packB, Placed b) {
+        int[] x = a.box(), y = b.box();
+        if (x[0] > y[2] || y[0] > x[2] || x[1] > y[3] || y[1] > x[3] || a.y0() + a.h() <= b.y0() || b.y0() + b.h() <= a.y0()) return false;
+        PieceLayout.Grid ga = grid(packA, a.path(), a.turns()), gb = grid(packB, b.path(), b.turns());
+        return ga != null && gb != null && PieceLayout.destructive(ga, x[0], a.y0(), x[1], gb, y[0], b.y0(), y[1]);
+    }
+
+    /** @return the quarter turns of a straight or gate running along {@code dir} (+2 when the segment is flipped) */
+    static int sturn(PieceSets.Piece p, int dir, boolean flip) {
+        return PieceLayout.turns(p.sx(), p.sz(), dir) + (flip ? 2 : 0);
+    }
+
     /** @return the piece with its anchor on the ground at the box's centre (stepped per piece), or null while it loads */
     private static Placed place(String pack, String path, int turns, int[] box, PieceSets.Role role) {
+        return placeAt(pack, path, turns, box, role, ground((box[0] + box[2]) / 2, (box[1] + box[3]) / 2));
+    }
+
+    /** @return the piece standing on ground level {@code level} (the first layer above the ground), or null while it loads */
+    private static Placed placeAt(String pack, String path, int turns, int[] box, PieceSets.Role role, int level) {
         Blueprint bp = rotated(pack, path, turns);
         if (bp == null) return null;
         BlockPos o = bp.getPrimaryBlockOffset();
-        Integer g = Planner.groundAt((box[0] + box[2]) / 2, (box[1] + box[3]) / 2);
-        int ground = (g == null ? 64 : g) - 1;
-        int y = ground + BlueprintTagUtils.getGroundAnchorOffset(bp, 1) - 1;
-        return new Placed(path, turns, new BlockPos(box[0] + o.getX(), y, box[1] + o.getZ()), box, role, blocks(pack, path), y - o.getY(), bp.getSizeY());
+        int y = level - 1 + BlueprintTagUtils.getGroundAnchorOffset(bp, 1) - 1;
+        int[] g = under(box);
+        return new Placed(path, turns, new BlockPos(box[0] + o.getX(), y, box[1] + o.getZ()), box, role, blocks(pack, path), y - o.getY(), bp.getSizeY(), level, g[0]);
+    }
+
+    private static int ground(int x, int z) {
+        Integer g = Planner.groundAt(x, z);
+        return g == null ? 64 : g;
+    }
+
+    /** @return {lowest, highest} ground level under a footprint (corners and centre) */
+    private static int[] under(int[] b) {
+        int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
+        for (int[] p : new int[][]{{b[0], b[1]}, {b[2], b[1]}, {b[0], b[3]}, {b[2], b[3]}, {(b[0] + b[2]) / 2, (b[1] + b[3]) / 2}}) {
+            int g = ground(p[0], p[1]);
+            lo = Math.min(lo, g);
+            hi = Math.max(hi, g);
+        }
+        return new int[]{lo, hi};
+    }
+
+    private static Placed relevel(String pack, Placed p, int level) {
+        if (p.level() == level) return p;
+        Placed q = placeAt(pack, p.path(), p.turns(), p.box(), p.role(), level);
+        return q == null ? p : q;
+    }
+
+    /** @return a box's position along a run direction (for ordering pieces from the run's start) */
+    private static int along(int[] box, int dir) {
+        return switch (dir) {
+            case 0 -> box[0];
+            case 2 -> -box[2];
+            case 1 -> box[1];
+            default -> -box[3];
+        };
     }
 
     private static long key(int x, int z) {

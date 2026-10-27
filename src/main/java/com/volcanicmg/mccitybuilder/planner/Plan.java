@@ -40,10 +40,42 @@ public final class Plan {
      * A drawn road or wall segment from (x0, z0) to (x1, z1), built from a style pack's pieces: the pack, the piece
      * family, the level (level groups) or variant (-1 = varied), towers at its joints, a gate in its middle.
      */
+    /** Height modes of a line: each piece on its ground, flat per segment, flat per chain, smoothed (steps of 1). */
+    public static final int FOLLOW = 0, FLAT = 1, CHAIN = 2, SMOOTH = 3;
+    /** {@link Line#base} when no chain height is fixed yet. */
+    public static final int NO_BASE = Integer.MIN_VALUE;
+
+    /**
+     * A drawn road / wall segment and its options. {@code flip}: straights and gates turned 180° (a wall's other side
+     * out); {@code height}: one of {@link #FOLLOW} .. {@link #SMOOTH}; {@code dy}: blocks added to that height;
+     * {@code base}: the chain's shared ground level ({@link #CHAIN}); {@code built}: already built (kept so new
+     * segments can snap and join onto it; never built again).
+     */
     public record Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
-                       boolean gate) {
+                       boolean gate, boolean flip, int height, int dy, int base, boolean built) {
+        public Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers, boolean gate) {
+            this(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, false, FOLLOW, 0, NO_BASE, false);
+        }
+
         public boolean isWall() {
             return "wall".equals(tool);
+        }
+
+        /** @return this segment with other ends (a split keeps every option) */
+        public Line between(int ax, int az, int bx, int bz) {
+            return new Line(tool, ax, az, bx, bz, pack, family, level, variant, towers, gate, flip, height, dy, base, built);
+        }
+
+        public Line withFlip(boolean f) {
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, f, height, dy, base, built);
+        }
+
+        public Line withHeight(int mode, int d, int b) {
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, mode, d, b, built);
+        }
+
+        public Line asBuilt() {
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, true);
         }
 
         public int[][] ends() {
@@ -51,7 +83,7 @@ public final class Plan {
         }
 
         public Line with(String family, int level, int variant, boolean towers, boolean gate) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built);
         }
     }
 
@@ -105,8 +137,8 @@ public final class Plan {
     public static String write(List<Entry> entries, List<Line> lines) {
         StringBuilder sb = new StringBuilder("mccitybuilder-plan\t" + VERSION + "\n");
         for (Line l : lines)
-            sb.append(String.join("\t", "L2", l.tool(), "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1(), l.pack(), l.family(), "" + l.level(),
-                    "" + l.variant(), "" + l.towers(), "" + l.gate())).append('\n');
+            sb.append(String.join("\t", "L3", l.tool(), "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1(), l.pack(), l.family(), "" + l.level(),
+                    "" + l.variant(), "" + l.towers(), "" + l.gate(), "" + l.flip(), "" + l.height(), "" + l.dy(), "" + l.base(), "" + l.built())).append('\n');
         for (Entry e : entries)
             sb.append(String.join("\t", e.isHut() ? e.hut() : "-", e.pack(), e.path(), "" + e.level(), "" + e.x(), "" + e.y(), "" + e.z(), "" + e.rot(),
                     "" + e.minX(), "" + e.minY(), "" + e.minZ(), "" + e.maxX(), "" + e.maxY(), "" + e.maxZ())).append('\n');
@@ -135,7 +167,8 @@ public final class Plan {
     }
 
     /**
-     * @return the drawn lines in {@code text} (rows prefixed {@code L2}); damaged rows, unknown tools and segments
+     * @return the drawn lines in {@code text} (rows prefixed {@code L3}, or the older {@code L2} without flip / height /
+     * built); damaged rows, unknown tools, out-of-range heights and segments
      * longer than {@link #MAX_LINE} are skipped (old {@code L} rows of the vanilla-block tools too)
      */
     public static List<Line> readLines(String text) {
@@ -145,17 +178,48 @@ public final class Plan {
         if (rows.length == 0 || !rows[0].startsWith("mccitybuilder-plan\t") && !rows[0].startsWith("colonyplanner-plan\t")) return out;
         for (int i = 1; i < rows.length; i++) {
             String[] f = rows[i].split("\t");
-            if (f.length != 12 || !f[0].equals("L2") || !f[1].equals("road") && !f[1].equals("wall")) continue;
+            boolean v3 = f.length == 17 && f[0].equals("L3");
+            if (!v3 && (f.length != 12 || !f[0].equals("L2")) || !f[1].equals("road") && !f[1].equals("wall")) continue;
             try {
                 int x0 = Integer.parseInt(f[2]), z0 = Integer.parseInt(f[3]), x1 = Integer.parseInt(f[4]), z1 = Integer.parseInt(f[5]);
                 if (Math.abs(x1 - x0) + Math.abs(z1 - z0) > MAX_LINE) continue;
-                out.add(new Line(f[1], x0, z0, x1, z1, f[6], f[7], Integer.parseInt(f[8]), Integer.parseInt(f[9]), Boolean.parseBoolean(f[10]),
-                        Boolean.parseBoolean(f[11].trim())));
+                Line l = new Line(f[1], x0, z0, x1, z1, f[6], f[7], Integer.parseInt(f[8]), Integer.parseInt(f[9]), Boolean.parseBoolean(f[10]),
+                        Boolean.parseBoolean(f[11].trim()));
+                if (v3) {
+                    int mode = Integer.parseInt(f[13]), dy = Integer.parseInt(f[14]);
+                    int base = Integer.parseInt(f[15]);
+                    if (mode < FOLLOW || mode > SMOOTH || Math.abs(dy) > 64 || base != NO_BASE && Math.abs(base) > 4096) continue;
+                    l = new Line(l.tool(), x0, z0, x1, z1, l.pack(), l.family(), l.level(), l.variant(), l.towers(), l.gate(), Boolean.parseBoolean(f[12]),
+                            mode, dy, base, Boolean.parseBoolean(f[16].trim()));
+                }
+                out.add(l);
             } catch (NumberFormatException ignored) {
                 // A damaged row: skip it.
             }
         }
         return out;
+    }
+
+    /**
+     * Splits the segment that passes through cell {@code c} (not at its ends) into two meeting there, so a branch or a
+     * segment ending on it gets a joint. The second half drops a gate. Locked segments (built, or on their way to the
+     * server) are never split: their record must stay as it is.
+     *
+     * @return the index of the split segment (its second half follows it), or -1 when none passes through c
+     */
+    public static int split(List<Line> lines, int[] c, java.util.function.Predicate<Line> locked) {
+        for (int i = 0; i < lines.size(); i++) {
+            Line l = lines.get(i);
+            if (locked.test(l)) continue;
+            boolean onX = l.z0() == l.z1() && c[1] == l.z0() && c[0] > Math.min(l.x0(), l.x1()) && c[0] < Math.max(l.x0(), l.x1());
+            boolean onZ = l.x0() == l.x1() && c[0] == l.x0() && c[1] > Math.min(l.z0(), l.z1()) && c[1] < Math.max(l.z0(), l.z1());
+            if (!onX && !onZ) continue;
+            lines.set(i, l.between(l.x0(), l.z0(), c[0], c[1]));
+            Line rest = l.between(c[0], c[1], l.x1(), l.z1());
+            lines.add(i + 1, rest.with(rest.family(), rest.level(), rest.variant(), rest.towers(), false));
+            return i;
+        }
+        return -1;
     }
 
     /** @return true when two inclusive boxes share a block */

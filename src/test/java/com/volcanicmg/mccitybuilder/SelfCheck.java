@@ -689,7 +689,7 @@ public final class SelfCheck {
     }
 
     /** Road / wall tools: snapping, chaining and branching, wall joints, height, gates, battlements, segments. */
-    private static void lines() {
+    private static void lines() throws Exception {
         List<int[][]> segs = new java.util.ArrayList<>();
         segs.add(new int[][]{{0, 0}, {20, 0}});
         // Ends snap to an existing endpoint near the cursor; otherwise to 45° steps from the previous direction.
@@ -711,6 +711,10 @@ public final class SelfCheck {
         pieces();
         joints();
         buildAll();
+        towerFaces();
+        heightsAndRecords();
+        snapping();
+        buildQueue();
         // Saved lines round trip; hostile rows (huge segments, old vanilla rows) are skipped.
         var line = new com.volcanicmg.mccitybuilder.planner.Plan.Line("wall", 1, 2, 30, 2, "medievaloak", "wall:walls/segment", 3, -1, true, true);
         String text = com.volcanicmg.mccitybuilder.planner.Plan.write(List.of(), List.of(line));
@@ -864,6 +868,219 @@ public final class SelfCheck {
         check(Plan.Build.values().length == 8, "reasons");
     }
 
+    /**
+     * Real footprints (medievaloak level 5 wall segment 6 x 9 and its 7 x 7 tower, whose outer ring is only a parapet
+     * overhang): for every face and turn of the tower and both ways round of the segment, the run starts exactly at
+     * the tower body's face (its overhang skipped) and its centreline meets the face's centre.
+     */
+    private static void towerFaces() throws Exception {
+        if (!new java.io.File(PackPieces.JAR).isFile()) {
+            System.out.println("CityBuilder self-check: " + PackPieces.JAR + " missing, tower face check skipped");
+            return;
+        }
+        PieceLayout.Grid tower = PackPieces.grid("medievaloak/walls/tower/tower5.blueprint"), seg = PackPieces.grid("medievaloak/walls/segment/segment5.blueprint");
+        int[] c = {0, 0};
+        java.util.Set<Integer> gaps = new java.util.TreeSet<>();
+        for (int k = 0; k < 4; k++) {
+            PieceLayout.Grid t = tower.turned(k);
+            int[] jb = PieceLayout.centred(c, t.sx(), t.sz());
+            for (int d = 0; d < 4; d++)
+                for (int runDir : new int[]{d, (d + 2) % 4}) {
+                    PieceLayout.Grid sg = seg.turned(PieceLayout.turns(seg.sx(), seg.sz(), runDir));
+                    int width = Math.min(seg.sx(), seg.sz()), run = Math.max(seg.sx(), seg.sz());
+                    int[] at = PieceLayout.attach(c, d, jb, t, sg, width, run, Math.max(3, width));
+                    String what = "tower turn " + k + " face " + d + " run " + runDir;
+                    int ti = t.inset(d), si = sg.inset((d + 2) % 4);
+                    check(ti == 1 && si == 0, what + ": insets " + ti + "," + si + " (tower ring is overhang)");
+                    // The run never clears or replaces a block of the tower (either build order), and stops at the
+                    // body face when that is safe, else at the box edge.
+                    int[] rb = PieceLayout.boxes(c, d, at[0], List.of(run), width, at[1]).get(0);
+                    check(!PieceLayout.destructive(t, jb[0], -t.ground(), jb[1], sg, rb[0], -sg.ground(), rb[1]), what + ": destructive overlap");
+                    int bodyFace = PieceLayout.reach(c, d, jb) - 1 - ti, runFirst = at[0] + si;
+                    check(runFirst == bodyFace + 1 || at[0] == PieceLayout.reach(c, d, jb), what + ": run starts at " + runFirst + ", body face at " + bodyFace);
+                    gaps.add(runFirst - bodyFace - 1);
+                    // Centrelines: the run's solid face, shifted, centred on the tower's face.
+                    int ref = d % 2 == 0 ? c[1] : c[0];
+                    int[] sbox = PieceLayout.boxes(c, d, at[0], List.of(run), width, 0).get(0);
+                    var a = t.profile(d, ti, (d % 2 == 0 ? jb[1] : jb[0]) - ref, false);
+                    var b = sg.profile((d + 2) % 4, si, (d % 2 == 0 ? sbox[1] : sbox[0]) - ref, false);
+                    double ca = a.stream().mapToLong(v -> v & 0xFFFF).average().orElse(0), cb = b.stream().mapToLong(v -> v & 0xFFFF).average().orElse(0) + at[1];
+                    check(Math.abs(ca - cb) <= 0.75, what + ": run centre " + cb + " vs tower face centre " + ca + " (shift " + at[1] + ")");
+                }
+        }
+        System.out.println("CityBuilder self-check: medievaloak tower5 / segment5 gaps at the tower body: " + gaps);
+        bundledJoints();
+        // Grid turns match Structurize's clockwise turn: four turns are the identity, one swaps the sides.
+        check(java.util.Arrays.equals(seg.turned(4).ids(), seg.ids()) && seg.turned(1).sx() == seg.sz(), "grid turns");
+    }
+
+    /**
+     * Every bundled pack's road / wall families: each joint piece the layout uses (corner, T, cross, tower), every turn
+     * and face, the family's main straight both ways round. The run never clears or replaces a block of the joint in
+     * either build order; prints which families meet the joint body exactly and which keep a gap.
+     */
+    private static void bundledJoints() throws Exception {
+        java.util.Map<String, List<com.volcanicmg.mccitybuilder.planner.PieceSets.Piece>> byPack = new java.util.TreeMap<>();
+        java.util.Map<String, PieceLayout.Grid> grids = new java.util.HashMap<>();
+        for (String full : PackPieces.pieces()) {
+            String pack = full.substring(0, full.indexOf('/')), path = full.substring(pack.length() + 1);
+            PieceLayout.Grid g = PackPieces.grid(full);
+            grids.put(full, g);
+            String[] sn = com.volcanicmg.mccitybuilder.planner.PieceSets.split(path.substring(path.lastIndexOf('/') + 1));
+            byPack.computeIfAbsent(pack, k -> new java.util.ArrayList<>()).add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece(path, sn[0], Integer.parseInt(sn[1]), g.sx(), g.sy(), g.sz()));
+        }
+        List<String> exact = new java.util.ArrayList<>(), gapped = new java.util.ArrayList<>();
+        int checked = 0;
+        for (var en : byPack.entrySet())
+            for (var fam : com.volcanicmg.mccitybuilder.planner.PieceSets.classify(en.getValue()).values()) {
+                if (fam.straights().isEmpty()) continue;
+                var st = fam.straights().get(0).first();
+                PieceLayout.Grid sgrid = grids.get(en.getKey() + "/" + st.path());
+                int width = st.across(), run = st.run(), worst = 0;
+                String worstOf = "";
+                // The joint roles the layout uses (inner corners are browse-only).
+                for (var role : List.of(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TEE, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CROSS,
+                        com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TOWER))
+                    for (var grp : fam.of(role)) {
+                        PieceLayout.Grid jg = grids.get(en.getKey() + "/" + grp.first().path());
+                        int[] c = {0, 0};
+                        for (int d = 0; d < 4; d++)
+                            for (int runDir : new int[]{d, (d + 2) % 4}) {
+                                PieceLayout.Grid sg = sgrid.turned(PieceLayout.turns(sgrid.sx(), sgrid.sz(), runDir));
+                                // Every turn is checked for safety; the gap counts for the turn the layout picks for this face.
+                                int best = 0;
+                                double bestScore = -1;
+                                for (int k = 0; k < 4; k++) {
+                                    PieceLayout.Grid t = jg.turned(k);
+                                    int[] jb = PieceLayout.centred(c, t.sx(), t.sz());
+                                    int[] at = PieceLayout.attach(c, d, jb, t, sg, width, run, Math.max(3, width));
+                                    int[] rb = PieceLayout.boxes(c, d, at[0], List.of(run), width, at[1]).get(0);
+                                    check(!PieceLayout.destructive(t, jb[0], -t.ground(), jb[1], sg, rb[0], -sg.ground(), rb[1]),
+                                            en.getKey() + " " + fam.key() + " " + grp.base() + " turn " + k + " face " + d + ": destructive overlap");
+                                    double sc = PieceLayout.faceScore(c, d, jb, t, sg, width, run);
+                                    if (sc > bestScore + 1e-9) {
+                                        bestScore = sc;
+                                        best = k;
+                                    }
+                                    checked++;
+                                }
+                                PieceLayout.Grid t = jg.turned(best);
+                                int[] jb = PieceLayout.centred(c, t.sx(), t.sz());
+                                int[] at = PieceLayout.attach(c, d, jb, t, sg, width, run, Math.max(3, width));
+                                int gap = at[0] + sg.inset((d + 2) % 4) - (PieceLayout.reach(c, d, jb) - t.inset(d));
+                                if (gap > worst) {
+                                    worst = gap;
+                                    worstOf = grp.base();
+                                }
+                            }
+                    }
+                (worst == 0 ? exact : gapped).add(en.getKey() + " " + fam.key().substring(fam.key().indexOf(':') + 1) + (worst == 0 ? "" : " " + worst + " at " + worstOf));
+            }
+        check(checked > 100, "bundled joints checked: " + checked);
+        System.out.println("CityBuilder self-check: runs meet the joint body exactly: " + exact);
+        System.out.println("CityBuilder self-check: runs keep a gap (blocks) to the joint body: " + gapped);
+    }
+
+    /** Heights (flat = highest ground, chain = one level, joints = highest neighbour) and the plan file keeping them. */
+    private static void heightsAndRecords() {
+        int[] own = {64, 66, 63, 70}, high = {65, 67, 64, 71};
+        int[] flat = PieceLayout.levels(Plan.FLAT, own, high, 2, Plan.NO_BASE);
+        check(java.util.Arrays.stream(flat).allMatch(v -> v == 73), "flat segment = highest ground + dy: " + java.util.Arrays.toString(flat));
+        check(java.util.Arrays.equals(PieceLayout.levels(Plan.FOLLOW, own, high, -1, Plan.NO_BASE), new int[]{63, 65, 62, 69}), "follow + dy");
+        int[] sm = PieceLayout.levels(Plan.SMOOTH, own, high, 0, Plan.NO_BASE);
+        boolean steps = true;
+        for (int i = 0; i < sm.length; i++) steps &= sm[i] >= own[i] && (i == 0 || Math.abs(sm[i] - sm[i - 1]) <= 1);
+        check(steps, "smooth: steps of 1, never buried: " + java.util.Arrays.toString(sm));
+        // Chain: the first segment fixes the level, a higher one lifts it for all, a lower one keeps it.
+        int base = PieceLayout.chainBase(Plan.NO_BASE, 70);
+        base = PieceLayout.chainBase(base, 74);
+        base = PieceLayout.chainBase(base, 66);
+        int[] s1 = PieceLayout.levels(Plan.CHAIN, new int[]{60, 61}, new int[]{62, 63}, 1, base), s2 = PieceLayout.levels(Plan.CHAIN, new int[]{70}, new int[]{71}, 1, base);
+        check(base == 74 && s1[0] == 75 && s1[1] == 75 && s2[0] == 75, "chain-flat shares one level: " + base);
+        check(PieceLayout.jointLevel(64, new int[]{66, 70}) == 70 && PieceLayout.jointLevel(64, new int[]{}) == 64, "joint = highest neighbour");
+        var l = new Plan.Line("wall", 0, 0, 20, 0, "medievaloak", "wall:walls/segment", 5, -1, true, false, true, Plan.CHAIN, -3, 74, true);
+        String text = Plan.write(List.of(), List.of(l, new Plan.Line("road", 0, 0, 0, 9, "birch", "road:x", 1, -1, false, false)));
+        var back = Plan.readLines(text);
+        check(back.size() == 2 && back.get(0).equals(l) && back.get(0).built() && back.get(0).flip(), "height, flip and built records round trip: " + back);
+        check(Plan.readLines("mccitybuilder-plan\t1\nL2\twall\t0\t0\t9\t0\tp\tf\t1\t-1\tfalse\tfalse\n").get(0).height() == Plan.FOLLOW, "old L2 rows read");
+        check(Plan.readLines("mccitybuilder-plan\t1\nL3\twall\t0\t0\t9\t0\tp\tf\t1\t-1\tfalse\tfalse\tfalse\t9\t0\t0\tfalse\n").isEmpty(), "bad height mode skipped");
+        var lines = new java.util.ArrayList<>(List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, true).asBuilt(),
+                new Plan.Line("wall", 0, 5, 20, 5, "p", "f", 1, -1, false, true)));
+        check(Plan.split(lines, new int[]{8, 0}, Plan.Line::built) == -1 && lines.size() == 2, "built records are never split");
+        check(Plan.split(lines, new int[]{8, 5}, Plan.Line::built) == 1 && lines.size() == 3 && lines.get(1).x1() == 8 && !lines.get(2).gate(), "split at a cell");
+        check(Plan.readLines("mccitybuilder-plan\t1\nL3\twall\t0\t0\t9\t0\tp\tf\t1\t-1\tfalse\tfalse\tfalse\t2\t0\t99999\tfalse\n").isEmpty(), "hostile base skipped");
+    }
+
+    /** Snapping: exact lengths for real families, the T crossing, axes and seam grid, the zoom radius, browse order. */
+    private static void snapping() {
+        // Length snap gives zero gap: medievaloak segments (9), spacewars walls (12 / 6), birch simple path (10).
+        int[][] fam = {{9}, {12, 6}, {10}};
+        int[][] offs = {{4, 4}, {6, 0}, {0, 0}};
+        for (int f = 0; f < fam.length; f++)
+            for (int raw = 5; raw < 60; raw += 7) {
+                int n = LineSnap.snapLength(raw, offs[f][0], offs[f][1], fam[f]);
+                int rest = n - offs[f][0] - offs[f][1], sum = PieceLayout.fill(rest, fam[f]).stream().mapToInt(Integer::intValue).sum();
+                check(sum == rest && rest > 0 && Math.abs(n - raw) <= 20, "length snap " + java.util.Arrays.toString(fam[f]) + " " + raw + " -> " + n + " leaves " + (rest - sum));
+            }
+        // T: a run east from (0, 5) crosses a north-south segment at x = 12.
+        List<int[][]> segs = List.of(new int[][]{{12, 0}, {12, 20}}, new int[][]{{0, 30}, {20, 30}});
+        check(LineSnap.crossing(new int[]{0, 5}, 0, 10.6, segs, 3) == 12 && LineSnap.crossing(new int[]{0, 5}, 0, 4, segs, 3) == -1, "T crossing snap");
+        check(LineSnap.crossing(new int[]{0, 25}, 0, 12, segs, 3) == -1, "past the segment's end: no T");
+        // Axes: a parallel wall's start lands on the other's line and seam grid; a perpendicular one on its axis.
+        var ax = LineSnap.axes(List.<int[][]>of(new int[][]{{0, 30}, {20, 30}}), 9, 4);
+        check(LineSnap.nearest(31.2, ax.get(1), 2.5) == 30 && LineSnap.nearest(17.4, ax.get(0), 2.5) == 18, "axis and seam grid snap");
+        check(LineSnap.nearest(40, ax.get(1), 2.5) == Integer.MIN_VALUE, "far from any axis: free");
+        check(LineSnap.radius(20) == LineSnap.RADIUS && LineSnap.radius(80) == 8 && LineSnap.radius(400) == 10, "snap radius grows with height");
+        // T on a straight: the branch lands on a piece's middle, not its seam (pieces 0..8 and 9..17).
+        check(LineSnap.nearest(9.6, List.of(4, 13), Double.MAX_VALUE) == 13 && LineSnap.nearest(7.2, List.of(4, 13), Double.MAX_VALUE) == 4, "T at a piece's middle");
+        // Browse order: straights, then corner .. tower, each blueprint once.
+        var P = com.volcanicmg.mccitybuilder.planner.PieceSets.class;
+        java.util.Map<com.volcanicmg.mccitybuilder.planner.PieceSets.Role, List<com.volcanicmg.mccitybuilder.planner.PieceSets.Piece>> per = new java.util.EnumMap<>(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.class);
+        per.put(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TOWER, List.of(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("t", "t", 1, 7, 22, 7)));
+        per.put(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT, List.of(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("s1", "s", 1, 6, 9, 9),
+                new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("s2", "s", 2, 6, 9, 5)));
+        per.put(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER, List.of(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("c", "c", 1, 7, 13, 7),
+                new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("s1", "s", 1, 6, 9, 9)));
+        var order = com.volcanicmg.mccitybuilder.planner.PieceSets.browse(per).stream().map(com.volcanicmg.mccitybuilder.planner.PieceSets.Piece::path).toList();
+        check(order.equals(List.of("s1", "s2", "c", "t")) && P != null, "browse order: " + order);
+    }
+
+    /** Build all's single requests: three entries, the server busy once, all built in order; a refusal stays. */
+    private static void buildQueue() {
+        var q = new com.volcanicmg.mccitybuilder.planner.BuildQueue<String>();
+        for (String s : List.of("baker", "well", "house")) q.add(s);
+        long now = 0;
+        int id = 1;
+        List<String> sent = new java.util.ArrayList<>();
+        boolean busied = false;
+        for (int step = 0; step < 100 && !q.idle(); step++) {
+            now += 500;
+            String it = q.next(now, id);
+            if (it == null) continue;
+            sent.add(it);
+            // Nothing else goes out while one is in flight.
+            check(q.next(now + 1, id + 1) == null, "one at a time");
+            if (it.equals("well") && !busied) {
+                busied = true;
+                check(q.answer(id, false, "busy", now) == null, "busy: not done yet");
+            } else check(it.equals(q.answer(id, true, "", now)), "accepted: done");
+            id++;
+        }
+        check(q.done().equals(List.of("baker", "well", "house")) && q.kept().isEmpty() && sent.equals(List.of("baker", "well", "well", "house")),
+                "all built after a busy reply: " + q.done() + " sent " + sent);
+        check(q.answer(99, true, "", now) == null, "stray answer ignored");
+        var r = new com.volcanicmg.mccitybuilder.planner.BuildQueue<String>();
+        r.add("tower");
+        r.add("gate");
+        check(r.next(0, 7).equals("tower") && r.answer(7, false, "refused", 0) == null && r.kept().get(0).reason().equals("refused"), "refused stays with its reason");
+        check(r.next(10, 8).equals("gate") && r.next(10 + com.volcanicmg.mccitybuilder.planner.BuildQueue.ANSWER_MS, 9) == null && r.kept().get(1).reason().equals("timeout"),
+                "no answer: kept as timeout");
+        check(r.pending("gate") == false && r.idle(), "nothing left");
+        // The timed-out gate was built after all: a late yes moves it to done, so it isn't sent again.
+        check("gate".equals(r.answer(8, true, "", 10 + com.volcanicmg.mccitybuilder.planner.BuildQueue.ANSWER_MS + 5)) && r.done().contains("gate")
+                && r.kept().size() == 1, "late acceptance after a timeout counts");
+    }
+
     private static void overlays() {
         check(com.volcanicmg.mccitybuilder.planner.Overlays.showCitizen(true, true) && !com.volcanicmg.mccitybuilder.planner.Overlays.showCitizen(false, false)
                 && !com.volcanicmg.mccitybuilder.planner.Overlays.showCitizen(true, false), "citizen markers only at live entities (no stale last-known spots)");
@@ -881,7 +1098,7 @@ public final class SelfCheck {
 
     private static void hintsAndLang() throws Exception {
         String lang = Files.readString(Path.of("src/main/resources/assets/mccitybuilder/lang/en_us.json"));
-        for (String id : List.of("view", "browse", "placing", "adjusting", "selected"))
+        for (String id : List.of("view", "browse", "placing", "adjusting", "selected", "line"))
             check(Hints.SECTIONS.containsKey(id) && Hints.SECTIONS.get(id).size() <= Hints.MAX_ROWS, "hints section " + id);
         for (String k : Hints.langKeys()) check(lang.contains("\"" + k + "\":"), "lang key: " + k);
         for (String c : HutCatalog.CATEGORIES) check(lang.contains("\"mccitybuilder.category." + c + "\":"), "category lang: " + c);
@@ -891,7 +1108,7 @@ public final class SelfCheck {
             int b = lang.indexOf('"', lang.indexOf(':', a) + 1) + 1;
             return lang.substring(b, lang.indexOf('"', b));
         };
-        for (String id : List.of("browse", "placing", "adjusting", "selected")) {
+        for (String id : List.of("browse", "placing", "adjusting", "selected", "line")) {
             Hints.Laid l = Hints.layout(List.of(id, "view"), tr, s -> s.length() * 6);
             for (Hints.Item it : l.items())
                 check(it.x() >= 0 && it.x() + it.w() <= Hints.WIDTH - 2 * Hints.PAD, "hint fits: " + id + " '" + it.text() + "'");

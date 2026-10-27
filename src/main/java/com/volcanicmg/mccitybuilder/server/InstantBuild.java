@@ -71,8 +71,14 @@ public final class InstantBuild {
      * @param mode  {@link #PLACE}, {@link #UPGRADE} or {@link #REPAIR}
      * @param level the level to paste (place: chosen; upgrade: current + 1; repair: current)
      * @param pack  place only: style pack; @param path place only: blueprint path; @param rot place only: rotation
+     * @param id    above 0: the client wants a {@link BatchResult} with this id once the request finished (accepted)
+     *              or was refused (reason "busy" = try again shortly)
      */
-    public record Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot) implements CustomPacketPayload {
+    public record Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id) implements CustomPacketPayload {
+        public Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot) {
+            this(mode, pos, level, pack, path, rot, 0);
+        }
+
         public static final Type<Request> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "instant_build"));
         public static final StreamCodec<RegistryFriendlyByteBuf, Request> CODEC = StreamCodec.of((buf, r) -> {
             buf.writeByte(r.mode);
@@ -81,8 +87,9 @@ public final class InstantBuild {
             buf.writeUtf(r.pack, 256);
             buf.writeUtf(r.path, 512);
             buf.writeByte(r.rot.ordinal());
+            buf.writeVarInt(r.id);
         }, buf -> new Request(buf.readByte(), buf.readBlockPos(), buf.readVarInt(), buf.readUtf(256), buf.readUtf(512),
-                RotationMirror.values()[Math.floorMod(buf.readByte(), RotationMirror.values().length)]));
+                RotationMirror.values()[Math.floorMod(buf.readByte(), RotationMirror.values().length)], buf.readVarInt()));
 
         @Override
         public Type<Request> type() {
@@ -95,8 +102,9 @@ public final class InstantBuild {
 
     /** Registers the payload as optional, so clients and servers without the mod still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
-        // Protocol 2: piece batches carry ids and get a batch_result answer; mismatched builds refuse cleanly.
-        e.registrar("2").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
+        // Protocol 3: piece batches and single requests (with an id) get a batch_result answer; mismatched builds refuse
+        // the channel cleanly.
+        e.registrar("3").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
                 .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch)
                 .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r));
     }
@@ -108,6 +116,7 @@ public final class InstantBuild {
             busyPlayers.remove(e.getEntity().getUUID());
             batches.remove(e.getEntity().getUUID());
             batchStats.remove(e.getEntity().getUUID());
+            refused.remove(e.getEntity().getUUID());
         });
     }
 
@@ -130,15 +139,36 @@ public final class InstantBuild {
         return level.dimension().location() + "|" + pos.asLong();
     }
 
-    /** Clears the marks this request set (only if they are still its own, by time stamp), then the batch goes on. */
-    private static void release(ServerPlayer p, ServerLevel level, BlockPos pos, long stamp) {
+    // Per player: single requests already answered as refused (their release must not answer them again as accepted).
+    // Clients number their own ids, so they are only unique per player; the oldest go past REFUSED_KEPT.
+    private static final Map<UUID, java.util.LinkedHashSet<Integer>> refused = new HashMap<>();
+    private static final int REFUSED_KEPT = 64;
+
+    /**
+     * Clears the marks this request set (only if they are still its own, by time stamp); a single request (id above
+     * 0) that wasn't refused finished, so it is answered as accepted, however late; then the batch goes on.
+     */
+    private static void release(ServerPlayer p, ServerLevel level, Request r, long stamp) {
         busyPlayers.remove(p.getUUID(), stamp);
-        busyPositions.remove(key(level, pos), stamp);
+        busyPositions.remove(key(level, r.pos), stamp);
+        java.util.Set<Integer> mine = refused.get(p.getUUID());
+        if (r.id > 0 && (mine == null || !mine.remove(r.id))) answer(p, r.id, true, "");
         continueBatch(p);
     }
 
     static void reject(ServerPlayer p, String why) {
         CityBuilder.LOGGER.info("CityBuilder: rejected instant build from {}: {}", p.getGameProfile().getName(), why);
+    }
+
+    /** Logs a refusal and answers a single request ("busy" when it may work a moment later, else "refused"). */
+    static void reject(ServerPlayer p, Request r, String why) {
+        reject(p, why);
+        if (r.id <= 0) return;
+        // Early refusals (before any busy mark) are never released: the oldest drop out once the player has many.
+        java.util.LinkedHashSet<Integer> mine = refused.computeIfAbsent(p.getUUID(), k -> new java.util.LinkedHashSet<>());
+        mine.add(r.id);
+        while (mine.size() > REFUSED_KEPT) mine.remove(mine.iterator().next());
+        answer(p, r.id, false, PasteRules.refusal(why));
     }
 
     // ---- road / wall pieces: a batch of real style-pack decorations, processed one after another ----
@@ -244,7 +274,8 @@ public final class InstantBuild {
         // Survival: open road / wall orders plus what is already queued must stay under the colony's cap.
         if (why == null && b.survival && openPieceOrders(colony) + (running == null ? 0 : running.size()) + b.pieces.size() > MAX_OPEN_ORDERS) why = "too_many";
         if (why != null) {
-            reject(p, "piece batch " + b.id + ": " + why);
+            // Logged only: a single request still waiting keeps its own answer.
+            CityBuilder.LOGGER.info("CityBuilder: rejected piece batch {} from {}: {}", b.id, p.getGameProfile().getName(), why);
             answer(p, b.id, false, why);
             return;
         }
@@ -301,7 +332,7 @@ public final class InstantBuild {
     private static boolean submit(ServerPlayer p, Request r, boolean batch) {
         if (!batch) resumeIfStale(p);
         if (!batch && batches.containsKey(p.getUUID())) {
-            reject(p, "a piece batch is running");
+            reject(p, r, "a piece batch is running");
             return false;
         }
         return submitChecked(p, r, batch);
@@ -310,28 +341,28 @@ public final class InstantBuild {
     private static boolean submitChecked(ServerPlayer p, Request r, boolean batch) {
         // DECO_ORDER (a decoration builder work order, as MineColonies' decoration window makes) is for survival too.
         if (!p.isCreative() && r.mode != DECO_ORDER) {
-            reject(p, "not in creative");
+            reject(p, r, "not in creative");
             return false;
         }
         long now = System.currentTimeMillis();
         Long last = lastRequest.get(p.getUUID());
         if (!batch && last != null && now - last < MIN_INTERVAL_MS) {
-            reject(p, "rate limit");
+            reject(p, r, "rate limit");
             return false;
         }
         if (!batch) lastRequest.put(p.getUUID(), now);
         ServerLevel level = p.serverLevel();
         if (r.mode < PLACE || r.mode > DECO_ORDER || !level.isLoaded(r.pos)) {
-            reject(p, "bad mode or unloaded position");
+            reject(p, r, "bad mode or unloaded position");
             return false;
         }
         if (busy(busyPlayers, p.getUUID(), now) || busy(busyPositions, key(level, r.pos), now)) {
-            reject(p, "a paste is still running");
+            reject(p, r, "a paste is still running");
             return false;
         }
         IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, r.pos);
         if (colony == null || !allowed(colony, p, r.mode)) {
-            reject(p, "no colony or missing permission at " + r.pos.toShortString());
+            reject(p, r, "no colony or missing permission at " + r.pos.toShortString());
             return false;
         }
         String pack, path;
@@ -347,7 +378,7 @@ public final class InstantBuild {
             if (bad == null && !meta.getPath().resolve(reqPath).normalize().startsWith(meta.getPath().normalize())) bad = "path leaves the pack";
             if (bad == null && r.mode == PLACE && (r.level < 1 || colony.getServerBuildingManager().getBuilding(r.pos) != null)) bad = "level < 1 or a building is already there";
             if (bad != null) {
-                reject(p, bad + ": " + r.pack + " " + r.path);
+                reject(p, r, bad + ": " + r.pack + " " + r.path);
                 return false;
             }
             pack = r.pack;
@@ -356,14 +387,14 @@ public final class InstantBuild {
         } else {
             IBuilding b = colony.getServerBuildingManager().getBuilding(r.pos);
             if (b == null) {
-                reject(p, "no building at " + r.pos.toShortString());
+                reject(p, r, "no building at " + r.pos.toShortString());
                 return false;
             }
             String bp = b.getBlueprintPath() == null ? null : b.getBlueprintPath().endsWith(".blueprint") ? b.getBlueprintPath() : b.getBlueprintPath() + ".blueprint";
             path = HutCatalog.levelPath(bp, r.level);
             pack = b.getStructurePack();
             if (!levelOk(r, b) || path == null || pack == null || !StructurePacks.hasPack(pack)) {
-                reject(p, "bad level step " + b.getBuildingLevel() + " -> " + r.level + " or no blueprint path");
+                reject(p, r, "bad level step " + b.getBuildingLevel() + " -> " + r.level + " or no blueprint path");
                 return false;
             }
             rot = b.getTileEntity() != null ? b.getTileEntity().getRotationMirror() : b.getRotationMirror();
@@ -374,12 +405,13 @@ public final class InstantBuild {
         StructurePacks.getBlueprintFuture(pack, path, level.registryAccess()).whenComplete((bp, t) -> level.getServer().execute(() -> {
             boolean started = false;
             try {
-                if (bp == null) reject(p, "blueprint not found " + pack + " " + path);
+                if (bp == null) reject(p, r, "blueprint not found " + pack + " " + path);
                 else started = start(p, level, colonyId, r, pack, path, rot, bp, now);
             } catch (RuntimeException ex) {
                 CityBuilder.LOGGER.error("CityBuilder: instant build failed", ex);
+                reject(p, r, "failed: " + ex);
             } finally {
-                if (!started) release(p, level, r.pos, now);
+                if (!started) release(p, level, r, now);
             }
         }));
         return true;
@@ -406,12 +438,12 @@ public final class InstantBuild {
     private static boolean start(ServerPlayer p, ServerLevel level, int colonyId, Request r, String pack, String path, RotationMirror rot, Blueprint bp, long stamp) {
         IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, level);
         if (colony == null || !p.isCreative() && r.mode != DECO_ORDER || p.isRemoved() || !allowed(colony, p, r.mode)) {
-            reject(p, "player or colony changed");
+            reject(p, r, "player or colony changed");
             return false;
         }
         IBuilding existing = colony.getServerBuildingManager().getBuilding(r.pos);
         if (r.mode == PLACE ? existing != null : r.mode != DECO && r.mode != DECO_ORDER && (existing == null || !levelOk(r, existing))) {
-            reject(p, "building changed while loading");
+            reject(p, r, "building changed while loading");
             return false;
         }
         bp.setRotationMirror(rot, level);
@@ -421,7 +453,7 @@ public final class InstantBuild {
         for (int cx = origin.getX() >> 4; cx <= far.getX() >> 4; cx++)
             for (int cz = origin.getZ() >> 4; cz <= far.getZ() >> 4; cz++)
                 if (!level.hasChunk(cx, cz) || ColonyUtils.getOwningColony(level.getChunk(cx, cz)) != colonyId) {
-                    reject(p, "footprint leaves the colony or isn't loaded at chunk " + cx + "," + cz);
+                    reject(p, r, "footprint leaves the colony or isn't loaded at chunk " + cx + "," + cz);
                     return false;
                 }
         List<String> chunks = new ArrayList<>();
@@ -430,7 +462,7 @@ public final class InstantBuild {
             for (int cz = origin.getZ() >> 4; cz <= far.getZ() >> 4; cz++) chunks.add(level.dimension().location() + "|" + cx + "," + cz);
         for (String c : chunks)
             if (busy(busyChunks, c, now)) {
-                reject(p, "another paste is running over chunk " + c);
+                reject(p, r, "another paste is running over chunk " + c);
                 return false;
             }
         BlockState anchor = bp.getBlockState(offset);
@@ -438,27 +470,27 @@ public final class InstantBuild {
             if (!(anchor.getBlock() instanceof AbstractBlockHut<?> hut) || !level.getBlockState(r.pos).canBeReplaced()
                     || !colony.getServerBuildingManager().canPlaceAt(anchor.getBlock(), r.pos, p)
                     || r.level > hut.getBuildingEntry().produceBuilding(r.pos, colony).getMaxBuildingLevel()) {
-                reject(p, "cannot place " + path + " at " + r.pos.toShortString());
+                reject(p, r, "cannot place " + path + " at " + r.pos.toShortString());
                 return false;
             }
         }
         // Decorations go through here only without a hut anchor (huts use PLACE, which registers the building).
         if ((r.mode == DECO || r.mode == DECO_ORDER) && anchor.getBlock() instanceof AbstractBlockHut<?>) {
-            reject(p, "decoration request with a hut anchor: " + path);
+            reject(p, r, "decoration request with a hut anchor: " + path);
             return false;
         }
-        if (r.mode == CLEAN) return clean(p, level, colony, bp, origin, offset);
+        if (r.mode == CLEAN) return clean(p, r, level, colony, bp, origin, offset);
         if (r.mode == DECO_ORDER) {
             // What MineColonies' DecorationBuildRequestMessage does (MANAGE_HUTS, one order per location), after our
             // footprint checks: the builder then gathers the materials and builds it.
             for (var wo : colony.getWorkManager().getWorkOrders().values())
                 if (wo.getLocation().equals(r.pos)) {
-                    reject(p, "a work order is already at " + r.pos.toShortString());
+                    reject(p, r, "a work order is already at " + r.pos.toShortString());
                     return false;
                 }
             // Road / wall pieces count against the colony's cap, checked again here (queued batches may overshoot).
             if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(path) != null && openPieceOrders(colony) >= MAX_OPEN_ORDERS) {
-                reject(p, "too many open road / wall work orders in colony " + colony.getID());
+                reject(p, r, "too many open road / wall work orders in colony " + colony.getID());
                 return false;
             }
             String[] split = path.split("/");
@@ -496,13 +528,13 @@ public final class InstantBuild {
                     // Block entity data only ops may set (signs, spawners...): the block is placed without it.
                     if (a == PasteRules.Action.PLACE && tes[y][z][x] != null && !p.canUseGameMasterBlocks() && opOnly(world, want)) tes[y][z][x] = null;
                     if (a == PasteRules.Action.PLACE && !have.isAir() && NeoForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level, world, have, p)).isCanceled()) {
-                        reject(p, "a claim or protection refused breaking " + world.toShortString());
+                        reject(p, r, "a claim or protection refused breaking " + world.toShortString());
                         return false;
                     }
                     // Placing into air: one place event per chunk (claims are per chunk or area; not one per block).
                     if (a == PasteRules.Action.PLACE && have.isAir() && !want.isAir() && placeChecked.add(world.getX() >> 4 | (long) (world.getZ() >> 4) << 32)
                             && NeoForge.EVENT_BUS.post(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, world), have, p)).isCanceled()) {
-                        reject(p, "a claim or protection refused placing at " + world.toShortString());
+                        reject(p, r, "a claim or protection refused placing at " + world.toShortString());
                         return false;
                     }
                     if (a == PasteRules.Action.PLACE) continue;
@@ -517,7 +549,7 @@ public final class InstantBuild {
             if (colony.getServerBuildingManager().getBuilding(r.pos) == null) {
                 // No stray hut: put back what was there.
                 level.setBlockAndUpdate(r.pos, previous);
-                reject(p, "no building after placing at " + r.pos.toShortString());
+                reject(p, r, "no building after placing at " + r.pos.toShortString());
                 return false;
             }
         }
@@ -535,7 +567,7 @@ public final class InstantBuild {
             try {
                 if (r.mode != DECO) finish(level, colonyId, r, bp, origin, offset, dataPos, data);
             } finally {
-                release(p, level, r.pos, stamp);
+                release(p, level, r, stamp);
                 chunks.forEach(busyChunks::remove);
             }
         });
@@ -630,7 +662,7 @@ public final class InstantBuild {
      * fancy placement would have used; waypoints are registered with the colony like a fancy paste does. Nothing else
      * is touched (storage and huts are never placeholders). @return false (nothing is queued)
      */
-    private static boolean clean(ServerPlayer p, ServerLevel level, IColony colony, Blueprint bp, BlockPos origin, BlockPos offset) {
+    private static boolean clean(ServerPlayer p, Request r, ServerLevel level, IColony colony, Blueprint bp, BlockPos origin, BlockPos offset) {
         short[][][] st = bp.getStructure();
         BlockState[] palette = bp.getPalette();
         java.util.Map<BlockPos, BlockState> changes = new java.util.LinkedHashMap<>();
@@ -644,7 +676,7 @@ public final class InstantBuild {
                     if (have.getBlock() == com.minecolonies.api.blocks.ModBlocks.blockWayPoint) waypoints.add(world);
                     BlockState to = isPlaceholder(want) ? fillFor(level, world, want) : want;
                     if (NeoForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level, world, have, p)).isCanceled()) {
-                        reject(p, "a claim or protection refused breaking " + world.toShortString());
+                        reject(p, r, "a claim or protection refused breaking " + world.toShortString());
                         return false;
                     }
                     changes.put(world, to);

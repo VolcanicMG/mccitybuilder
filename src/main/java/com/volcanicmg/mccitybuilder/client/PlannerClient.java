@@ -31,6 +31,8 @@ public final class PlannerClient {
         com.volcanicmg.mccitybuilder.server.BatchResults.handler(PlanView::onBatchResult);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(RegisterKeyMappingsEvent.class, e -> e.register(TOGGLE));
+        // Baked piece previews hold the block atlas's UVs: rebake after a resource reload (F3+T, a pack change).
+        modBus.addListener(net.neoforged.neoforge.client.event.TextureAtlasStitchedEvent.class, e -> PieceView.stale = true);
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, e -> {
             while (TOGGLE.consumeClick()) Planner.guard(Planner::toggle);
             Planner.guard(Planner::tick);

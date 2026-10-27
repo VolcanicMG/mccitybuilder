@@ -61,6 +61,7 @@ final class PlanView {
     static List<Integer> lineShort = new ArrayList<>();
     static List<int[]> lineGaps = new ArrayList<>();
     static List<Boolean> lineComplete = new ArrayList<>();
+    static List<int[]> lineHeights = new ArrayList<>();
     static List<List<Boolean>> pieceBad = new ArrayList<>();
     /** Bumped whenever the planned lines are laid out again (the live segment re-lays out against them). */
     static int layoutVersion;
@@ -254,8 +255,16 @@ final class PlanView {
         if (on || LineView.active())
             for (int i = 0; i < linePieces.size() && i < PlanView.lines.size(); i++) {
                 List<Boolean> bs = i < pieceBad.size() ? pieceBad.get(i) : List.of();
-                outline(pose, lines, linePieces.get(i), bs, i == selectedLine);
+                boolean hover = i == LineView.hoverLine;
+                if (PlanView.lines.get(i).built() && !hover && i != selectedLine) {
+                    // Built records: faint grey, no ghost (the real wall is there).
+                    outline(pose, lines, linePieces.get(i), List.of(), false, 0.55f, 0.55f, 0.55f, 0.5f);
+                    continue;
+                }
+                if (hover) outline(pose, lines, linePieces.get(i), List.of(), false, 1f, 0.85f, 0.2f, 1f);
+                else outline(pose, lines, linePieces.get(i), bs, i == selectedLine);
                 if (i < lineGaps.size() && lineGaps.get(i) != null && !linePieces.get(i).isEmpty()) gap(pose, lines, lineGaps.get(i), linePieces.get(i).get(0).anchor().getY());
+                floating(pose, lines, linePieces.get(i));
             }
         if (!on) return;
         for (int i = 0; i < entries.size(); i++) {
@@ -298,6 +307,11 @@ final class PlanView {
                 keep.add(e);
                 continue;
             }
+            if (entryQueue.pending(e)) {
+                kept.merge(Plan.Build.IN_FLIGHT, 1, Integer::sum);
+                keep.add(e);
+                continue;
+            }
             boolean outside = i < conflicts.size() && conflicts.get(i) == Plan.Conflict.OUTSIDE;
             Block hut = e.isHut() ? BuiltInRegistries.BLOCK.get(ResourceLocation.parse(e.hut())) : null;
             boolean have = false;
@@ -314,7 +328,15 @@ final class PlanView {
                 continue;
             }
             items++;
-            if (creative || !e.isHut()) {
+            if (server && (creative || !e.isHut())) {
+                // Through the server part: stays in the plan until the server says it was built (or why not).
+                if (entryQueue.idle() && !entryRun) entryQueue.reset();
+                entryQueue.add(e);
+                entryRun = true;
+                keep.add(e);
+                continue;
+            }
+            if (creative) {
                 queue.add(e);
                 continue;
             }
@@ -330,7 +352,7 @@ final class PlanView {
         // Roads and walls, in drawing order: real pieces through the server part (creative: placed; survival: work orders).
         for (int i = 0; i < lines.size(); i++) {
             Plan.Line l = lines.get(i);
-            if (selectedOnly && i != selectedLine) continue;
+            if (selectedOnly && i != selectedLine || l.built()) continue;
             List<PieceCatalog.Placed> ps = i < linePieces.size() ? linePieces.get(i) : List.of();
             Plan.Build d = Plan.decideLine(server, i < lineBad.size() && lineBad.get(i), ps.isEmpty(), sending.containsKey(l),
                     i < lineComplete.size() && lineComplete.get(i));
@@ -374,17 +396,49 @@ final class PlanView {
     // Build progress: requests sent so far out of those queued by the last Build.
     private static int progressTotal, progressDone;
 
+    // Plan entries going through the server part, one at a time, kept until answered (see BuildQueue).
+    private static final com.volcanicmg.mccitybuilder.planner.BuildQueue<Plan.Entry> entryQueue = new com.volcanicmg.mccitybuilder.planner.BuildQueue<>();
+    private static boolean entryRun;
+
     /** @return "Building 3 / 7" while a build runs, else null */
     static Component progress() {
+        if (!entryQueue.idle()) {
+            int t = entryQueue.total();
+            return Component.translatable("mccitybuilder.plan.progress", t - entryQueue.left() + 1, t);
+        }
         int left = queued();
         if (left == 0 || progressTotal == 0) return null;
         return Component.translatable("mccitybuilder.plan.progress", Math.min(progressTotal, progressDone), progressTotal);
+    }
+
+    /** Sends the next plan entry once the previous one was answered; at the end, "Built n / m" and what stayed, why. */
+    private static void tickEntries(long now) {
+        int id = nextBatchId;
+        Plan.Entry e = entryQueue.next(now, id);
+        if (e != null) {
+            nextBatchId++;
+            BlockPos at = new BlockPos(e.x(), e.y(), e.z());
+            int mode = e.isHut() ? InstantBuild.PLACE : Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER;
+            PacketDistributor.sendToServer(new InstantBuild.Request(mode, at, e.isHut() ? e.level() : 0, e.pack(), e.path(), RotationMirror.values()[e.rot()], id));
+            return;
+        }
+        if (!entryRun || !entryQueue.idle()) return;
+        entryRun = false;
+        MutableComponent msg = Component.translatable("mccitybuilder.plan.built", entryQueue.done().size(), entryQueue.total());
+        for (var k : entryQueue.kept()) {
+            Plan.Entry x = k.item();
+            String name = x.path().substring(x.path().lastIndexOf('/') + 1).replace(".blueprint", "");
+            msg.append(" · ").append(Component.translatable("mccitybuilder.plan.stayed." + k.reason(), name));
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) mc.player.displayClientMessage(msg, false);
     }
 
     /** Creative commit queue: one request at a time, the next once the building appears (huts) or after a pause. */
     static void tick() {
         IColonyView colony = Planner.colony();
         long now = System.currentTimeMillis();
+        tickEntries(now);
         if (waitingFor != null) {
             boolean there = waitingFor instanceof Plan.Entry w && w.isHut() && colony != null
                     && colony.getClientBuildingManager().getBuilding(new BlockPos(w.x(), w.y(), w.z())) != null;
@@ -430,6 +484,7 @@ final class PlanView {
         lineShort = lay.shortened();
         lineGaps = lay.gaps();
         lineComplete = lay.lineComplete();
+        lineHeights = lay.heights();
         lineBad = new ArrayList<>();
         pieceBad = new ArrayList<>();
         List<int[]> boxes = buildingBoxes();
@@ -437,14 +492,24 @@ final class PlanView {
             List<Boolean> bs = new ArrayList<>();
             for (PieceCatalog.Placed p : ps) bs.add(bad(p, boxes));
             pieceBad.add(bs);
-            lineBad.add(bs.contains(true));
         }
+        // Pieces that would clear or replace each other's blocks (crossing segments, a road through a wall): red too.
+        // ponytail: all pairs, O(pieces^2); a grid index when plans grow past a few hundred pieces.
+        for (int i = 0; i < linePieces.size() && i < lines.size(); i++)
+            for (int k = 0; k < linePieces.get(i).size(); k++)
+                for (int j = i; j < linePieces.size() && j < lines.size(); j++)
+                    for (int m = j == i ? k + 1 : 0; m < linePieces.get(j).size(); m++)
+                        if (PieceCatalog.clash(lines.get(i).pack(), linePieces.get(i).get(k), lines.get(j).pack(), linePieces.get(j).get(m))) {
+                            pieceBad.get(i).set(k, true);
+                            pieceBad.get(j).set(m, true);
+                        }
+        for (List<Boolean> bs : pieceBad) lineBad.add(bs.contains(true));
         // Structurize ghosts of every planned piece.
         for (int i = 0; i < linePreviews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_piece_" + i);
         linePreviews = 0;
         if (on || LineView.active())
             for (int i = 0; i < linePieces.size() && i < lines.size(); i++)
-                for (PieceCatalog.Placed p : linePieces.get(i)) {
+                for (PieceCatalog.Placed p : lines.get(i).built() ? List.<PieceCatalog.Placed>of() : linePieces.get(i)) {
                     Blueprint bp = PieceCatalog.rotated(lines.get(i).pack(), p.path(), p.turns());
                     if (bp == null) continue;
                     BlueprintPreviewData data = new BlueprintPreviewData(false);
@@ -506,18 +571,25 @@ final class PlanView {
 
     /** Branching: a chain started in the middle of a planned segment splits it there, so the start is a joint. */
     static void splitAt(int[] c) {
-        for (int i = 0; i < lines.size(); i++) {
-            Plan.Line l = lines.get(i);
-            boolean onX = l.z0() == l.z1() && c[1] == l.z0() && c[0] > Math.min(l.x0(), l.x1()) && c[0] < Math.max(l.x0(), l.x1());
-            boolean onZ = l.x0() == l.x1() && c[0] == l.x0() && c[1] > Math.min(l.z0(), l.z1()) && c[1] < Math.max(l.z0(), l.z1());
-            if (!onX && !onZ) continue;
-            lines.set(i, new Plan.Line(l.tool(), l.x0(), l.z0(), c[0], c[1], l.pack(), l.family(), l.level(), l.variant(), l.towers(), l.gate()));
-            lines.add(i + 1, new Plan.Line(l.tool(), c[0], c[1], l.x1(), l.z1(), l.pack(), l.family(), l.level(), l.variant(), l.towers(), false));
-            if (selectedLine > i) selectedLine++;
-            save();
-            linesDirty = true;
-            return;
-        }
+        int i = Plan.split(lines, c, PlanView::locked);
+        if (i < 0) return;
+        if (selectedLine > i) selectedLine++;
+        save();
+        linesDirty = true;
+    }
+
+    /** Replaces a planned segment by value (a chain's shared level moving with it). */
+    static void replaceLine(Plan.Line old, Plan.Line nu) {
+        int i = lines.lastIndexOf(old);
+        if (i < 0) return;
+        lines.set(i, nu);
+        save();
+        linesDirty = true;
+    }
+
+    /** @return true for a segment that must not change (built, or its batches on their way to the server) */
+    static boolean locked(Plan.Line l) {
+        return l.built() || sending.containsKey(l);
     }
 
     static Plan.Line selectedLine() {
@@ -529,6 +601,16 @@ final class PlanView {
         lines.set(selectedLine, l);
         save();
         linesDirty = true;
+    }
+
+    /** @return the piece of line {@code i} covering (x, z), or null */
+    static PieceCatalog.Placed pieceAt(int i, BlockPos pos) {
+        if (i < 0 || i >= linePieces.size()) return null;
+        for (PieceCatalog.Placed p : linePieces.get(i)) {
+            int[] b = p.box();
+            if (pos.getX() >= b[0] && pos.getX() <= b[2] && pos.getZ() >= b[1] && pos.getZ() <= b[3]) return p;
+        }
+        return null;
     }
 
     /** @return the index of a line with a piece covering (x, z), or -1 */
@@ -555,6 +637,26 @@ final class PlanView {
         }
     }
 
+    /** Outlines in one colour. */
+    static void outline(PoseStack pose, VertexConsumer out, List<PieceCatalog.Placed> ps, List<Boolean> bad, boolean selected, float r, float g, float b, float a) {
+        for (PieceCatalog.Placed p : ps) {
+            int[] bx = p.box();
+            LevelRenderer.renderLineBox(pose, out, bx[0] + 0.12, p.y0() + 0.05, bx[1] + 0.12, bx[2] + 0.88, p.y0() + Math.max(1, p.h()) - 0.05, bx[3] + 0.88, r, g, b, a);
+        }
+    }
+
+    /**
+     * Air under pieces raised above the ground (flat or smoothed heights, slopes): an amber box from the lowest ground
+     * under the piece up to where it stands. A builder doesn't fill it; the piece's blueprint stays as it is.
+     */
+    static void floating(PoseStack pose, VertexConsumer out, List<PieceCatalog.Placed> ps) {
+        for (PieceCatalog.Placed p : ps) {
+            if (p.level() - p.low() < 2) continue;
+            int[] bx = p.box();
+            LevelRenderer.renderLineBox(pose, out, bx[0] + 0.2, p.low(), bx[1] + 0.2, bx[2] + 0.8, p.level(), bx[3] + 0.8, 1f, 0.6f, 0.1f, 0.8f);
+        }
+    }
+
     /** An amber box over cells a segment leaves uncovered (no piece fits there). */
     static void gap(PoseStack pose, VertexConsumer out, int[] box, int y) {
         LevelRenderer.renderLineBox(pose, out, box[0] + 0.12, y, box[1] + 0.12, box[2] + 0.88, y + 1.5, box[3] + 0.88, 1f, 0.7f, 0.1f, 1f);
@@ -576,6 +678,19 @@ final class PlanView {
      * Refused: the segment stays, its remaining batches are dropped, and the player is told why.
      */
     static void onBatchResult(InstantBuild.BatchResult r) {
+        // A plan entry's answer: built (leaves the plan), busy (sent again shortly) or refused (stays).
+        Plan.Entry done = entryQueue.answer(r.id(), r.accepted(), r.reason(), System.currentTimeMillis());
+        if (done != null) {
+            int i = entries.indexOf(done);
+            if (i >= 0) {
+                entries.remove(i);
+                if (selected == i) selected = -1;
+                else if (selected > i) selected--;
+                dirty = true;
+                save();
+            }
+            return;
+        }
         Plan.Line l = batchLine.remove(r.id());
         if (waitingFor instanceof InstantBuild.PieceBatch b && b.id() == r.id()) {
             waitingFor = null;
@@ -588,7 +703,9 @@ final class PlanView {
             if (left > 0) sending.put(l, left);
             else {
                 sending.remove(l);
-                lines.remove(l);
+                // Kept as a built record: new segments snap and join onto it; it is never built again.
+                int at = lines.indexOf(l);
+                if (at >= 0) lines.set(at, l.asBuilt());
                 if (selectedLine >= lines.size()) selectedLine = -1;
                 save();
                 linesDirty = true;

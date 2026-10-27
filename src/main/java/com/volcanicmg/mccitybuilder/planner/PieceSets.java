@@ -69,6 +69,20 @@ public final class PieceSets {
     private PieceSets() {
     }
 
+    /** The order the piece preview browses a family's roles in. */
+    public static final Role[] BROWSE = {Role.STRAIGHT, Role.CORNER, Role.INNER, Role.TEE, Role.CROSS, Role.END, Role.GATE, Role.TOWER};
+
+    /**
+     * @param pieces the pieces a line would use per role (several straights; one per other role)
+     * @return them in {@link #BROWSE} order, each blueprint once
+     */
+    public static List<Piece> browse(Map<Role, List<Piece>> pieces) {
+        List<Piece> out = new java.util.ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (Role r : BROWSE) for (Piece p : pieces.getOrDefault(r, List.of())) if (seen.add(p.path())) out.add(p);
+        return out;
+    }
+
     /** @return "wall", "road", or null for a blueprint path outside the road / wall folders */
     public static String tool(String path) {
         String p = path.toLowerCase(Locale.ROOT).replace('\\', '/');

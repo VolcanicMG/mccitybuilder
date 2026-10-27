@@ -30,4 +30,14 @@ public final class PasteRules {
         if (level > 0 && !path.equals(HutCatalog.levelPath(path, level))) return "path is not level " + level;
         return null;
     }
+
+    /**
+     * @param why the server's log reason for refusing a single request
+     * @return the answer's reason: "busy" when it may work a moment later (another paste running, the rate limit),
+     * else "refused"
+     */
+    public static String refusal(String why) {
+        return why.startsWith("rate limit") || why.startsWith("a paste is still running") || why.startsWith("another paste is running")
+                || why.startsWith("a piece batch is running") ? "busy" : "refused";
+    }
 }

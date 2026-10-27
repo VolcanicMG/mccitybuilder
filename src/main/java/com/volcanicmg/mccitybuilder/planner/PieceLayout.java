@@ -93,19 +93,29 @@ public final class PieceLayout {
 
     /**
      * Profile alignment: a face profile is a set of {@code y << 16 | lateral} cells (world lateral coordinate) where
-     * a piece is solid at that face. The shift of {@code b} (within ±max) that overlaps {@code a} most, ties to 0.
+     * a piece is solid at that face. The shift of {@code b} (within ±max) that overlaps {@code a} most; among equal
+     * overlaps (a thin wall inside a wide tower face fits at several) the one that centres b on a, then 0.
      */
     public static int bestShift(Set<Long> a, Set<Long> b, int max) {
         int best = 0;
-        double bestScore = jaccard(a, b, 0);
+        double bestScore = jaccard(a, b, 0), ca = centre(a), cb = centre(b), bestOff = Math.abs(ca - cb);
         for (int s = -max; s <= max; s++) {
-            double sc = jaccard(a, b, s);
-            if (sc > bestScore + 1e-9) {
+            double sc = jaccard(a, b, s), off = Math.abs(ca - cb - s);
+            if (sc > bestScore + 1e-9 || sc > bestScore - 1e-9 && off < bestOff - 1e-9) {
                 bestScore = sc;
                 best = s;
+                bestOff = off;
             }
         }
         return best;
+    }
+
+    /** @return the mean lateral coordinate of a profile (its low 16 bits) */
+    private static double centre(Set<Long> p) {
+        if (p.isEmpty()) return 0;
+        double sum = 0;
+        for (long v : p) sum += v & 0xFFFF;
+        return sum / p.size();
     }
 
     /** @return |A ∩ shifted B| / |A ∪ shifted B| (1 when both are empty) */
@@ -181,5 +191,185 @@ public final class PieceLayout {
      */
     public static int runStart(int off0, int left, boolean free0, boolean free1) {
         return off0 + (free0 && !free1 ? left : 0);
+    }
+
+    // ---- piece shapes: where a run meets a joint piece's real face ----
+
+    /**
+     * A piece's blocks, as Structurize stores them: {@code ids[(y * sz + z) * sx + x]}: a block id above 0,
+     * {@link #AIR} (pasting clears the world there) or 0 = substitution (pasting leaves the world as it is).
+     *
+     * @param ground the local y level that sits at the ground (so pieces with different foundations compare by height
+     *               above ground)
+     */
+    public record Grid(int sx, int sy, int sz, int[] ids, int ground) {
+        public static final int AIR = -1;
+
+        public int id(int x, int y, int z) {
+            return ids[(y * sz + z) * sx + x];
+        }
+
+        /** @return this piece turned {@code k} quarter turns clockwise, like Structurize ((x, z) to (sz-1-z, x)) */
+        public Grid turned(int k) {
+            Grid g = this;
+            for (int t = 0; t < Math.floorMod(k, 4); t++) {
+                int nsx = g.sz, nsz = g.sx;
+                int[] o = new int[g.ids.length];
+                for (int y = 0; y < g.sy; y++)
+                    for (int z = 0; z < g.sz; z++)
+                        for (int x = 0; x < g.sx; x++) o[(y * nsz + x) * nsx + (g.sz - 1 - z)] = g.id(x, y, z);
+                g = new Grid(nsx, g.sy, nsz, o, g.ground);
+            }
+            return g;
+        }
+
+        /** @return solid cells in slice {@code i} from the given face inward (0 = the face's own layer) */
+        int slice(int face, int i) {
+            int n = 0;
+            for (int y = 0; y < sy; y++)
+                if (face % 2 == 0) {
+                    int x = face == 0 ? sx - 1 - i : i;
+                    for (int z = 0; z < sz; z++) if (id(x, y, z) > 0) n++;
+                } else {
+                    int z = face == 1 ? sz - 1 - i : i;
+                    for (int x = 0; x < sx; x++) if (id(x, y, z) > 0) n++;
+                }
+            return n;
+        }
+
+        /**
+         * @return how many layers from {@code face} inward are only trim (fewer than half the blocks of the fullest
+         * layer: an overhanging parapet, an empty margin); the body starts after them
+         */
+        public int inset(int face) {
+            int n = face % 2 == 0 ? sx : sz, max = 0;
+            for (int i = 0; i < n; i++) max = Math.max(max, slice(face, i));
+            for (int i = 0; i < n; i++) if (slice(face, i) * 2 >= max && max > 0) return i;
+            return 0;
+        }
+
+        /**
+         * @param base the world lateral coordinate of local 0 minus the reference
+         * @return the body's face (layer {@code inset} from {@code face}) as profile cells: height above ground and
+         * lateral position, plus the block id when {@code withIds}
+         */
+        public Set<Long> profile(int face, int inset, int base, boolean withIds) {
+            Set<Long> out = new java.util.HashSet<>();
+            for (int y = 0; y < sy; y++)
+                if (face % 2 == 0) {
+                    int x = face == 0 ? sx - 1 - inset : inset;
+                    for (int z = 0; z < sz; z++) add(out, id(x, y, z), y, base + z, withIds);
+                } else {
+                    int z = face == 1 ? sz - 1 - inset : inset;
+                    for (int x = 0; x < sx; x++) add(out, id(x, y, z), y, base + x, withIds);
+                }
+            return out;
+        }
+
+        private void add(Set<Long> out, int id, int y, int lateral, boolean withIds) {
+            if (id <= 0) return;
+            long v = (long) (y - ground + 1000) * 65536 + lateral + 30000;
+            out.add(withIds ? v + ((long) (id & 0x7FFF) << 32) : v);
+        }
+    }
+
+    /**
+     * Where a run leaving a joint piece starts, and how far sideways it shifts, so it meets the piece's body: its end
+     * touches the body's face (trim and margins skipped on both pieces) and its profile lines up with that face.
+     *
+     * @param jb       the joint's world box; @param joint the joint piece as placed (turned)
+     * @param straight the run's straight as placed (turned for the run's direction); its face toward the joint is (d+2)%4
+     * @param d        the direction from the joint cell into the run
+     * @return {cells from the joint cell to the run's first cell, lateral shift}
+     */
+    public static int[] attach(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
+        int ji = joint.inset(d), si = straight.inset((d + 2) % 4), edge = reach(c, d, jb);
+        int ref = d % 2 == 0 ? c[1] : c[0];
+        int[] sbox = boxes(c, d, Math.max(1, edge - ji - si), List.of(run), width, 0).get(0);
+        Set<Long> a = joint.profile(d, ji, (d % 2 == 0 ? jb[1] : jb[0]) - ref, false);
+        Set<Long> b = straight.profile((d + 2) % 4, si, (d % 2 == 0 ? sbox[1] : sbox[0]) - ref, false);
+        int shift = bestShift(a, b, maxShift);
+        // Into the joint's trim only as far as no block of either piece is cleared or replaced, in either build order
+        // (survival builders work in any order); else the run stops at the joint's box (a cosmetic gap at most).
+        for (int k = ji + si; k > 0; k--) {
+            int[] bx = boxes(c, d, edge - k, List.of(run), width, shift).get(0);
+            if (!destructive(joint, jb[0], -joint.ground(), jb[1], straight, bx[0], -straight.ground(), bx[1])) return new int[]{edge - k, shift};
+        }
+        return new int[]{edge, shift};
+    }
+
+    /**
+     * @param ax the world x of a's local 0 (and so on; y relative to a common ground)
+     * @return true when pasting one piece after the other, in either order, would clear or replace a block the first
+     * placed: the second has air or a different block in a cell where the first has a block (substitution in the
+     * second leaves it)
+     */
+    public static boolean destructive(Grid a, int ax, int ay, int az, Grid b, int bx, int by, int bz) {
+        int x0 = Math.max(ax, bx), x1 = Math.min(ax + a.sx(), bx + b.sx()), y0 = Math.max(ay, by), y1 = Math.min(ay + a.sy(), by + b.sy());
+        int z0 = Math.max(az, bz), z1 = Math.min(az + a.sz(), bz + b.sz());
+        for (int x = x0; x < x1; x++)
+            for (int y = y0; y < y1; y++)
+                for (int z = z0; z < z1; z++) {
+                    int ia = a.id(x - ax, y - ay, z - az), ib = b.id(x - bx, y - by, z - bz);
+                    if (hurts(ia, ib) || hurts(ib, ia)) return true;
+                }
+        return false;
+    }
+
+    private static boolean hurts(int first, int second) {
+        return first > 0 && second != 0 && second != first;
+    }
+
+    /** @return how well a turned joint piece's face toward {@code d} matches a straight's end there: shape + blocks, 0..2 */
+    public static double faceScore(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run) {
+        int ji = joint.inset(d), si = straight.inset((d + 2) % 4), ref = d % 2 == 0 ? c[1] : c[0];
+        int[] sbox = boxes(c, d, 1, List.of(run), width, 0).get(0);
+        int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox[1] : sbox[0]) - ref;
+        Set<Long> jf = joint.profile(d, ji, ja, false), sf = straight.profile((d + 2) % 4, si, sa, false);
+        int sh = bestShift(jf, sf, Math.max(3, width));
+        return jaccard(jf, sf, sh) + jaccard(joint.profile(d, ji, ja, true), straight.profile((d + 2) % 4, si, sa, true), sh);
+    }
+
+    // ---- heights ----
+
+    /**
+     * Ground levels for a segment's pieces, in order along the run.
+     *
+     * @param mode  {@link Plan#FOLLOW} (each on its own ground), {@link Plan#SMOOTH} (raised so neighbours differ by
+     *              at most 1), {@link Plan#FLAT} (all at the highest ground under them) or {@link Plan#CHAIN} (all at
+     *              the chain's level, {@link #chainBase})
+     * @param own   each piece's ground (at its centre); @param high the highest ground under each piece
+     * @param dy    blocks added; @param base the chain's level, or {@link Plan#NO_BASE}
+     */
+    public static int[] levels(int mode, int[] own, int[] high, int dy, int base) {
+        int[] out;
+        int max = Integer.MIN_VALUE;
+        for (int h : high) max = Math.max(max, h);
+        switch (mode) {
+            case Plan.SMOOTH -> out = Roads.smooth(own, 1);
+            case Plan.FLAT -> {
+                out = new int[own.length];
+                java.util.Arrays.fill(out, max);
+            }
+            case Plan.CHAIN -> {
+                out = new int[own.length];
+                java.util.Arrays.fill(out, chainBase(base, max));
+            }
+            default -> out = own.clone();
+        }
+        for (int i = 0; i < out.length; i++) out[i] += dy;
+        return out;
+    }
+
+    /** @return the chain's level after a segment with this highest ground joins it: never below any of its ground */
+    public static int chainBase(int base, int segMax) {
+        return base == Plan.NO_BASE ? segMax : Math.max(base, segMax);
+    }
+
+    /** @return a joint piece's level: its highest neighbour's, or its own with none */
+    public static int jointLevel(int own, int[] neighbours) {
+        int best = Integer.MIN_VALUE;
+        for (int n : neighbours) best = Math.max(best, n);
+        return neighbours.length == 0 ? own : best;
     }
 }
