@@ -340,16 +340,26 @@ final class PlanView {
             } else if (i < lineBad.size() && lineBad.get(i) || ps.isEmpty()) {
                 outside++;
                 keepLines.add(l);
+            } else if (sending.containsKey(l)) {
+                keepLines.add(l);
             } else {
+                // The segment stays in the plan until the server has accepted all its batches (see onBatchResult).
+                keepLines.add(l);
                 List<InstantBuild.Piece> batch = new ArrayList<>();
+                int n = 0;
                 for (PieceCatalog.Placed p : ps) {
                     batch.add(new InstantBuild.Piece(p.path(), p.anchor(), PieceCatalog.rotation(p.turns()).ordinal()));
                     if (batch.size() == InstantBuild.MAX_BATCH) {
-                        queue.add(new InstantBuild.PieceBatch(l.pack(), !Planner.creative(), batch));
+                        queueBatch(l, batch);
+                        n++;
                         batch = new ArrayList<>();
                     }
                 }
-                if (!batch.isEmpty()) queue.add(new InstantBuild.PieceBatch(l.pack(), !Planner.creative(), batch));
+                if (!batch.isEmpty()) {
+                    queueBatch(l, batch);
+                    n++;
+                }
+                sending.put(l, n);
                 sent++;
             }
         }
@@ -369,14 +379,17 @@ final class PlanView {
             boolean there = waitingFor instanceof Plan.Entry w && w.isHut() && colony != null
                     && colony.getClientBuildingManager().getBuilding(new BlockPos(w.x(), w.y(), w.z())) != null;
             if (!there && now < waitUntil) return;
+            // No answer to a batch in time: its segment stays in the plan, the rest of it isn't sent.
+            if (waitingFor instanceof InstantBuild.PieceBatch b && now >= waitUntil) onBatchResult(new InstantBuild.BatchResult(b.id(), false, "timeout"));
             waitingFor = null;
         }
         Object next = queue.poll();
         if (next == null) return;
         if (next instanceof InstantBuild.PieceBatch b) {
-            // Road / wall pieces: real style-pack decorations, up to 16 per batch, placed or ordered in drawing order.
+            // Road / wall pieces: real style-pack decorations, up to 16 per batch, in drawing order; the next batch
+            // goes once the server answered this one (accepted or refused), at least 1.1 s apart (its rate limit).
             PacketDistributor.sendToServer(b);
-            waitUntil = now + 1_200;
+            waitUntil = now + 10_000;
             waitingFor = b;
             return;
         }
@@ -509,6 +522,47 @@ final class PlanView {
             double y = p.anchor().getY();
             LevelRenderer.renderLineBox(pose, out, bx[0] + 0.03, y, bx[1] + 0.03, bx[2] + 0.97, y + 1.0, bx[3] + 0.97, r, g, b, 0.9f);
         }
+    }
+
+    // Road / wall batches: which segment each belongs to, and how many of a segment's batches still wait for a yes.
+    private static final Map<Integer, Plan.Line> batchLine = new HashMap<>();
+    private static final Map<Plan.Line, Integer> sending = new HashMap<>();
+    private static int nextBatchId = 1;
+
+    private static void queueBatch(Plan.Line l, List<InstantBuild.Piece> pieces) {
+        int id = nextBatchId++;
+        batchLine.put(id, l);
+        queue.add(new InstantBuild.PieceBatch(id, l.pack(), !Planner.creative(), pieces));
+    }
+
+    /**
+     * The server's answer to a batch. Accepted: once all of a segment's batches are, the segment leaves the plan.
+     * Refused: the segment stays, its remaining batches are dropped, and the player is told why.
+     */
+    static void onBatchResult(InstantBuild.BatchResult r) {
+        Plan.Line l = batchLine.remove(r.id());
+        if (waitingFor instanceof InstantBuild.PieceBatch b && b.id() == r.id()) {
+            waitingFor = null;
+            waitUntil = System.currentTimeMillis() + 1_100;
+            waitingFor = new Object();
+        }
+        if (l == null) return;
+        if (r.accepted()) {
+            int left = sending.getOrDefault(l, 1) - 1;
+            if (left > 0) sending.put(l, left);
+            else {
+                sending.remove(l);
+                lines.remove(l);
+                if (selectedLine >= lines.size()) selectedLine = -1;
+                save();
+                linesDirty = true;
+            }
+            return;
+        }
+        sending.remove(l);
+        queue.removeIf(o -> o instanceof InstantBuild.PieceBatch b && batchLine.get(b.id()) == l && batchLine.remove(b.id()) != null);
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) mc.player.displayClientMessage(Component.translatable("mccitybuilder.pieces.refused." + r.reason()), false);
     }
 
     /** @return creative requests still waiting to be sent */

@@ -102,6 +102,8 @@ public final class PieceSets {
         String n = file.replace(".blueprint", "");
         int i = n.length();
         while (i > 0 && Character.isDigit(n.charAt(i - 1))) i--;
+        // A long digit run (a timestamp, an id) is part of the name, not a level / variant number.
+        if (n.length() - i > 6) i = n.length();
         return new String[]{n.substring(0, i), i < n.length() ? n.substring(i) : "0"};
     }
 

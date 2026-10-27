@@ -28,6 +28,7 @@ public final class PlannerClient {
     }
 
     public static void init(IEventBus modBus, ModContainer container) {
+        com.volcanicmg.mccitybuilder.server.BatchResults.handler(PlanView::onBatchResult);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(RegisterKeyMappingsEvent.class, e -> e.register(TOGGLE));
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, e -> {

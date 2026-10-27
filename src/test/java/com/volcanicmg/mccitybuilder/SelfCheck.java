@@ -668,6 +668,8 @@ public final class SelfCheck {
                 {"wallstairs", "SLOPE"}, {"climb_left", "SLOPE"}, {"endroad", "END"}, {"simplelamppost", "OTHER"}};
         for (String[] n : names)
             check(com.volcanicmg.mccitybuilder.planner.PieceSets.role(n[0]).name().equals(n[1]), "role of " + n[0] + ": " + com.volcanicmg.mccitybuilder.planner.PieceSets.role(n[0]));
+        check(com.volcanicmg.mccitybuilder.planner.PieceSets.split("road1730000000123.blueprint")[1].equals("0")
+                && com.volcanicmg.mccitybuilder.planner.PieceSets.split("segment3.blueprint")[1].equals("3"), "long digit runs are not numbers");
         check(com.volcanicmg.mccitybuilder.planner.PieceSets.tool("walls/segment/segment1.blueprint").equals("wall")
                 && com.volcanicmg.mccitybuilder.planner.PieceSets.tool("infrastructure/roads/simple/simplepatheven.blueprint").equals("road")
                 && com.volcanicmg.mccitybuilder.planner.PieceSets.tool("decorations/misc/well.blueprint") == null, "tool by folder");

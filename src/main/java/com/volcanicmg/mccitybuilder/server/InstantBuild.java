@@ -95,8 +95,10 @@ public final class InstantBuild {
 
     /** Registers the payload as optional, so clients and servers without the mod still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
-        e.registrar("1").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
-                .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch);
+        // Protocol 2: piece batches carry ids and get a batch_result answer; mismatched builds refuse cleanly.
+        e.registrar("2").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
+                .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch)
+                .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r));
     }
 
     /** Prunes per-player state on logout. */
@@ -128,16 +130,15 @@ public final class InstantBuild {
         return level.dimension().location() + "|" + pos.asLong();
     }
 
-    private static void release(ServerPlayer p, ServerLevel level, BlockPos pos) {
-        busyPlayers.remove(p.getUUID());
-        busyPositions.remove(key(level, pos));
+    /** Clears the marks this request set (only if they are still its own, by time stamp), then the batch goes on. */
+    private static void release(ServerPlayer p, ServerLevel level, BlockPos pos, long stamp) {
+        busyPlayers.remove(p.getUUID(), stamp);
+        busyPositions.remove(key(level, pos), stamp);
         continueBatch(p);
     }
 
     static void reject(ServerPlayer p, String why) {
         CityBuilder.LOGGER.info("CityBuilder: rejected instant build from {}: {}", p.getGameProfile().getName(), why);
-        int[] st = batchStats.get(p.getUUID());
-        if (st != null) st[1]++;
     }
 
     // ---- road / wall pieces: a batch of real style-pack decorations, processed one after another ----
@@ -153,9 +154,10 @@ public final class InstantBuild {
      * Up to {@link #MAX_BATCH} road or wall pieces of one style pack, placed (creative) or ordered (survival) one at a
      * time through the same checks as single decorations (DECO / DECO_ORDER), in the order given.
      */
-    public record PieceBatch(String pack, boolean survival, List<Piece> pieces) implements CustomPacketPayload {
+    public record PieceBatch(int id, String pack, boolean survival, List<Piece> pieces) implements CustomPacketPayload {
         public static final Type<PieceBatch> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "piece_batch"));
         public static final StreamCodec<RegistryFriendlyByteBuf, PieceBatch> CODEC = StreamCodec.of((buf, b) -> {
+            buf.writeVarInt(b.id);
             buf.writeUtf(b.pack, 256);
             buf.writeBoolean(b.survival);
             buf.writeVarInt(b.pieces.size());
@@ -165,12 +167,13 @@ public final class InstantBuild {
                 buf.writeByte(q.rot);
             }
         }, buf -> {
+            int id = buf.readVarInt();
             String pack = buf.readUtf(256);
             boolean survival = buf.readBoolean();
             int n = Math.min(buf.readVarInt(), MAX_BATCH);
             List<Piece> ps = new ArrayList<>();
             for (int i = 0; i < n; i++) ps.add(new Piece(buf.readUtf(512), buf.readBlockPos(), buf.readByte()));
-            return new PieceBatch(pack, survival, ps);
+            return new PieceBatch(id, pack, survival, ps);
         });
 
         @Override
@@ -179,54 +182,94 @@ public final class InstantBuild {
         }
     }
 
+    /**
+     * The server's answer to a {@link PieceBatch}: accepted (queued) or not, with a lang key for why. The client keeps
+     * a planned segment until all its batches are accepted.
+     */
+    public record BatchResult(int id, boolean accepted, String reason) implements CustomPacketPayload {
+        public static final Type<BatchResult> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "batch_result"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, BatchResult> CODEC = StreamCodec.of((buf, r) -> {
+            buf.writeVarInt(r.id);
+            buf.writeBoolean(r.accepted);
+            buf.writeUtf(r.reason, 128);
+        }, buf -> new BatchResult(buf.readVarInt(), buf.readBoolean(), buf.readUtf(128)));
+
+        @Override
+        public Type<BatchResult> type() {
+            return TYPE;
+        }
+    }
+
     private static final Map<UUID, java.util.ArrayDeque<Request>> batches = new HashMap<>();
-    // Per player while a batch runs: {done, skipped, survival 0/1}.
+    // Per player while batches run: {done, total, survival 0/1}.
     private static final Map<UUID, int[]> batchStats = new HashMap<>();
-    // Work orders City Builder created, per colony id (for the open-orders cap).
-    private static final Map<Integer, java.util.Set<Integer>> ourOrders = new HashMap<>();
+
+    /**
+     * @return the colony's open road / wall decoration work orders (any decoration order whose blueprint is a road /
+     * wall piece): rebuilt from the colony's orders each time, so it survives restarts
+     */
+    static int openPieceOrders(IColony colony) {
+        int n = 0;
+        for (var wo : colony.getWorkManager().getWorkOrders().values())
+            if (wo instanceof com.minecolonies.core.colony.workorders.WorkOrderDecoration && wo.getStructurePath() != null
+                    && com.volcanicmg.mccitybuilder.planner.PieceSets.tool(wo.getStructurePath()) != null) n++;
+        return n;
+    }
+
+    private static void answer(ServerPlayer p, int id, boolean ok, String reason) {
+        if (!p.connection.hasChannel(BatchResult.TYPE)) return;
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(p, new BatchResult(id, ok, reason));
+    }
 
     private static void handleBatch(PieceBatch b, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer p)) return;
         long now = System.currentTimeMillis();
         Long last = lastRequest.get(p.getUUID());
+        resumeIfStale(p);
         java.util.ArrayDeque<Request> running = batches.get(p.getUUID());
-        if (b.pieces.isEmpty() || last != null && now - last < MIN_INTERVAL_MS || !b.survival && !p.isCreative()
-                || running != null && running.size() + b.pieces.size() > MAX_QUEUED) {
-            reject(p, "piece batch: empty, rate limit, not creative or too many queued");
+        int[] st = batchStats.get(p.getUUID());
+        String why = b.pieces.isEmpty() ? "empty" : last != null && now - last < MIN_INTERVAL_MS ? "busy" : !b.survival && !p.isCreative() ? "creative"
+                : running != null && running.size() + b.pieces.size() > MAX_QUEUED ? "busy"
+                // One kind at a time, so the summary at the end is about one thing.
+                : st != null && (st[2] == 1) != b.survival ? "busy" : null;
+        if (why == null)
+            for (Piece q : b.pieces) if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(q.path) == null) why = "not_piece";
+        ServerLevel level = p.serverLevel();
+        IColony colony = null;
+        if (why == null) {
+            BlockPos first = b.pieces.get(0).pos;
+            colony = level.isLoaded(first) ? IColonyManager.getInstance().getColonyByPosFromWorld(level, first) : null;
+            if (colony == null || !allowed(colony, p, b.survival ? DECO_ORDER : DECO)) why = "permission";
+        }
+        // Survival: open road / wall orders plus what is already queued must stay under the colony's cap.
+        if (why == null && b.survival && openPieceOrders(colony) + (running == null ? 0 : running.size()) + b.pieces.size() > MAX_OPEN_ORDERS) why = "too_many";
+        if (why != null) {
+            reject(p, "piece batch " + b.id + ": " + why);
+            answer(p, b.id, false, why);
             return;
         }
         lastRequest.put(p.getUUID(), now);
-        for (Piece q : b.pieces)
-            if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(q.path) == null) {
-                reject(p, "piece batch: not a road / wall piece " + q.path);
-                return;
-            }
-        ServerLevel level = p.serverLevel();
-        BlockPos first = b.pieces.get(0).pos;
-        IColony colony = level.isLoaded(first) ? IColonyManager.getInstance().getColonyByPosFromWorld(level, first) : null;
-        if (colony == null || !allowed(colony, p, b.survival ? DECO_ORDER : DECO)) {
-            reject(p, "piece batch: no colony or permission");
-            return;
-        }
-        if (b.survival) {
-            java.util.Set<Integer> ours = ourOrders.computeIfAbsent(colony.getID(), k -> new java.util.HashSet<>());
-            ours.retainAll(colony.getWorkManager().getWorkOrders().keySet());
-            if (ours.size() + b.pieces.size() > MAX_OPEN_ORDERS) {
-                p.displayClientMessage(Component.translatable("mccitybuilder.pieces.too_many", ours.size(), MAX_OPEN_ORDERS), false);
-                reject(p, "piece batch: too many open City Builder work orders");
-                return;
-            }
-        }
         java.util.ArrayDeque<Request> q = new java.util.ArrayDeque<>();
         for (Piece pc : b.pieces)
             q.add(new Request(b.survival ? DECO_ORDER : DECO, pc.pos, 0, b.pack, pc.path, RotationMirror.values()[Math.floorMod(pc.rot, RotationMirror.values().length)]));
         // A batch arriving while one runs joins its queue (one summary at the end).
-        if (running != null) running.addAll(q);
-        else {
+        if (running != null) {
+            running.addAll(q);
+            batchStats.get(p.getUUID())[1] += q.size();
+        } else {
             batches.put(p.getUUID(), q);
-            batchStats.put(p.getUUID(), new int[]{0, 0, b.survival ? 1 : 0});
+            batchStats.put(p.getUUID(), new int[]{0, q.size(), b.survival ? 1 : 0});
         }
+        answer(p, b.id, true, "");
         continueBatch(p);
+    }
+
+    /** A batch whose current piece never released (a paste that didn't finish): carry on with the rest. */
+    private static void resumeIfStale(ServerPlayer p) {
+        if (batches.containsKey(p.getUUID()) && !busy(busyPlayers, p.getUUID(), System.currentTimeMillis())) {
+            busyPlayers.remove(p.getUUID());
+            continueBatch(p);
+        }
     }
 
     /** Runs the player's next batch piece once nothing of theirs is running; at the end, one summary message. */
@@ -238,7 +281,8 @@ public final class InstantBuild {
         }
         batches.remove(p.getUUID());
         int[] st = batchStats.remove(p.getUUID());
-        if (st != null) p.displayClientMessage(Component.translatable(st[2] == 1 ? "mccitybuilder.pieces.ordered" : "mccitybuilder.pieces.placed", st[0], st[1]), false);
+        if (st != null)
+            p.displayClientMessage(Component.translatable(st[2] == 1 ? "mccitybuilder.pieces.ordered" : "mccitybuilder.pieces.placed", st[0], Math.max(0, st[1] - st[0])), false);
     }
 
     /** @return the colony's permission check for this request (PLACE needs PLACE_HUTS as well, like MineColonies) */
@@ -255,6 +299,7 @@ public final class InstantBuild {
      * own) @return true when the load started (the batch then continues when it is released)
      */
     private static boolean submit(ServerPlayer p, Request r, boolean batch) {
+        if (!batch) resumeIfStale(p);
         if (!batch && batches.containsKey(p.getUUID())) {
             reject(p, "a piece batch is running");
             return false;
@@ -330,11 +375,11 @@ public final class InstantBuild {
             boolean started = false;
             try {
                 if (bp == null) reject(p, "blueprint not found " + pack + " " + path);
-                else started = start(p, level, colonyId, r, pack, path, rot, bp);
+                else started = start(p, level, colonyId, r, pack, path, rot, bp, now);
             } catch (RuntimeException ex) {
                 CityBuilder.LOGGER.error("CityBuilder: instant build failed", ex);
             } finally {
-                if (!started) release(p, level, r.pos);
+                if (!started) release(p, level, r.pos, now);
             }
         }));
         return true;
@@ -358,7 +403,7 @@ public final class InstantBuild {
      *
      * @return true when the paste was queued (its completion releases the busy marks)
      */
-    private static boolean start(ServerPlayer p, ServerLevel level, int colonyId, Request r, String pack, String path, RotationMirror rot, Blueprint bp) {
+    private static boolean start(ServerPlayer p, ServerLevel level, int colonyId, Request r, String pack, String path, RotationMirror rot, Blueprint bp, long stamp) {
         IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, level);
         if (colony == null || !p.isCreative() && r.mode != DECO_ORDER || p.isRemoved() || !allowed(colony, p, r.mode)) {
             reject(p, "player or colony changed");
@@ -411,12 +456,16 @@ public final class InstantBuild {
                     reject(p, "a work order is already at " + r.pos.toShortString());
                     return false;
                 }
+            // Road / wall pieces count against the colony's cap, checked again here (queued batches may overshoot).
+            if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(path) != null && openPieceOrders(colony) >= MAX_OPEN_ORDERS) {
+                reject(p, "too many open road / wall work orders in colony " + colony.getID());
+                return false;
+            }
             String[] split = path.split("/");
             var order = com.minecolonies.core.colony.workorders.WorkOrderDecoration.create(com.minecolonies.api.colony.workorders.WorkOrderType.BUILD, pack, path,
                     org.apache.commons.lang3.text.WordUtils.capitalizeFully(split[split.length - 1].replace(".blueprint", "")), r.pos, rot, 0);
             order.setBlueprint(bp, level);
             colony.getWorkManager().addWorkOrder(order, false);
-            ourOrders.computeIfAbsent(colony.getID(), k -> new java.util.HashSet<>()).add(order.getID());
             done(p);
             return false;
         }
@@ -486,7 +535,7 @@ public final class InstantBuild {
             try {
                 if (r.mode != DECO) finish(level, colonyId, r, bp, origin, offset, dataPos, data);
             } finally {
-                release(p, level, r.pos);
+                release(p, level, r.pos, stamp);
                 chunks.forEach(busyChunks::remove);
             }
         });

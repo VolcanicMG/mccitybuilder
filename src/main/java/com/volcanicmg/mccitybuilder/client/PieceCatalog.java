@@ -254,7 +254,7 @@ final class PieceCatalog {
             }
             int[] a = {l.x0(), l.z0()}, b = {l.x1(), l.z1()};
             int dir = PieceLayout.dir(a, b), len = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])) + 1;
-            PieceSets.Piece primary = straights.get(0).pick(l.isWall() ? l.level() : l.level(), i * 1000);
+            PieceSets.Piece primary = straights.get(0).pick(straights.get(0).levels() ? l.level() : l.variant(), i * 1000);
             int width = primary.across();
             // Joints at both ends (placed by the first line that reaches them) and how far they reach into this line.
             int[] off = new int[2];
@@ -304,7 +304,9 @@ final class PieceCatalog {
             // The run between the joints / caps: a gate in the middle when asked, straights around it.
             int n = len - off[0] - off[1];
             List<PieceSets.Group> gates = l.gate() ? groups(l.pack(), f, PieceSets.Role.GATE) : List.of();
-            int[] lens = straights.stream().map(g -> g.first()).filter(p -> p.across() == width).mapToInt(PieceSets.Piece::run).distinct().toArray();
+            // Lengths of the straights as picked for this line (levels can change a piece's size), same width only.
+            int[] lens = straights.stream().map(g -> g.pick(g.levels() ? l.level() : l.variant(), 0)).filter(p -> p.across() == width)
+                    .mapToInt(PieceSets.Piece::run).distinct().toArray();
             List<Integer> tiles = new ArrayList<>();
             List<PieceSets.Piece> tilePieces = new ArrayList<>();
             int used;
@@ -338,9 +340,11 @@ final class PieceCatalog {
 
     /** @return a straight of run length {@code run} and the line's width, at the line's level / variant */
     private static PieceSets.Piece straightOf(List<PieceSets.Group> straights, int width, int run, Plan.Line l, int seed) {
-        for (PieceSets.Group g : straights)
-            if (g.first().run() == run && g.first().across() == width) return g.pick(l.level() >= 1 && g.levels() ? l.level() : l.variant(), seed);
-        return straights.get(0).first();
+        for (PieceSets.Group g : straights) {
+            PieceSets.Piece p = g.pick(g.levels() ? l.level() : l.variant(), seed);
+            if (p.run() == run && p.across() == width) return p;
+        }
+        return straights.get(0).pick(straights.get(0).levels() ? l.level() : l.variant(), seed);
     }
 
     private static boolean collinear(Plan.Line l, int d, List<int[]> meet, List<Plan.Line> lines) {

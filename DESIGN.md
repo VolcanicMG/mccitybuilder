@@ -275,9 +275,16 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Build: each piece is a normal decoration from the real pack, through the server part as `piece_batch` messages of
   up to 16 pieces in drawing order; the server runs them one by one through the same DECO (creative paste) /
   DECO_ORDER (survival builder work order) checks as single decorations, plus: every path must be a road / wall
-  piece, a batch can queue behind a running one (96 queued at most), at most 64 open work orders created by City
-  Builder per colony, one summary message per batch. Survival is checked when ordered: builders later replace what
-  is there when they build.
+  piece, a batch can queue behind a running one (96 queued at most, one kind - creative or survival - at a time),
+  at most 64 open road / wall decoration work orders per colony (counted from the colony's orders, so restarts don't
+  forget them, and checked again right before each order is added), one summary message per run (placed / ordered
+  vs skipped). The server answers every batch (`batch_result`: accepted, or refused with a reason); the client sends
+  the next batch only after that answer (10 s timeout) and keeps a segment in the plan until all its batches were
+  accepted (refused: it stays, its other batches are dropped, the reason is shown). A run whose piece never released
+  is resumed by the player's next request. Payload protocol "2" (optional): a client and server of different builds refuse the
+  channel instead of mis-decoding; answers go only to clients that have the `batch_result` channel. Busy marks are
+  time-stamped, and a request releases only its own (a stuck piece finishing late can't clear a newer mark). Survival is checked when ordered: builders later replace what is there
+  when they build.
 
 ### Height, fog and what stays visible
 
