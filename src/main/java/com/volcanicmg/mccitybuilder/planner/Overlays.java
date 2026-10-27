@@ -4,11 +4,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-/** Data shaping for the planner's overlays (builders, workers). Pure. */
+/** Data shaping for the planner's combined overlay (staffing, citizens, builders). Pure. */
 public final class Overlays {
-    /** Overlay ids in cycle order; lang keys are {@code mccitybuilder.overlay.<id>}. */
-    public static final List<String> MODES = List.of("none", "builders", "workers");
-
     /** How a hut's job slots are filled. */
     public enum Staff { NO_JOBS, NONE, UNDER, FULL }
 
@@ -20,11 +17,6 @@ public final class Overlays {
     private static final int[] JOB_COLORS = {0xFFE0A030, 0xFF50B050, 0xFF4080E0, 0xFFD05050, 0xFFB060D0, 0xFF40C0C0, 0xFFE070A0, 0xFFC0C040};
 
     private Overlays() {
-    }
-
-    /** @return the next overlay id after {@code mode} (wrapping) */
-    public static String next(String mode) {
-        return MODES.get(Math.floorMod(MODES.indexOf(mode) + 1, MODES.size()));
     }
 
     public static Staff staffing(int assigned, int slots) {

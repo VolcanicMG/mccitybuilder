@@ -2,13 +2,21 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Roads and walls are built from the style pack's own road and wall pieces (no vanilla blocks): straights tiled along
+  each segment, corners / T / cross / towers at joints (turned and lined up by matching the pieces' faces), end
+  caps, gates; family, level or variant (mixed variants for natural walls), and a piece-set editor per style for
+  overrides. Survival: one builder work order per piece; creative: pasted at once. The generated blueprints are gone.
+- One combined overlay, always on (the overlay switcher and L are gone): staffing labels and boxes, citizens as
+  job-coloured markers, builders as hammer badges with their site, a faint line and what they wait for. Config
+  `showCitizens` / `showStaffing` hide parts of it.
+- Survival plan Build all queues decorations too: each becomes a builder work order (with City Builder on the server).
+- Roads and walls are their own tools now (N / B or the buttons), drawn city-builder style: click a start, a live
+  segment follows the cursor (45° snap, Shift = free, snaps to segment ends or onto a segment to branch), each click
+  drops a segment and starts the next. Every segment goes into the plan (editable, deletable, conflicts red).
 - Renamed: ColonyPlanner is now **City Builder for MineColonies** (mod id `mccitybuilder`, package
   `com.volcanicmg.mccitybuilder`, jar `mccitybuilder-*.jar`, network channels `mccitybuilder:instant_build` /
   `mccitybuilder:instant_road`, config `mccitybuilder-client.toml`, plans under `mccitybuilder/plans/`). The old
   client config and saved plans are picked up automatically; remove the old colonyplanner jar.
-- Roads (N or the Road button, creative with the server part): click points on the ground, pick a width and a
-  material; the preview follows the terrain with steps of one block; Build places it at once, leaving storage, huts
-  and item-holding entities alone. Survival roads are not built yet.
 - Plan mode (K or the Plan button): drop huts and decorations as a plan, see them as ghosts with their footprints
   and conflicts (overlaps, outside the colony), edit (move, raise, rotate, mirror, level, delete), keep them across
   sessions per world and colony, then Build all / Build selected (creative: pasted one after another; survival:
@@ -62,8 +70,6 @@
   unregistered hut block). MineColonies records any pasted hut as level 1.
 - Creative Upgrade pastes level 1 only on an unbuilt hut; built huts get a normal work order (pasting over them would
   reset their level and spill the hut's inventory).
-- The colony border is an amber ribbon on the terrain, a steady ~2.5 pixels wide on screen, and stays faintly visible through
-  hills (it was a thin white line lost in the ground).
 - Hover stays steady while the camera moves: it is re-picked every frame, survives a few missed frames, and the pick
   reaches 1024 blocks.
 - Zooming out no longer hides buildings and outlines: terrain fog is pushed out by the camera's height, and the

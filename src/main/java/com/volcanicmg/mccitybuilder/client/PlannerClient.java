@@ -74,6 +74,7 @@ public final class PlannerClient {
         NeoForge.EVENT_BUS.addListener(ClientPlayerNetworkEvent.LoggingOut.class, e -> {
             Planner.guard(() -> Planner.exit(null));
             Blueprints.clear();
+            PieceCatalog.clear();
         });
     }
 

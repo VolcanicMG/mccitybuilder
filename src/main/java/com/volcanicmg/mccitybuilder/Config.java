@@ -13,6 +13,8 @@ public final class Config {
     public static final ModConfigSpec.DoubleValue TURN_SPEED;
     public static final ModConfigSpec.DoubleValue MIN_HEIGHT;
     public static final ModConfigSpec.BooleanValue ZOOM_TO_CURSOR;
+    public static final ModConfigSpec.BooleanValue SHOW_CITIZENS;
+    public static final ModConfigSpec.BooleanValue SHOW_STAFFING;
 
     static {
         ModConfigSpec.Builder c = new ModConfigSpec.Builder();
@@ -27,6 +29,8 @@ public final class Config {
         EDGE_PAN = c.comment("Pan when the mouse touches the screen edge.").define("edgePan", true);
         FOLLOW_TERRAIN = c.comment("Keep the camera's height above the land: it glides up over hills and plateaus and down into valleys (a broad, slow terrain baseline under the camera; trees, buildings and small bumps don't move it). Off: you set an absolute altitude; terrain only pushes the camera up when it would get too close.")
                 .define("followTerrain", true);
+        SHOW_CITIZENS = c.comment("Planner overlay: show citizens as job-coloured markers (builders always show as hammer badges).").define("showCitizens", true);
+        SHOW_STAFFING = c.comment("Planner overlay: show 'assigned/slots' over huts and outline under-staffed ones.").define("showStaffing", true);
         CLIENT_SPEC = c.build();
     }
 

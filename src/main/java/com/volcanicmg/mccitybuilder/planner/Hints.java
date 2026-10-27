@@ -39,9 +39,8 @@ public final class Hints {
         section("browse",
                 caps("#click"),
                 caps("#rmb"),
-                caps("L"),
                 caps("K"),
-                caps("N"));
+                caps("N", "/", "B"));
         section("placing",
                 caps("#click"),
                 caps("R", "/", "M"),
@@ -63,12 +62,14 @@ public final class Hints {
                 caps("[", "/", "]"),
                 caps("#delete"),
                 caps("#rmb", "/", "#esc"));
-        section("road",
+        section("line",
                 caps("#click"),
                 caps("#backspace"),
                 caps("[", "/", "]"),
-                caps("#enter"),
-                caps("#esc"));
+                caps("-", "/", "="),
+                caps("T"),
+                caps("G"),
+                caps("#rmb", "/", "#esc"));
         section("selected",
                 caps("U"),
                 caps("P"),

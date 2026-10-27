@@ -202,21 +202,20 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   the planner set (cylindrical distance, linear mix to the fog colour). The bright pass still shows through water on
   Fabulous (the composite keeps water depth in another target); not fixed.
 
-### Overlays (phase B, `client/OverlayView`, `planner/Overlays`)
+### Overlay (`client/OverlayView`, `planner/Overlays`)
 
-- One overlay at a time, picked under the banner or cycled with L: None, Builders, Workers. Data is rebuilt from the
-  client colony view at most 4 times a second; citizen positions come from the citizen entity when loaded (exact),
-  else `ICitizenDataView.getPosition()` (synced block position).
-- Builders: every `BuildingBuilder.View`; its site = the work order view it has claimed (`IWorkOrderView.getClaimedBy`)
-  with its location and bounding box (cyan box, line from the builder hut); the builder citizen = its assigned
-  citizen, drawn as a hammer badge at its position. Waiting materials come from the hut's
-  `BuildingResourcesModuleView` (synced to the client for the builder window): rows with status DONT_HAVE /
-  NEED_MORE / IN_DELIVERY, amount - available, most missing first, up to 8, in the badge tooltip. Clicking the
-  badge selects the builder's hut; the site is selectable like any building.
-- Workers: per hut, the `WorkerBuildingModuleView`s' assigned citizens vs `getMaxInhabitants()` ("a/b" label;
-  red box = none, amber = under-staffed); every citizen as a marker in a stable colour per job id; hover = name, job,
-  "needs help" when it has blocking interactions; click = MineColonies' `MainWindowCitizen` (a client window built
-  from the citizen view; opening it from the planner is inferred to work like from the citizen).
+- One combined overlay, always on (no switcher); client config `showCitizens` / `showStaffing` (default on) hide
+  parts of it. Rebuilt from the client colony view at most 4 times a second; positions from the citizen entity when
+  loaded, else `ICitizenDataView.getPosition()`.
+- Staffing: per hut, the `WorkerBuildingModuleView`s' assigned citizens vs `getMaxInhabitants()` as an "a/b" label
+  (red none, amber under, green full; a label overlapping one already drawn is skipped, labels fade above 90 blocks)
+  and red / amber boxes around unstaffed / under-staffed huts.
+- Citizens: a marker in a stable colour per job id; hover = name, job, "needs help" (blocking interactions); click =
+  MineColonies' `MainWindowCitizen`.
+- Builders: instead of a citizen marker, a hammer badge (drawn last, above the dots, and hit-tested first); their
+  claimed work order's site boxed in cyan with a faint line from the hut; the badge tooltip lists up to 8 waiting
+  materials from the hut's `BuildingResourcesModuleView` (DONT_HAVE / NEED_MORE / IN_DELIVERY, amount - available);
+  clicking it selects the builder's hut.
 
 ### Plan mode (phase C, `client/PlanView`, `planner/Plan`)
 
@@ -237,26 +236,48 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   placed at level 1 with MineColonies' survival handler and get their build requests when the building views appear;
   the rest stay in the plan. Decorations stay in survival (MineColonies opens one decoration window per placement).
   The queue only runs while planner view is open.
+- Survival decorations in Build all (server part): the server part's DECO_ORDER mode does what MineColonies'
+  `DecorationBuildRequestMessage` does (MANAGE_HUTS; `WorkOrderDecoration.create(BUILD, pack, path, name, pos, rot,
+  0)`, `setBlueprint`, `addWorkOrder`), after the same checks as DECO (pack path rules, client packs refused, the
+  anchor is not a hut, every footprint chunk owned by the colony) and refusing a location that already has a work
+  order (MineColonies' message would toggle it off). It doesn't need creative. Without the server part decorations
+  stay in the plan (MineColonies' window, one by one).
 
-### Roads (phase D, `client/RoadView`, `planner/Roads`, server `InstantBuild.RoadRequest`)
+### Roads and walls from the style's own pieces (`client/LineView`, `client/PieceCatalog`, `planner/PieceSets`, `planner/PieceLayout`)
 
-- N or the "Road" button: clicks on the ground add points; Backspace undoes, [ ] width (1..7), material from a short
-  list of plain blocks, Enter / Build places it, Esc leaves road mode. Plan and road mode exclude each other.
-- `Roads.columns` (pure): the polyline is walked block by block (Bresenham per segment); centreline ground heights
-  (top non-leaf ground block, from `Columns`) are smoothed by raising only, so steps are at most one block and the
-  road never cuts into the ground (dips are filled, it ramps up ahead of a rise); every column within half the
-  width of the centreline (round ends) takes its nearest centreline cell's height; at most 4096 columns.
-- Creative only, through a second optional payload (`mccitybuilder:instant_road`): creative, rate limit,
-  MANAGE_HUTS in the colony at the first column, every column's chunk loaded and owned by the colony, within 2048 of
-  the first, a plain block (no block entity, not a game-master block). Per column: the road block replaces the
-  surface, two blocks above are cleared, a replaceable block below is filled. Storage, huts and blocks around
-  item-holding entities are left; a break event per replaced block and a place event per chunk first, all or nothing.
-- Survival roads: not built. A builder can only build what a server-side structure pack holds (`WorkOrderDecoration`
-  loads its blueprint by pack + path on the server). Options: (a) the server part writes the generated road as a
-  blueprint into a server-owned pack (Structurize `BlueprintUtil` + runtime pack discovery, as Structurize does for
-  client-synced packs) and adds a `WorkOrderDecoration` for it; (b) the server part splits the road into a few fixed
-  "road piece" blueprints shipped in a City Builder pack and queues one decoration work order per piece; (c) a
-  custom builder job (too invasive). (a) is the most faithful but writes files and creates packs at runtime.
+- Own tools (N = road, B = wall, or the buttons beside Plan); hut / decoration placement is unchanged. Chains are
+  drawn city-builder style (`LineSnap`): click a start (a planned segment's end, or onto a segment, which splits it
+  there so the branch starts at a joint), a live segment follows the cursor along 0 / 90° (the packs' pieces are
+  straight runs; no diagonals in v1), each click drops a segment into the plan and starts the next at its end.
+  Right-click / Esc ends the chain (again: leaves the tool), Backspace takes back the chain's last segment.
+- Pieces (verified against MineColonies 1.1.1403's 22 bundled packs): road pieces live under
+  `infrastructure/roads/**`, wall pieces under `walls/**`. `PieceSets` sorts them: families = folder (role-named
+  sub-folders like `walls/corner`, `walls/gate`, `roads/straight` fold into their parent), split by a style prefix
+  (`cobble_`, `fancy_`, `plain_`; not role words like `long_`); roles from name keywords (gate / drawbridge /
+  barbican; inner corner; T: tjunction / tcorner / junction; cross / intersection; corner / curve / outer; tower /
+  pillar; stairs / climb / step / incline = slope; end; straight / segment / wall / long / short / path / section);
+  numbered groups are levels when their footprints differ (medieval `segment1..5`) and variants when equal
+  (fortress `wall1..4`, nordic `loooong1..3`). A family needs a straight to be offered. Packs without road / wall
+  folders show "this style has no roads / walls".
+- Layout (`PieceCatalog.layout`, math in `PieceLayout`): per segment, joints where 2+ lines of the same family meet
+  (two in a straight line: none; else corner / T / cross by count, or a tower when the line asks) are placed once,
+  centred on the joint cell, turned to the quarter turn whose faces toward the lines best match a straight's end
+  face (solid-cell profiles, Jaccard over lateral shifts within 3), and the straights are shifted across the line by
+  the best profile match at their start joint. Free ends get an end cap when the family has one; a gate (selected
+  wall segment, G) goes in the middle. Straights fill the rest: lengths of the same width as the primary straight,
+  least left over then fewest pieces (coin change); what can't be covered is reported as "short". Each piece sits on
+  the ground at its own centre (stepped; slope pieces are not used in v1), anchored like the hut ghost (top ground
+  block + the blueprint's ground anchor offset - 1). Planned pieces show as Structurize ghosts with footprint outlines
+  (red: outside the claims or into an existing building).
+- Options for the next segments or the selected one: family, level or variant (variants: one, or mixed by piece
+  index), towers. The piece-set editor (Pieces) overrides which group plays each role (auto / none / any group of the
+  family), saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
+- Build: each piece is a normal decoration from the real pack, through the server part as `piece_batch` messages of
+  up to 16 pieces in drawing order; the server runs them one by one through the same DECO (creative paste) /
+  DECO_ORDER (survival builder work order) checks as single decorations, plus: every path must be a road / wall
+  piece, a batch can queue behind a running one (96 queued at most), at most 64 open work orders created by City
+  Builder per colony, one summary message per batch. Survival is checked when ordered: builders later replace what
+  is there when they build.
 
 ### Height, fog and what stays visible
 

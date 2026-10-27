@@ -63,9 +63,9 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  */
 public final class InstantBuild {
     /** PLACE a hut, UPGRADE / REPAIR / CLEAN (placeholders) a building, DECO = place a decoration (no hut anchor). */
-    public static final int PLACE = 0, UPGRADE = 1, REPAIR = 2, DECO = 3, CLEAN = 4;
-    private static final long MIN_INTERVAL_MS = 1000;
-    private static final Map<UUID, Long> lastRequest = new HashMap<>();
+    public static final int PLACE = 0, UPGRADE = 1, REPAIR = 2, DECO = 3, CLEAN = 4, DECO_ORDER = 5;
+    static final long MIN_INTERVAL_MS = 1000;
+    static final Map<UUID, Long> lastRequest = new HashMap<>();
 
     /**
      * @param mode  {@link #PLACE}, {@link #UPGRADE} or {@link #REPAIR}
@@ -90,102 +90,13 @@ public final class InstantBuild {
         }
     }
 
-    /** A creative road: the road block positions (each replaces the surface block there) and the block id. */
-    public record RoadRequest(List<BlockPos> road, String block) implements CustomPacketPayload {
-        public static final Type<RoadRequest> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "instant_road"));
-        public static final StreamCodec<RegistryFriendlyByteBuf, RoadRequest> CODEC = StreamCodec.of((buf, r) -> {
-            buf.writeVarInt(r.road.size());
-            for (BlockPos p : r.road) buf.writeLong(p.asLong());
-            buf.writeUtf(r.block, 256);
-        }, buf -> {
-            int n = Math.min(buf.readVarInt(), com.volcanicmg.mccitybuilder.planner.Roads.MAX_COLUMNS);
-            List<BlockPos> road = new ArrayList<>();
-            for (int i = 0; i < n; i++) road.add(BlockPos.of(buf.readLong()));
-            return new RoadRequest(road, buf.readUtf(256));
-        });
-
-        @Override
-        public Type<RoadRequest> type() {
-            return TYPE;
-        }
-    }
-
     private InstantBuild() {
-    }
-
-    /**
-     * A creative road, all-or-nothing like the pastes: creative, rate limit, MANAGE_HUTS in the colony at the first
-     * position, every chunk loaded and owned by that colony, a plain block (no block entity, not a game-master block);
-     * then per column the road block replaces the surface, two blocks above are cleared and an empty block below is
-     * filled. Storage, huts and blocks around item-holding entities are never touched; break / place events first.
-     */
-    private static void handleRoad(RoadRequest r, IPayloadContext ctx) {
-        if (!(ctx.player() instanceof ServerPlayer p)) return;
-        long now = System.currentTimeMillis();
-        Long last = lastRequest.get(p.getUUID());
-        if (!p.isCreative() || last != null && now - last < MIN_INTERVAL_MS || r.road.isEmpty()) {
-            reject(p, "road: not creative, rate limit or empty");
-            return;
-        }
-        lastRequest.put(p.getUUID(), now);
-        ServerLevel level = p.serverLevel();
-        var block = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getOptional(ResourceLocation.tryParse(r.block)).orElse(null);
-        BlockState mat = block == null ? null : block.defaultBlockState();
-        if (mat == null || mat.isAir() || mat.hasBlockEntity() || block instanceof GameMasterBlock) {
-            reject(p, "road: bad block " + r.block);
-            return;
-        }
-        BlockPos first = r.road.get(0);
-        IColony colony = level.isLoaded(first) ? IColonyManager.getInstance().getColonyByPosFromWorld(level, first) : null;
-        if (colony == null || !allowed(colony, p, UPGRADE)) {
-            reject(p, "road: no colony or permission");
-            return;
-        }
-        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
-        for (BlockPos q : r.road) {
-            if (q.distManhattan(first) > 2048 || !level.hasChunk(q.getX() >> 4, q.getZ() >> 4)
-                    || ColonyUtils.getOwningColony(level.getChunk(q.getX() >> 4, q.getZ() >> 4)) != colony.getID()) {
-                reject(p, "road leaves the colony or isn't loaded at " + q.toShortString());
-                return;
-            }
-            minX = Math.min(minX, q.getX());
-            minY = Math.min(minY, q.getY());
-            minZ = Math.min(minZ, q.getZ());
-            maxX = Math.max(maxX, q.getX());
-            maxY = Math.max(maxY, q.getY());
-            maxZ = Math.max(maxZ, q.getZ());
-        }
-        java.util.Set<BlockPos> entityKept = entityProtected(level, new BlockPos(minX, minY - 1, minZ), new BlockPos(maxX, maxY + 2, maxZ));
-        java.util.Map<BlockPos, BlockState> changes = new java.util.LinkedHashMap<>();
-        java.util.Set<Long> placeChecked = new java.util.HashSet<>();
-        BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
-        int kept = 0;
-        for (BlockPos q : r.road)
-            for (int dy = -1; dy <= 2; dy++) {
-                BlockPos w = q.above(dy);
-                BlockState have = level.getBlockState(w);
-                BlockState want = dy == 0 ? mat : dy > 0 ? air : have.canBeReplaced() ? mat : have;
-                if (have.equals(want) || changes.containsKey(w)) continue;
-                if (isProtected(level, w, have) || entityKept.contains(w)) {
-                    kept++;
-                    continue;
-                }
-                if (!have.isAir() && NeoForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level, w, have, p)).isCanceled()
-                        || have.isAir() && !want.isAir() && placeChecked.add(w.getX() >> 4 | (long) (w.getZ() >> 4) << 32)
-                        && NeoForge.EVENT_BUS.post(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, w), have, p)).isCanceled()) {
-                    reject(p, "a claim or protection refused the road at " + w.toShortString());
-                    return;
-                }
-                changes.put(w, want);
-            }
-        changes.forEach((w, st) -> level.setBlock(w, st, 3));
-        p.displayClientMessage(Component.translatable("mccitybuilder.road.built", r.road.size(), kept), false);
     }
 
     /** Registers the payload as optional, so clients and servers without the mod still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
         e.registrar("1").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
-                .playToServer(RoadRequest.TYPE, RoadRequest.CODEC, InstantBuild::handleRoad);
+                .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch);
     }
 
     /** Prunes per-player state on logout. */
@@ -193,6 +104,8 @@ public final class InstantBuild {
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
             lastRequest.remove(e.getEntity().getUUID());
             busyPlayers.remove(e.getEntity().getUUID());
+            batches.remove(e.getEntity().getUUID());
+            batchStats.remove(e.getEntity().getUUID());
         });
     }
 
@@ -218,50 +131,170 @@ public final class InstantBuild {
     private static void release(ServerPlayer p, ServerLevel level, BlockPos pos) {
         busyPlayers.remove(p.getUUID());
         busyPositions.remove(key(level, pos));
+        continueBatch(p);
     }
 
-    private static void reject(ServerPlayer p, String why) {
+    static void reject(ServerPlayer p, String why) {
         CityBuilder.LOGGER.info("CityBuilder: rejected instant build from {}: {}", p.getGameProfile().getName(), why);
+        int[] st = batchStats.get(p.getUUID());
+        if (st != null) st[1]++;
+    }
+
+    // ---- road / wall pieces: a batch of real style-pack decorations, processed one after another ----
+
+    /** Pieces per batch, and City Builder's open decoration work orders per colony. */
+    public static final int MAX_BATCH = 16, MAX_OPEN_ORDERS = 64, MAX_QUEUED = 96;
+
+    /** One road / wall piece: its blueprint path in the pack, anchor position and RotationMirror ordinal. */
+    public record Piece(String path, BlockPos pos, int rot) {
+    }
+
+    /**
+     * Up to {@link #MAX_BATCH} road or wall pieces of one style pack, placed (creative) or ordered (survival) one at a
+     * time through the same checks as single decorations (DECO / DECO_ORDER), in the order given.
+     */
+    public record PieceBatch(String pack, boolean survival, List<Piece> pieces) implements CustomPacketPayload {
+        public static final Type<PieceBatch> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "piece_batch"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, PieceBatch> CODEC = StreamCodec.of((buf, b) -> {
+            buf.writeUtf(b.pack, 256);
+            buf.writeBoolean(b.survival);
+            buf.writeVarInt(b.pieces.size());
+            for (Piece q : b.pieces) {
+                buf.writeUtf(q.path, 512);
+                buf.writeBlockPos(q.pos);
+                buf.writeByte(q.rot);
+            }
+        }, buf -> {
+            String pack = buf.readUtf(256);
+            boolean survival = buf.readBoolean();
+            int n = Math.min(buf.readVarInt(), MAX_BATCH);
+            List<Piece> ps = new ArrayList<>();
+            for (int i = 0; i < n; i++) ps.add(new Piece(buf.readUtf(512), buf.readBlockPos(), buf.readByte()));
+            return new PieceBatch(pack, survival, ps);
+        });
+
+        @Override
+        public Type<PieceBatch> type() {
+            return TYPE;
+        }
+    }
+
+    private static final Map<UUID, java.util.ArrayDeque<Request>> batches = new HashMap<>();
+    // Per player while a batch runs: {done, skipped, survival 0/1}.
+    private static final Map<UUID, int[]> batchStats = new HashMap<>();
+    // Work orders City Builder created, per colony id (for the open-orders cap).
+    private static final Map<Integer, java.util.Set<Integer>> ourOrders = new HashMap<>();
+
+    private static void handleBatch(PieceBatch b, IPayloadContext ctx) {
+        if (!(ctx.player() instanceof ServerPlayer p)) return;
+        long now = System.currentTimeMillis();
+        Long last = lastRequest.get(p.getUUID());
+        java.util.ArrayDeque<Request> running = batches.get(p.getUUID());
+        if (b.pieces.isEmpty() || last != null && now - last < MIN_INTERVAL_MS || !b.survival && !p.isCreative()
+                || running != null && running.size() + b.pieces.size() > MAX_QUEUED) {
+            reject(p, "piece batch: empty, rate limit, not creative or too many queued");
+            return;
+        }
+        lastRequest.put(p.getUUID(), now);
+        for (Piece q : b.pieces)
+            if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(q.path) == null) {
+                reject(p, "piece batch: not a road / wall piece " + q.path);
+                return;
+            }
+        ServerLevel level = p.serverLevel();
+        BlockPos first = b.pieces.get(0).pos;
+        IColony colony = level.isLoaded(first) ? IColonyManager.getInstance().getColonyByPosFromWorld(level, first) : null;
+        if (colony == null || !allowed(colony, p, b.survival ? DECO_ORDER : DECO)) {
+            reject(p, "piece batch: no colony or permission");
+            return;
+        }
+        if (b.survival) {
+            java.util.Set<Integer> ours = ourOrders.computeIfAbsent(colony.getID(), k -> new java.util.HashSet<>());
+            ours.retainAll(colony.getWorkManager().getWorkOrders().keySet());
+            if (ours.size() + b.pieces.size() > MAX_OPEN_ORDERS) {
+                p.displayClientMessage(Component.translatable("mccitybuilder.pieces.too_many", ours.size(), MAX_OPEN_ORDERS), false);
+                reject(p, "piece batch: too many open City Builder work orders");
+                return;
+            }
+        }
+        java.util.ArrayDeque<Request> q = new java.util.ArrayDeque<>();
+        for (Piece pc : b.pieces)
+            q.add(new Request(b.survival ? DECO_ORDER : DECO, pc.pos, 0, b.pack, pc.path, RotationMirror.values()[Math.floorMod(pc.rot, RotationMirror.values().length)]));
+        // A batch arriving while one runs joins its queue (one summary at the end).
+        if (running != null) running.addAll(q);
+        else {
+            batches.put(p.getUUID(), q);
+            batchStats.put(p.getUUID(), new int[]{0, 0, b.survival ? 1 : 0});
+        }
+        continueBatch(p);
+    }
+
+    /** Runs the player's next batch piece once nothing of theirs is running; at the end, one summary message. */
+    private static void continueBatch(ServerPlayer p) {
+        java.util.ArrayDeque<Request> q = batches.get(p.getUUID());
+        if (q == null || busy(busyPlayers, p.getUUID(), System.currentTimeMillis())) return;
+        while (!q.isEmpty()) {
+            if (submit(p, q.poll(), true)) return;
+        }
+        batches.remove(p.getUUID());
+        int[] st = batchStats.remove(p.getUUID());
+        if (st != null) p.displayClientMessage(Component.translatable(st[2] == 1 ? "mccitybuilder.pieces.ordered" : "mccitybuilder.pieces.placed", st[0], st[1]), false);
     }
 
     /** @return the colony's permission check for this request (PLACE needs PLACE_HUTS as well, like MineColonies) */
-    private static boolean allowed(IColony colony, ServerPlayer p, int mode) {
+    static boolean allowed(IColony colony, ServerPlayer p, int mode) {
         return colony.getPermissions().hasPermission(p, Action.MANAGE_HUTS) && (mode != PLACE && mode != DECO || colony.getPermissions().hasPermission(p, Action.PLACE_HUTS));
     }
 
     private static void handle(Request r, IPayloadContext ctx) {
-        if (!(ctx.player() instanceof ServerPlayer p)) return;
-        if (!p.isCreative()) {
+        if (ctx.player() instanceof ServerPlayer p) submit(p, r, false);
+    }
+
+    /**
+     * Checks a request and starts its blueprint load. @param batch true for a piece of a batch (no rate limit of its
+     * own) @return true when the load started (the batch then continues when it is released)
+     */
+    private static boolean submit(ServerPlayer p, Request r, boolean batch) {
+        if (!batch && batches.containsKey(p.getUUID())) {
+            reject(p, "a piece batch is running");
+            return false;
+        }
+        return submitChecked(p, r, batch);
+    }
+
+    private static boolean submitChecked(ServerPlayer p, Request r, boolean batch) {
+        // DECO_ORDER (a decoration builder work order, as MineColonies' decoration window makes) is for survival too.
+        if (!p.isCreative() && r.mode != DECO_ORDER) {
             reject(p, "not in creative");
-            return;
+            return false;
         }
         long now = System.currentTimeMillis();
         Long last = lastRequest.get(p.getUUID());
-        if (last != null && now - last < MIN_INTERVAL_MS) {
+        if (!batch && last != null && now - last < MIN_INTERVAL_MS) {
             reject(p, "rate limit");
-            return;
+            return false;
         }
-        lastRequest.put(p.getUUID(), now);
+        if (!batch) lastRequest.put(p.getUUID(), now);
         ServerLevel level = p.serverLevel();
-        if (r.mode < PLACE || r.mode > CLEAN || !level.isLoaded(r.pos)) {
+        if (r.mode < PLACE || r.mode > DECO_ORDER || !level.isLoaded(r.pos)) {
             reject(p, "bad mode or unloaded position");
-            return;
+            return false;
         }
         if (busy(busyPlayers, p.getUUID(), now) || busy(busyPositions, key(level, r.pos), now)) {
             reject(p, "a paste is still running");
-            return;
+            return false;
         }
         IColony colony = IColonyManager.getInstance().getColonyByPosFromWorld(level, r.pos);
         if (colony == null || !allowed(colony, p, r.mode)) {
             reject(p, "no colony or missing permission at " + r.pos.toShortString());
-            return;
+            return false;
         }
         String pack, path;
         RotationMirror rot;
-        if (r.mode == PLACE || r.mode == DECO) {
+        if (r.mode == PLACE || r.mode == DECO || r.mode == DECO_ORDER) {
             // Checked and used in one normalised form (Structurize turns \ into / itself).
             String reqPath = r.path.replace('\\', '/');
-            String bad = PasteRules.badPath(reqPath, r.mode == DECO ? 0 : r.level);
+            String bad = PasteRules.badPath(reqPath, r.mode != PLACE ? 0 : r.level);
             StructurePackMeta meta = StructurePacks.getStructurePack(r.pack);
             if (bad == null && (meta == null || !StructurePacks.hasPack(r.pack))) bad = "unknown pack";
             // Client-synced packs live under blueprints/clients/<uuid>/: never trusted.
@@ -270,7 +303,7 @@ public final class InstantBuild {
             if (bad == null && r.mode == PLACE && (r.level < 1 || colony.getServerBuildingManager().getBuilding(r.pos) != null)) bad = "level < 1 or a building is already there";
             if (bad != null) {
                 reject(p, bad + ": " + r.pack + " " + r.path);
-                return;
+                return false;
             }
             pack = r.pack;
             path = reqPath;
@@ -279,14 +312,14 @@ public final class InstantBuild {
             IBuilding b = colony.getServerBuildingManager().getBuilding(r.pos);
             if (b == null) {
                 reject(p, "no building at " + r.pos.toShortString());
-                return;
+                return false;
             }
             String bp = b.getBlueprintPath() == null ? null : b.getBlueprintPath().endsWith(".blueprint") ? b.getBlueprintPath() : b.getBlueprintPath() + ".blueprint";
             path = HutCatalog.levelPath(bp, r.level);
             pack = b.getStructurePack();
             if (!levelOk(r, b) || path == null || pack == null || !StructurePacks.hasPack(pack)) {
                 reject(p, "bad level step " + b.getBuildingLevel() + " -> " + r.level + " or no blueprint path");
-                return;
+                return false;
             }
             rot = b.getTileEntity() != null ? b.getTileEntity().getRotationMirror() : b.getRotationMirror();
         }
@@ -304,6 +337,13 @@ public final class InstantBuild {
                 if (!started) release(p, level, r.pos);
             }
         }));
+        return true;
+    }
+
+    /** Counts a placed / ordered piece for the running batch's summary. */
+    private static void done(ServerPlayer p) {
+        int[] st = batchStats.get(p.getUUID());
+        if (st != null) st[0]++;
     }
 
     /** UPGRADE: current + 1 within the max; REPAIR: the current level, built. */
@@ -320,12 +360,12 @@ public final class InstantBuild {
      */
     private static boolean start(ServerPlayer p, ServerLevel level, int colonyId, Request r, String pack, String path, RotationMirror rot, Blueprint bp) {
         IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, level);
-        if (colony == null || !p.isCreative() || p.isRemoved() || !allowed(colony, p, r.mode)) {
+        if (colony == null || !p.isCreative() && r.mode != DECO_ORDER || p.isRemoved() || !allowed(colony, p, r.mode)) {
             reject(p, "player or colony changed");
             return false;
         }
         IBuilding existing = colony.getServerBuildingManager().getBuilding(r.pos);
-        if (r.mode == PLACE ? existing != null : r.mode != DECO && (existing == null || !levelOk(r, existing))) {
+        if (r.mode == PLACE ? existing != null : r.mode != DECO && r.mode != DECO_ORDER && (existing == null || !levelOk(r, existing))) {
             reject(p, "building changed while loading");
             return false;
         }
@@ -358,11 +398,28 @@ public final class InstantBuild {
             }
         }
         // Decorations go through here only without a hut anchor (huts use PLACE, which registers the building).
-        if (r.mode == DECO && anchor.getBlock() instanceof AbstractBlockHut<?>) {
+        if ((r.mode == DECO || r.mode == DECO_ORDER) && anchor.getBlock() instanceof AbstractBlockHut<?>) {
             reject(p, "decoration request with a hut anchor: " + path);
             return false;
         }
         if (r.mode == CLEAN) return clean(p, level, colony, bp, origin, offset);
+        if (r.mode == DECO_ORDER) {
+            // What MineColonies' DecorationBuildRequestMessage does (MANAGE_HUTS, one order per location), after our
+            // footprint checks: the builder then gathers the materials and builds it.
+            for (var wo : colony.getWorkManager().getWorkOrders().values())
+                if (wo.getLocation().equals(r.pos)) {
+                    reject(p, "a work order is already at " + r.pos.toShortString());
+                    return false;
+                }
+            String[] split = path.split("/");
+            var order = com.minecolonies.core.colony.workorders.WorkOrderDecoration.create(com.minecolonies.api.colony.workorders.WorkOrderType.BUILD, pack, path,
+                    org.apache.commons.lang3.text.WordUtils.capitalizeFully(split[split.length - 1].replace(".blueprint", "")), r.pos, rot, 0);
+            order.setBlueprint(bp, level);
+            colony.getWorkManager().addWorkOrder(order, false);
+            ourOrders.computeIfAbsent(colony.getID(), k -> new java.util.HashSet<>()).add(order.getID());
+            done(p);
+            return false;
+        }
         // Entities holding items (item frames, armour stands, chest carts...): their blocks and supports stay.
         java.util.Set<BlockPos> entityKept = entityProtected(level, origin, far);
         // Decide every position first; nothing in the world changes until all of it is allowed.
@@ -434,6 +491,7 @@ public final class InstantBuild {
             }
         });
         Manager.addToQueue(new PlaceStructureOperation(new StructurePlacer(handler), p));
+        done(p);
         if (kept > 0) p.displayClientMessage(Component.translatable("mccitybuilder.kept_storage", kept), false);
         return true;
     }
@@ -493,7 +551,7 @@ public final class InstantBuild {
      * for hanging entities (item frames), the block they hang on. Structurize's placer never removes entities itself;
      * this keeps them from losing their support or being built into.
      */
-    private static java.util.Set<BlockPos> entityProtected(ServerLevel level, BlockPos origin, BlockPos far) {
+    static java.util.Set<BlockPos> entityProtected(ServerLevel level, BlockPos origin, BlockPos far) {
         java.util.Set<BlockPos> out = new java.util.HashSet<>();
         net.minecraft.world.phys.AABB box = new net.minecraft.world.phys.AABB(origin.getX(), origin.getY(), origin.getZ(), far.getX() + 1, far.getY() + 1, far.getZ() + 1);
         for (Entity e : level.getEntities((Entity) null, box, InstantBuild::holdsItems)) {

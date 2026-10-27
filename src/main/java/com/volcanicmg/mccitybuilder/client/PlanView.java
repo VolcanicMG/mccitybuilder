@@ -51,8 +51,16 @@ final class PlanView {
     private static int previews;
     private static boolean dirty = true;
     // Commit queue: creative requests go one at a time, each waiting for its building (or a short time).
-    private static final Deque<Plan.Entry> queue = new ArrayDeque<>();
-    private static Plan.Entry waitingFor;
+    private static final Deque<Object> queue = new ArrayDeque<>();
+    private static Object waitingFor;
+    // Drawn road / wall segments, their computed blocks (client terrain) and whether each has a conflict.
+    static List<Plan.Line> lines = new ArrayList<>();
+    static List<List<PieceCatalog.Placed>> linePieces = new ArrayList<>();
+    static List<Boolean> lineBad = new ArrayList<>();
+    static List<Integer> lineShort = new ArrayList<>();
+    private static boolean linesDirty = true;
+    private static int linePreviews;
+    static int selectedLine = -1;
     private static long waitUntil;
     private static final Map<String, CompletableFuture<Blueprint>> loads = new HashMap<>();
     private static final Map<String, Blueprint> rotated = new HashMap<>();
@@ -71,12 +79,17 @@ final class PlanView {
         Path old = mc.gameDirectory.toPath().resolve("colonyplanner").resolve(mc.gameDirectory.toPath().resolve("mccitybuilder").relativize(file));
         try {
             Path from = Files.exists(file) ? file : Files.exists(old) ? old : null;
-            entries = new ArrayList<>(from != null ? Plan.read(Files.readString(from)) : List.of());
+            String text = from != null ? Files.readString(from) : null;
+            entries = new ArrayList<>(Plan.read(text));
+            lines = new ArrayList<>(Plan.readLines(text));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't read plan {}", file, e);
             entries = new ArrayList<>();
+            lines = new ArrayList<>();
         }
         selected = -1;
+        selectedLine = -1;
+        linesDirty = true;
         queue.clear();
         waitingFor = null;
         dirty = true;
@@ -91,7 +104,7 @@ final class PlanView {
         if (file == null) return;
         try {
             Files.createDirectories(file.getParent());
-            Files.writeString(file, Plan.write(entries));
+            Files.writeString(file, Plan.write(entries, lines));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't save plan {}", file, e);
         }
@@ -227,6 +240,12 @@ final class PlanView {
 
     /** Footprint outlines: white when selected, green when buildable, red with a conflict. */
     static void renderWorld(PoseStack pose, VertexConsumer lines) {
+        if (on || LineView.active())
+            for (int i = 0; i < linePieces.size() && i < PlanView.lines.size(); i++) {
+                boolean bad = i < lineBad.size() && lineBad.get(i), sel = i == selectedLine, wall = PlanView.lines.get(i).isWall();
+                outline(pose, lines, linePieces.get(i), sel ? 1f : bad ? 1f : wall ? 0.75f : 1f, sel ? 1f : bad ? 0.25f : wall ? 0.75f : 0.7f,
+                        sel ? 1f : bad ? 0.25f : wall ? 0.8f : 0.15f);
+            }
         if (!on) return;
         for (int i = 0; i < entries.size(); i++) {
             Plan.Entry e = entries.get(i);
@@ -238,6 +257,9 @@ final class PlanView {
     }
 
     static void hide() {
+        for (int i = 0; i < linePreviews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_piece_" + i);
+        linePreviews = 0;
+        linesDirty = true;
         for (int i = 0; i < previews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_plan_" + i);
         previews = 0;
         dirty = true;
@@ -275,9 +297,15 @@ final class PlanView {
                 continue;
             }
             if (!e.isHut()) {
-                // MineColonies opens its decoration window per placement: decorations go one by one.
-                deco++;
-                keep.add(e);
+                // Survival decorations: builder work orders through the server part; without it MineColonies opens its
+                // decoration window per placement, so they go one by one.
+                if (Planner.serverInstant()) {
+                    queue.add(e);
+                    sent++;
+                } else {
+                    deco++;
+                    keep.add(e);
+                }
                 continue;
             }
             Block hut = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(e.hut()));
@@ -299,8 +327,38 @@ final class PlanView {
         }
         entries = keep;
         selected = -1;
+        // Roads and walls, in drawing order: real pieces through the server part (creative: placed; survival: work orders).
+        int needServer = 0;
+        List<Plan.Line> keepLines = new ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) {
+            Plan.Line l = lines.get(i);
+            List<PieceCatalog.Placed> ps = i < linePieces.size() ? linePieces.get(i) : List.of();
+            if (selectedOnly && i != selectedLine) keepLines.add(l);
+            else if (!Planner.serverInstant()) {
+                needServer++;
+                keepLines.add(l);
+            } else if (i < lineBad.size() && lineBad.get(i) || ps.isEmpty()) {
+                outside++;
+                keepLines.add(l);
+            } else {
+                List<InstantBuild.Piece> batch = new ArrayList<>();
+                for (PieceCatalog.Placed p : ps) {
+                    batch.add(new InstantBuild.Piece(p.path(), p.anchor(), PieceCatalog.rotation(p.turns()).ordinal()));
+                    if (batch.size() == InstantBuild.MAX_BATCH) {
+                        queue.add(new InstantBuild.PieceBatch(l.pack(), !Planner.creative(), batch));
+                        batch = new ArrayList<>();
+                    }
+                }
+                if (!batch.isEmpty()) queue.add(new InstantBuild.PieceBatch(l.pack(), !Planner.creative(), batch));
+                sent++;
+            }
+        }
+        lines = keepLines;
+        selectedLine = -1;
+        LineView.endChain();
+        linesDirty = true;
         save();
-        return Component.translatable("mccitybuilder.plan.committed", sent, outside, noItem, deco);
+        return Component.translatable("mccitybuilder.plan.committed", sent, outside, noItem, deco, needServer);
     }
 
     /** Creative commit queue: one request at a time, the next once the building appears (huts) or after a pause. */
@@ -308,17 +366,26 @@ final class PlanView {
         IColonyView colony = Planner.colony();
         long now = System.currentTimeMillis();
         if (waitingFor != null) {
-            boolean there = waitingFor.isHut() && colony != null
-                    && colony.getClientBuildingManager().getBuilding(new BlockPos(waitingFor.x(), waitingFor.y(), waitingFor.z())) != null;
+            boolean there = waitingFor instanceof Plan.Entry w && w.isHut() && colony != null
+                    && colony.getClientBuildingManager().getBuilding(new BlockPos(w.x(), w.y(), w.z())) != null;
             if (!there && now < waitUntil) return;
             waitingFor = null;
         }
-        Plan.Entry e = queue.poll();
-        if (e == null) return;
+        Object next = queue.poll();
+        if (next == null) return;
+        if (next instanceof InstantBuild.PieceBatch b) {
+            // Road / wall pieces: real style-pack decorations, up to 16 per batch, placed or ordered in drawing order.
+            PacketDistributor.sendToServer(b);
+            waitUntil = now + 1_200;
+            waitingFor = b;
+            return;
+        }
+        Plan.Entry e = (Plan.Entry) next;
         BlockPos at = new BlockPos(e.x(), e.y(), e.z());
         RotationMirror rot = RotationMirror.values()[e.rot()];
         if (Planner.serverInstant()) {
-            PacketDistributor.sendToServer(new InstantBuild.Request(e.isHut() ? InstantBuild.PLACE : InstantBuild.DECO, at, e.isHut() ? e.level() : 0,
+            int mode = e.isHut() ? InstantBuild.PLACE : Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER;
+            PacketDistributor.sendToServer(new InstantBuild.Request(mode, at, e.isHut() ? e.level() : 0,
                     e.pack(), e.path(), rot));
             waitUntil = now + (e.isHut() ? 15_000 : 3_000);
         } else {
@@ -326,6 +393,122 @@ final class PlanView {
             waitUntil = now + 1_500;
         }
         waitingFor = e;
+    }
+
+    // ---- drawn lines ----
+
+    /** Lays out the lines into pieces (when they or the loaded pieces changed), their conflicts and ghosts. */
+    static void refreshLines() {
+        if (!linesDirty) return;
+        PieceCatalog.Layout lay = PieceCatalog.layout(lines);
+        linePieces = lay.lines();
+        lineShort = lay.shortened();
+        lineBad = new ArrayList<>();
+        IColonyView colony = Planner.colony();
+        List<int[]> boxes = new ArrayList<>();
+        if (colony != null) for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) boxes.add(Planner.box(b));
+        for (List<PieceCatalog.Placed> ps : linePieces) {
+            boolean bad = false;
+            for (PieceCatalog.Placed p : ps) {
+                int[] bx = p.box();
+                if (!com.volcanicmg.mccitybuilder.planner.ColonyGeometry.footprintClaimed(bx[0], bx[1], bx[2], bx[3], Planner.claimed())) bad = true;
+                for (int[] x : boxes) if (bx[0] <= x[3] && x[0] <= bx[2] && bx[1] <= x[5] && x[2] <= bx[3] && p.anchor().getY() <= x[4] && x[1] <= p.anchor().getY() + 4) bad = true;
+            }
+            lineBad.add(bad);
+        }
+        // Structurize ghosts of every planned piece.
+        for (int i = 0; i < linePreviews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_piece_" + i);
+        linePreviews = 0;
+        if (on || LineView.active())
+            for (int i = 0; i < linePieces.size() && i < lines.size(); i++)
+                for (PieceCatalog.Placed p : linePieces.get(i)) {
+                    Blueprint bp = PieceCatalog.rotated(lines.get(i).pack(), p.path(), p.turns());
+                    if (bp == null) continue;
+                    BlueprintPreviewData data = new BlueprintPreviewData(false);
+                    data.setBlueprint(bp);
+                    data.setRotationMirror(PieceCatalog.rotation(p.turns()));
+                    data.setPos(p.anchor());
+                    RenderingCache.queue(Planner.PREVIEW_KEY + "_piece_" + linePreviews++, data);
+                }
+        linesDirty = !lay.complete();
+    }
+
+    static void linesChanged() {
+        linesDirty = true;
+    }
+
+    static void addLine(Plan.Line l) {
+        lines.add(l);
+        save();
+        linesDirty = true;
+    }
+
+    /** Removes a line (Delete in plan mode). Any chain being drawn ends, so its undo can't reach other lines. */
+    static void removeLine(int i) {
+        if (i < 0 || i >= lines.size()) return;
+        lines.remove(i);
+        if (selectedLine == i) selectedLine = -1;
+        else if (selectedLine > i) selectedLine--;
+        LineView.endChain();
+        save();
+        linesDirty = true;
+    }
+
+    /** Removes the line equal to {@code l} (the chain's undo). */
+    static void removeLineValue(Plan.Line l) {
+        int i = lines.lastIndexOf(l);
+        if (i < 0) return;
+        lines.remove(i);
+        if (selectedLine == i) selectedLine = -1;
+        else if (selectedLine > i) selectedLine--;
+        save();
+        linesDirty = true;
+    }
+
+    /** Branching: a chain started in the middle of a planned segment splits it there, so the start is a joint. */
+    static void splitAt(int[] c) {
+        for (int i = 0; i < lines.size(); i++) {
+            Plan.Line l = lines.get(i);
+            boolean onX = l.z0() == l.z1() && c[1] == l.z0() && c[0] > Math.min(l.x0(), l.x1()) && c[0] < Math.max(l.x0(), l.x1());
+            boolean onZ = l.x0() == l.x1() && c[0] == l.x0() && c[1] > Math.min(l.z0(), l.z1()) && c[1] < Math.max(l.z0(), l.z1());
+            if (!onX && !onZ) continue;
+            lines.set(i, new Plan.Line(l.tool(), l.x0(), l.z0(), c[0], c[1], l.pack(), l.family(), l.level(), l.variant(), l.towers(), l.gate()));
+            lines.add(i + 1, new Plan.Line(l.tool(), c[0], c[1], l.x1(), l.z1(), l.pack(), l.family(), l.level(), l.variant(), l.towers(), false));
+            if (selectedLine > i) selectedLine++;
+            save();
+            linesDirty = true;
+            return;
+        }
+    }
+
+    static Plan.Line selectedLine() {
+        return selectedLine >= 0 && selectedLine < lines.size() ? lines.get(selectedLine) : null;
+    }
+
+    static void setLine(Plan.Line l) {
+        if (selectedLine() == null) return;
+        lines.set(selectedLine, l);
+        save();
+        linesDirty = true;
+    }
+
+    /** @return the index of a line with a piece covering (x, z), or -1 */
+    static int lineAt(BlockPos pos) {
+        for (int i = linePieces.size() - 1; i >= 0; i--)
+            for (PieceCatalog.Placed p : linePieces.get(i)) {
+                int[] b = p.box();
+                if (pos.getX() >= b[0] && pos.getX() <= b[2] && pos.getZ() >= b[1] && pos.getZ() <= b[3]) return i;
+            }
+        return -1;
+    }
+
+    /** Footprint outlines of placed pieces (a flat box at each piece's anchor height). */
+    static void outline(PoseStack pose, VertexConsumer out, List<PieceCatalog.Placed> ps, float r, float g, float b) {
+        for (PieceCatalog.Placed p : ps) {
+            int[] bx = p.box();
+            double y = p.anchor().getY();
+            LevelRenderer.renderLineBox(pose, out, bx[0] + 0.03, y, bx[1] + 0.03, bx[2] + 0.97, y + 1.0, bx[3] + 0.97, r, g, b, 0.9f);
+        }
     }
 
     /** @return creative requests still waiting to be sent */

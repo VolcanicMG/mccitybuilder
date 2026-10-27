@@ -42,7 +42,8 @@ final class Blueprints {
     /** @return enabled style packs, by name */
     static List<String> packs() {
         List<String> out = new ArrayList<>();
-        for (StructurePackMeta m : StructurePacks.getPackMetas()) if (!m.isDisabled()) out.add(m.getName());
+        for (StructurePackMeta m : StructurePacks.getPackMetas())
+            if (!m.isDisabled()) out.add(m.getName());
         out.sort(String.CASE_INSENSITIVE_ORDER);
         return out;
     }

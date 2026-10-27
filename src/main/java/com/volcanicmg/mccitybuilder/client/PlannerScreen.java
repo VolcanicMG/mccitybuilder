@@ -151,6 +151,7 @@ final class PlannerScreen extends Screen {
         // Aim the ghost and find the building under the cursor (every frame, so both follow smoothly).
         BlockHitResult hit = Planner.pick(mouseX / (double) width, mouseY / (double) height);
         Planner.aim(hit);
+        LineView.aim(hit);
         banner(g, colony);
         overlayMarkers(g);
         overlayPicker(g, mouseX, mouseY);
@@ -158,7 +159,7 @@ final class PlannerScreen extends Screen {
         queue(g, colony, mouseX, mouseY);
         selection(g, mouseX, mouseY);
         planPanel(g, mouseX, mouseY);
-        roadPanel(g, mouseX, mouseY);
+        linePanel(g, mouseX, mouseY);
         actionBar(g, mouseX, mouseY);
         guide(g, mouseX, mouseY);
         status(g);
@@ -199,17 +200,25 @@ final class PlannerScreen extends Screen {
     /** Citizen markers projected to the screen: a hammer badge for builders, a job-coloured square for workers. */
     private void overlayMarkers(GuiGraphics g) {
         drawnMarkers.clear();
-        // Workers: "assigned/slots" over each hut with jobs (red none, amber under, green full).
-        for (var en : OverlayView.counts.entrySet()) {
+        // Staffing "assigned/slots" over each hut with jobs (red none, amber under, green full); a label that would
+        // overlap one already drawn is skipped, and they fade when the camera is high.
+        List<int[]> labels = new ArrayList<>();
+        int alpha = Planner.heightAboveGround() > 90 ? 0x80 : 0xC0;
+        if (com.volcanicmg.mccitybuilder.Config.SHOW_STAFFING.get()) for (var en : OverlayView.counts.entrySet()) {
             BlockPos p = en.getKey();
             double[] ndc = Planner.project(p.getX() + 0.5, p.getY() + 2.5, p.getZ() + 0.5);
             if (ndc == null || Math.abs(ndc[0]) > 1 || Math.abs(ndc[1]) > 1) continue;
             int[] c = en.getValue();
             String t = c[0] + "/" + c[1];
             int sx = (int) Math.round((ndc[0] + 1) / 2 * width), sy = (int) Math.round((1 - ndc[1]) / 2 * height), tw = font.width(t);
-            int col = c[0] == 0 ? 0xFFFF6060 : c[0] < c[1] ? 0xFFFFC040 : 0xFF70E070;
-            g.fill(sx - tw / 2 - 2, sy - 6, sx + tw / 2 + 2, sy + 5, 0xC0000000);
-            g.drawString(font, t, sx - tw / 2, sy - 4, col, false);
+            int[] r = {sx - tw / 2 - 2, sy - 6, sx + tw / 2 + 2, sy + 5};
+            boolean overlap = false;
+            for (int[] o : labels) overlap |= r[0] < o[2] && o[0] < r[2] && r[1] < o[3] && o[1] < r[3];
+            if (overlap) continue;
+            labels.add(r);
+            int col = c[0] == 0 ? 0xFF6060 : c[0] < c[1] ? 0xFFC040 : 0x70E070;
+            g.fill(r[0], r[1], r[2], r[3], alpha << 24);
+            g.drawString(font, t, sx - tw / 2, sy - 4, (alpha + 0x3F) << 24 | col, false);
         }
         List<OverlayView.Marker> ms = OverlayView.markers;
         for (int i = 0; i < ms.size(); i++) {
@@ -254,54 +263,139 @@ final class PlannerScreen extends Screen {
         return out;
     }
 
-    private void toggleRoad() {
-        if (PlanView.on) togglePlan();
-        RoadView.toggle();
+    /** Road / wall tool on or off (they replace each other; neither changes hut placement). */
+    private void useTool(String t) {
+        LineView.use(t);
+        PlanView.linesChanged();
+        PlanView.selectedLine = -1;
         click();
-        toast(Component.translatable(RoadView.on ? "mccitybuilder.road.on" : "mccitybuilder.road.off"));
+        toast(Component.translatable(LineView.active() ? "mccitybuilder.line.on." + LineView.tool : "mccitybuilder.line.off"));
     }
 
-    /** Road mode: points, width and material pickers, Undo / Build / Clear. */
-    private void roadPanel(GuiGraphics g, int mx, int my) {
-        if (!RoadView.on) return;
-        int w = 200, h = 98, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
+    private static boolean editorOpen;
+    private static final com.volcanicmg.mccitybuilder.planner.PieceSets.Role[] EDIT_ROLES = {com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT,
+            com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TEE,
+            com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CROSS, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.END,
+            com.volcanicmg.mccitybuilder.planner.PieceSets.Role.GATE, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.TOWER};
+
+    /**
+     * The road / wall panel: the style's piece family, level or variant, towers, gate (selected segment), lengths and
+     * block counts, End / Undo / Build, and the piece-set editor (which piece plays each role).
+     */
+    private void linePanel(GuiGraphics g, int mx, int my) {
+        if (!LineView.active() && PlanView.selectedLine() == null) return;
+        com.volcanicmg.mccitybuilder.planner.Plan.Line sel = PlanView.selectedLine();
+        String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
+        String status = sel != null ? null : LineView.status();
+        String fam = sel != null ? sel.family() : status == null ? LineView.family() : null;
+        int w = 220, h = status != null ? 40 : editorOpen ? 104 + EDIT_ROLES.length * 18 : 140, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
-        g.drawString(font, Component.translatable("mccitybuilder.road.title", RoadView.points.size(), RoadView.columns.size()), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
-        int iy = picker(g, x + PAD, y + PAD + 11, w - 2 * PAD, Component.translatable("mccitybuilder.road.width", RoadView.width).getString(), mx, my, d -> {
-            RoadView.width(d);
+        int ix = x + PAD, iw = w - 2 * PAD;
+        g.drawString(font, Component.translatable(sel != null ? "mccitybuilder.line.selected." + tool : "mccitybuilder.line.title." + tool), ix + 1, y + PAD, VanillaUi.LABEL, false);
+        if (status != null) {
+            g.drawString(font, Component.translatable("mccitybuilder.line.status." + status + "." + tool, pk), ix + 1, y + PAD + 13, 0xFFA02020, false);
+            return;
+        }
+        int iy = picker(g, ix, y + PAD + 11, iw, Component.translatable("mccitybuilder.line.family", fam == null ? "-" : fam.substring(fam.indexOf(':') + 1)).getString(),
+                mx, my, d -> {
+                    LineView.cycleFamily(d);
+                    click();
+                }, Component.translatable("mccitybuilder.line.family.tip"));
+        int[] li = LineView.levelInfo();
+        int lv = sel != null ? sel.level() : LineView.level, va = sel != null ? sel.variant() : LineView.variant;
+        String lvText = li[1] == 1 ? Component.translatable("mccitybuilder.line.level", Math.min(lv, li[0]), li[0]).getString()
+                : va < 0 ? Component.translatable("mccitybuilder.line.variant_random", li[0]).getString() : Component.translatable("mccitybuilder.line.variant", va + 1, li[0]).getString();
+        iy = picker(g, ix, iy, iw, lvText, mx, my, d -> {
+            LineView.cycleLevel(d, li[0], li[1] == 1);
             click();
-        }, Component.translatable("mccitybuilder.road.width.tip"));
-        iy = picker(g, x + PAD, iy, w - 2 * PAD, RoadView.materialName(), mx, my, d -> {
-            RoadView.material(d);
-            click();
-        }, Component.translatable("mccitybuilder.road.material.tip"));
-        String[] keys = {"undo", "build", "clear"};
-        boolean creativeOk = Planner.creative() && Planner.serverInstant();
-        boolean[] off = {RoadView.points.isEmpty(), RoadView.columns.isEmpty() || !creativeOk, RoadView.points.isEmpty()};
-        Runnable[] run = {RoadView::undo, () -> toast(RoadView.build()), () -> {
-            RoadView.points.clear();
-            RoadView.refresh();
-        }};
-        int bw = (w - 2 * PAD - 4) / 3;
+        }, Component.translatable("mccitybuilder.line.level.tip"));
+        // Towers at joints, gate in the selected segment, and the piece-set editor.
+        boolean[] on = {sel != null ? sel.towers() : LineView.towers, sel != null && sel.gate(), editorOpen};
+        String[] keys = {"towers", "gate", "pieces"};
+        int bw3 = (iw - 4) / 3;
         for (int i = 0; i < 3; i++) {
-            int bx = x + PAD + i * (bw + 2), by = iy;
-            boolean over = mx >= bx && mx < bx + bw && my >= by && my < by + 20;
-            VanillaUi.button(g, bx, by, bw, 20, false, off[i], over);
-            String l = Component.translatable("mccitybuilder.road." + keys[i]).getString();
-            g.drawString(font, l, bx + (bw - font.width(l)) / 2, by + 6, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
+            int bx = ix + i * (bw3 + 2);
+            boolean off = i == 1 && (sel == null || !sel.isWall()), over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
+            VanillaUi.button(g, bx, iy, bw3, 16, on[i], off, over);
+            String l = Component.translatable("mccitybuilder.line." + keys[i]).getString();
+            g.drawString(font, l, bx + (bw3 - font.width(l)) / 2, iy + 4, off ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
             int fi = i;
-            hits.add(new Hit(bx, by, bw, 20, () -> {
+            hits.add(new Hit(bx, iy, bw3, 16, () -> {
+                if (fi == 1 && (PlanView.selectedLine() == null || !PlanView.selectedLine().isWall())) return;
+                click();
+                if (fi == 0) LineView.toggleTowers();
+                else if (fi == 1) LineView.toggleGate();
+                else editorOpen = !editorOpen;
+            }, Component.translatable("mccitybuilder.line." + keys[i] + ".tip")));
+        }
+        iy += 20;
+        if (editorOpen && fam != null) {
+            var fs = PieceCatalog.families(pk);
+            var f = fs == null ? null : fs.get(fam);
+            if (f != null) {
+                java.util.List<com.volcanicmg.mccitybuilder.planner.PieceSets.Group> all = PieceCatalog.allGroups(f);
+                for (var role : EDIT_ROLES) {
+                    String cur = PieceCatalog.overrides(pk).get(fam + "|" + role.name());
+                    var used = PieceCatalog.groups(pk, f, role);
+                    String label = Component.translatable("mccitybuilder.line.role." + role.name().toLowerCase(java.util.Locale.ROOT)).getString() + ": "
+                            + (cur == null ? (used.isEmpty() ? "-" : used.get(0).base()) + " (auto)" : cur.equals("-") ? "none" : cur);
+                    // Choices: auto, none, then every piece group of the family.
+                    java.util.List<String> choices = new java.util.ArrayList<>(java.util.Arrays.asList(null, "-"));
+                    for (var gr : all) choices.add(gr.base());
+                    iy = picker(g, ix, iy, iw, label, mx, my, d -> {
+                        int k = choices.indexOf(cur);
+                        String nx = choices.get(Math.floorMod(k + d, choices.size()));
+                        PieceCatalog.override(pk, fam, role, nx);
+                        PlanView.linesChanged();
+                        click();
+                    }, Component.translatable("mccitybuilder.line.role.tip")) - 2;
+                }
+            }
+        }
+        // Length, pieces and blocks: the live segment and the chain, or the selected segment.
+        int segLen = LineView.start != null && LineView.end != null ? com.volcanicmg.mccitybuilder.planner.LineSnap.length(LineView.start, LineView.end) : 0;
+        int chainPieces = 0, chainBlocks = 0;
+        for (var l : LineView.chain) {
+            int idx = PlanView.lines.indexOf(l);
+            if (idx >= 0 && idx < PlanView.linePieces.size()) {
+                chainPieces += PlanView.linePieces.get(idx).size();
+                chainBlocks += LineView.cost(PlanView.linePieces.get(idx));
+            }
+        }
+        String info;
+        if (sel != null) {
+            int idx = PlanView.selectedLine;
+            var ps = idx < PlanView.linePieces.size() ? PlanView.linePieces.get(idx) : java.util.List.<PieceCatalog.Placed>of();
+            int sh = idx < PlanView.lineShort.size() ? PlanView.lineShort.get(idx) : 0;
+            info = Component.translatable("mccitybuilder.line.cost_selected", com.volcanicmg.mccitybuilder.planner.LineSnap.length(new int[]{sel.x0(), sel.z0()},
+                    new int[]{sel.x1(), sel.z1()}), ps.size(), LineView.cost(ps), sh).getString();
+        } else info = Component.translatable("mccitybuilder.line.cost", segLen, LineView.live.size(), LineView.liveShort, LineView.chain.size(), chainPieces, chainBlocks).getString();
+        g.drawString(font, font.plainSubstrByWidth(info, iw), ix + 1, iy, 0xFF555555, false);
+        iy += 12;
+        boolean server = Planner.serverInstant();
+        String[] bkeys = {"end", "undo", "build"};
+        boolean[] off = {LineView.start == null, LineView.chain.isEmpty(), PlanView.lines.isEmpty() || !server};
+        Runnable[] run = {LineView::endChain, LineView::undo, () -> toast(PlanView.commit(false))};
+        int bw = (iw - 4) / 3;
+        for (int i = 0; i < 3; i++) {
+            int bx = ix + i * (bw + 2);
+            boolean over = mx >= bx && mx < bx + bw && my >= iy && my < iy + 20;
+            VanillaUi.button(g, bx, iy, bw, 20, false, off[i], over);
+            String l = Component.translatable("mccitybuilder.line." + bkeys[i]).getString();
+            g.drawString(font, l, bx + (bw - font.width(l)) / 2, iy + 6, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK, false);
+            int fi = i;
+            hits.add(new Hit(bx, iy, bw, 20, () -> {
                 if (off[fi]) return;
                 click();
                 run[fi].run();
-            }, Component.translatable(i == 1 && !creativeOk ? "mccitybuilder.road.creative_only" : "mccitybuilder.road." + keys[i] + ".tip")));
+            }, Component.translatable(i == 2 && !server ? "mccitybuilder.line.needs_server" : "mccitybuilder.line." + bkeys[i] + ".tip")));
         }
     }
 
     private void togglePlan() {
-        if (!PlanView.on && RoadView.on) RoadView.toggle();
         PlanView.on = !PlanView.on;
+        PlanView.linesChanged();
         if (!PlanView.on) {
             PlanView.hide();
             PlanView.selected = -1;
@@ -353,25 +447,26 @@ final class PlannerScreen extends Screen {
 
     /** Overlay picker under the banner: [<] Overlay: Builders [>] (L cycles); the Plan toggle beside it. */
     private void overlayPicker(GuiGraphics g, int mx, int my) {
-        int w = 150, x = (width - w) / 2, y = 20;
-        panels.add(new int[]{x, y, w, 16});
-        int px = x + w + 4, rx = px + 64;
-        panels.add(new int[]{rx, y, 60, 16});
-        boolean overR = mx >= rx && mx < rx + 60 && my >= y && my < y + 16;
-        VanillaUi.button(g, rx, y, 60, 16, RoadView.on, false, overR);
-        String rl = Component.translatable(RoadView.on ? "mccitybuilder.road.on_short" : "mccitybuilder.road.off_short").getString();
-        g.drawString(font, rl, rx + (60 - font.width(rl)) / 2, y + 4, VanillaUi.INK, false);
-        hits.add(new Hit(rx, y, 60, 16, this::toggleRoad, Component.translatable("mccitybuilder.road.tip")));
+        // Plan, Road and Wall under the banner (the overlay is always on; config can hide parts of it).
+        int y = 20, px = (width - 164) / 2;
+        // Road and Wall tools beside the Plan toggle.
+        String[] tools = {"road", "wall"};
+        for (int i = 0; i < 2; i++) {
+            int tx = px + 64 + i * 52;
+            String t = tools[i];
+            panels.add(new int[]{tx, y, 48, 16});
+            boolean overT = mx >= tx && mx < tx + 48 && my >= y && my < y + 16;
+            VanillaUi.button(g, tx, y, 48, 16, t.equals(LineView.tool), false, overT);
+            String tl = Component.translatable("mccitybuilder.line.tool." + t).getString();
+            g.drawString(font, tl, tx + (48 - font.width(tl)) / 2, y + 4, VanillaUi.INK, false);
+            hits.add(new Hit(tx, y, 48, 16, () -> useTool(t), Component.translatable("mccitybuilder.line.tool." + t + ".tip")));
+        }
         panels.add(new int[]{px, y, 60, 16});
         boolean overP = mx >= px && mx < px + 60 && my >= y && my < y + 16;
         VanillaUi.button(g, px, y, 60, 16, PlanView.on, false, overP);
         String pl = Component.translatable(PlanView.on ? "mccitybuilder.plan.on_short" : "mccitybuilder.plan.off_short").getString();
         g.drawString(font, pl, px + (60 - font.width(pl)) / 2, y + 4, VanillaUi.INK, false);
         hits.add(new Hit(px, y, 60, 16, this::togglePlan, Component.translatable("mccitybuilder.plan.tip")));
-        picker(g, x, y, w, Component.translatable("mccitybuilder.overlay", Component.translatable("mccitybuilder.overlay." + OverlayView.mode)).getString(), mx, my, d -> {
-            for (int i = 0; i < (d > 0 ? 1 : com.volcanicmg.mccitybuilder.planner.Overlays.MODES.size() - 1); i++) OverlayView.cycle();
-            click();
-        }, Component.translatable("mccitybuilder.overlay.tip"));
     }
 
     /** "Planner · colony name" at the top, so planner mode is obvious. */
@@ -892,7 +987,7 @@ final class PlannerScreen extends Screen {
     private void guide(GuiGraphics g, int mx, int my) {
         int w = Hints.WIDTH, x = width - 4 - w;
         boolean open = Config.SHOW_HINTS.get();
-        String state = Planner.adjusting() ? "adjusting" : Planner.isPlacing() ? "placing" : RoadView.on ? "road" : PlanView.hasSelection() ? "planned"
+        String state = Planner.adjusting() ? "adjusting" : Planner.isPlacing() ? "placing" : LineView.active() ? "line" : PlanView.hasSelection() ? "planned"
                 : Planner.selected != null ? "selected" : "browse";
         // The camera keys only while nothing else is going on; the guide must stay below the queue panel.
         List<String> ids = state.equals("browse") ? List.of(state, "view") : List.of(state);
@@ -997,17 +1092,23 @@ final class PlannerScreen extends Screen {
             return true;
         }
         BlockHitResult hit = Planner.pick(mx / width, my / height);
-        // Road mode: clicks add points.
-        if (RoadView.on) {
+        // Road / wall tool: clicks start a chain or drop the live segment.
+        if (LineView.active()) {
             if (hit != null) {
-                RoadView.add(hit.getBlockPos());
+                LineView.click(hit);
                 click();
             }
             return true;
         }
-        // Plan mode: a click inside a planned footprint selects that entry first.
-        int pe = PlanView.on && hit != null ? PlanView.entryAt(hit.getBlockPos()) : -1;
+        // Plan mode: a click on a planned segment or inside a planned footprint selects it first.
+        int pl = PlanView.on && hit != null ? PlanView.lineAt(hit.getBlockPos()) : -1;
+        PlanView.selectedLine = pl;
+        int pe = PlanView.on && hit != null && pl < 0 ? PlanView.entryAt(hit.getBlockPos()) : -1;
         PlanView.selected = pe;
+        if (pl >= 0) {
+            Planner.select(null);
+            return true;
+        }
         Planner.select(pe >= 0 || hit == null ? null : Planner.buildingAt(hit.getBlockPos()));
         return true;
     }
@@ -1035,7 +1136,13 @@ final class PlannerScreen extends Screen {
             rightDown = false;
             if (rightDragged) Planner.endDragTurn();
             else {
-                // A plain right-click backs out one step: adjust -> follow -> not placing; deselect too.
+                // A plain right-click backs out one step: adjust -> follow -> not placing; ends a road / wall chain; deselect too.
+                if (LineView.active()) {
+                    if (LineView.start != null) LineView.endChain();
+                    else useTool(LineView.tool);
+                    rightDown = false;
+                    return true;
+                }
                 if (Planner.isPlacing()) Planner.back();
                 Planner.select(null);
                 PlanView.selected = -1;
@@ -1092,15 +1199,12 @@ final class PlannerScreen extends Screen {
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (Planner.isPlacing()) Planner.back();
-            else if (RoadView.on) toggleRoad();
+            else if (LineView.active() && LineView.start != null) LineView.endChain();
+            else if (LineView.active()) useTool(LineView.tool);
+            else if (PlanView.selectedLine() != null) PlanView.selectedLine = -1;
             else if (PlanView.hasSelection()) PlanView.selected = -1;
             else if (Planner.selected != null) Planner.select(null);
             else Planner.exit(null);
-            return true;
-        }
-        if (key == GLFW.GLFW_KEY_L) {
-            OverlayView.cycle();
-            toast(Component.translatable("mccitybuilder.overlay", Component.translatable("mccitybuilder.overlay." + OverlayView.mode)));
             return true;
         }
         if (key == GLFW.GLFW_KEY_V) {
@@ -1130,16 +1234,26 @@ final class PlannerScreen extends Screen {
             togglePlan();
             return true;
         }
-        if (key == GLFW.GLFW_KEY_N) {
-            toggleRoad();
+        if (key == GLFW.GLFW_KEY_N || key == GLFW.GLFW_KEY_B) {
+            useTool(key == GLFW.GLFW_KEY_N ? "road" : "wall");
             return true;
         }
-        if (RoadView.on && !Planner.isPlacing()) {
+        if ((LineView.active() || PlanView.selectedLine() != null) && !Planner.isPlacing()) {
             switch (key) {
-                case GLFW.GLFW_KEY_BACKSPACE, GLFW.GLFW_KEY_DELETE -> RoadView.undo();
-                case GLFW.GLFW_KEY_LEFT_BRACKET -> RoadView.width(-1);
-                case GLFW.GLFW_KEY_RIGHT_BRACKET -> RoadView.width(1);
-                case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> toast(RoadView.build());
+                case GLFW.GLFW_KEY_BACKSPACE -> LineView.undo();
+                case GLFW.GLFW_KEY_DELETE -> PlanView.removeLine(PlanView.selectedLine);
+                case GLFW.GLFW_KEY_LEFT_BRACKET -> {
+                    int[] li = LineView.levelInfo();
+                    LineView.cycleLevel(-1, li[0], li[1] == 1);
+                }
+                case GLFW.GLFW_KEY_RIGHT_BRACKET -> {
+                    int[] li = LineView.levelInfo();
+                    LineView.cycleLevel(1, li[0], li[1] == 1);
+                }
+                case GLFW.GLFW_KEY_MINUS -> LineView.cycleFamily(-1);
+                case GLFW.GLFW_KEY_EQUAL -> LineView.cycleFamily(1);
+                case GLFW.GLFW_KEY_T -> LineView.toggleTowers();
+                case GLFW.GLFW_KEY_G -> LineView.toggleGate();
                 default -> {
                     return false;
                 }

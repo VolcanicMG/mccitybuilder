@@ -36,6 +36,28 @@ public final class Plan {
         }
     }
 
+    /**
+     * A drawn road or wall segment from (x0, z0) to (x1, z1), built from a style pack's pieces: the pack, the piece
+     * family, the level (level groups) or variant (-1 = varied), towers at its joints, a gate in its middle.
+     */
+    public record Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
+                       boolean gate) {
+        public boolean isWall() {
+            return "wall".equals(tool);
+        }
+
+        public int[][] ends() {
+            return new int[][]{{x0, z0}, {x1, z1}};
+        }
+
+        public Line with(String family, int level, int variant, boolean towers, boolean gate) {
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate);
+        }
+    }
+
+    /** Longest segment kept when reading a plan (longer ones are damaged or hostile files). */
+    public static final int MAX_LINE = 256;
+
     /** Why an entry can't be built as planned. */
     public enum Conflict { NONE, OVERLAP_PLAN, OVERLAP_BUILDING, OUTSIDE }
 
@@ -46,7 +68,15 @@ public final class Plan {
 
     /** @return the plan as text: a version line, then one line per entry, fields separated by tabs */
     public static String write(List<Entry> entries) {
+        return write(entries, List.of());
+    }
+
+    /** @return entries, then lines (each prefixed {@code L}) */
+    public static String write(List<Entry> entries, List<Line> lines) {
         StringBuilder sb = new StringBuilder("mccitybuilder-plan\t" + VERSION + "\n");
+        for (Line l : lines)
+            sb.append(String.join("\t", "L2", l.tool(), "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1(), l.pack(), l.family(), "" + l.level(),
+                    "" + l.variant(), "" + l.towers(), "" + l.gate())).append('\n');
         for (Entry e : entries)
             sb.append(String.join("\t", e.isHut() ? e.hut() : "-", e.pack(), e.path(), "" + e.level(), "" + e.x(), "" + e.y(), "" + e.z(), "" + e.rot(),
                     "" + e.minX(), "" + e.minY(), "" + e.minZ(), "" + e.maxX(), "" + e.maxY(), "" + e.maxZ())).append('\n');
@@ -69,6 +99,30 @@ public final class Plan {
                 out.add(new Entry(f[0].equals("-") ? null : f[0], f[1], f[2], n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8], n[9], n[10]));
             } catch (NumberFormatException ignored) {
                 // A damaged line: skip it, keep the rest.
+            }
+        }
+        return out;
+    }
+
+    /**
+     * @return the drawn lines in {@code text} (rows prefixed {@code L2}); damaged rows, unknown tools and segments
+     * longer than {@link #MAX_LINE} are skipped (old {@code L} rows of the vanilla-block tools too)
+     */
+    public static List<Line> readLines(String text) {
+        List<Line> out = new ArrayList<>();
+        if (text == null) return out;
+        String[] rows = text.split("\n");
+        if (rows.length == 0 || !rows[0].startsWith("mccitybuilder-plan\t") && !rows[0].startsWith("colonyplanner-plan\t")) return out;
+        for (int i = 1; i < rows.length; i++) {
+            String[] f = rows[i].split("\t");
+            if (f.length != 12 || !f[0].equals("L2") || !f[1].equals("road") && !f[1].equals("wall")) continue;
+            try {
+                int x0 = Integer.parseInt(f[2]), z0 = Integer.parseInt(f[3]), x1 = Integer.parseInt(f[4]), z1 = Integer.parseInt(f[5]);
+                if (Math.abs(x1 - x0) + Math.abs(z1 - z0) > MAX_LINE) continue;
+                out.add(new Line(f[1], x0, z0, x1, z1, f[6], f[7], Integer.parseInt(f[8]), Integer.parseInt(f[9]), Boolean.parseBoolean(f[10]),
+                        Boolean.parseBoolean(f[11].trim())));
+            } catch (NumberFormatException ignored) {
+                // A damaged row: skip it.
             }
         }
         return out;

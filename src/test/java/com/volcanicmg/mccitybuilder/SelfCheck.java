@@ -34,6 +34,7 @@ public final class SelfCheck {
         overlays();
         plans();
         roads();
+        lines();
         hintsAndLang();
         System.out.println("CityBuilder self-check passed");
     }
@@ -629,8 +630,89 @@ public final class SelfCheck {
         check(big.size() == com.volcanicmg.mccitybuilder.planner.Roads.MAX_COLUMNS, "column cap");
     }
 
+    /** Road / wall tools: snapping, chaining and branching, wall joints, height, gates, battlements, segments. */
+    private static void lines() {
+        List<int[][]> segs = new java.util.ArrayList<>();
+        segs.add(new int[][]{{0, 0}, {20, 0}});
+        // Ends snap to an existing endpoint near the cursor; otherwise to 45° steps from the previous direction.
+        int[] e = com.volcanicmg.mccitybuilder.planner.LineSnap.snapEnd(new int[]{5, 10}, 20.6, 1.2, null, false, segs);
+        check(e[0] == 20 && e[1] == 0, "end snaps to an endpoint: " + e[0] + "," + e[1]);
+        e = com.volcanicmg.mccitybuilder.planner.LineSnap.snapEnd(new int[]{0, 10}, 10.5, 13.2, null, false, List.of());
+        check(e[1] == 10 && e[0] == 10, "near-horizontal snaps to 0°: " + e[0] + "," + e[1]);
+        e = com.volcanicmg.mccitybuilder.planner.LineSnap.snapEnd(new int[]{0, 10}, 7.9, 18.6, null, false, List.of());
+        check(e[0] - 0 == e[1] - 10 && e[0] > 0, "near-diagonal snaps to a true 45° cell: " + e[0] + "," + e[1]);
+        e = com.volcanicmg.mccitybuilder.planner.LineSnap.snapEnd(new int[]{0, 10}, 7.9, 18.6, null, true, List.of());
+        check(e[0] == 7 && e[1] == 18, "Shift = free angle");
+        check(com.volcanicmg.mccitybuilder.planner.LineSnap.length(new int[]{0, 0}, new int[]{12, 5}) == 12, "length in blocks");
+        // A chain starts at an endpoint, or branches from the middle of a segment.
+        int[] st = com.volcanicmg.mccitybuilder.planner.LineSnap.snapStart(9.4, 1.6, segs);
+        check(st[1] == 0 && st[0] == 9, "start snaps onto a segment (branch): " + st[0] + "," + st[1]);
+        // Pieces snap to straight runs only (90°).
+        e = com.volcanicmg.mccitybuilder.planner.LineSnap.snapEnd(new int[]{0, 10}, 7.9, 18.6, null, false, List.of(), 90);
+        check(e[0] == 0 || e[1] == 10, "90° snap for pieces: " + e[0] + "," + e[1]);
+        pieces();
+        // Saved lines round trip; hostile rows (huge segments, old vanilla rows) are skipped.
+        var line = new com.volcanicmg.mccitybuilder.planner.Plan.Line("wall", 1, 2, 30, 2, "medievaloak", "wall:walls/segment", 3, -1, true, true);
+        String text = com.volcanicmg.mccitybuilder.planner.Plan.write(List.of(), List.of(line));
+        check(com.volcanicmg.mccitybuilder.planner.Plan.readLines(text).equals(List.of(line)), "plan lines round trip");
+        check(com.volcanicmg.mccitybuilder.planner.Plan.readLines(text + "L2\twall\t0\t0\t99999\t0\tp\tf\t1\t-1\tfalse\tfalse\nL\troad\t0\t0\t5\t0\t3\t0\tfalse\tfalse\tfalse\tfalse\tminecraft:gravel\n")
+                .size() == 1, "huge and old rows skipped");
+    }
+
+    /** Style-pack pieces: classification of real names, levels vs variants, families, tiling math and profile alignment. */
+    private static void pieces() {
+        String[][] names = {{"wallstraight", "STRAIGHT"}, {"segment", "STRAIGHT"}, {"wallstraightlong", "STRAIGHT"}, {"loooong", "STRAIGHT"},
+                {"simplepatheven", "STRAIGHT"}, {"longpath", "STRAIGHT"}, {"wallcorner", "CORNER"}, {"walloutercornertower", "CORNER"},
+                {"wallinnercornertower", "INNER"}, {"innercorner", "INNER"}, {"outer", "CORNER"}, {"tcorner", "TEE"}, {"simpletjunctionodd", "TEE"},
+                {"intersection", "CROSS"}, {"wallgate", "GATE"}, {"gatelarge", "GATE"}, {"tower", "TOWER"}, {"wallstraighttower", "TOWER"},
+                {"wallstairs", "SLOPE"}, {"climb_left", "SLOPE"}, {"endroad", "END"}, {"simplelamppost", "OTHER"}};
+        for (String[] n : names)
+            check(com.volcanicmg.mccitybuilder.planner.PieceSets.role(n[0]).name().equals(n[1]), "role of " + n[0] + ": " + com.volcanicmg.mccitybuilder.planner.PieceSets.role(n[0]));
+        check(com.volcanicmg.mccitybuilder.planner.PieceSets.tool("walls/segment/segment1.blueprint").equals("wall")
+                && com.volcanicmg.mccitybuilder.planner.PieceSets.tool("infrastructure/roads/simple/simplepatheven.blueprint").equals("road")
+                && com.volcanicmg.mccitybuilder.planner.PieceSets.tool("decorations/misc/well.blueprint") == null, "tool by folder");
+        // medievaloak-like: segment1..5 differ in height = levels; fortress-like wall1..4 identical = variants;
+        // original-like cobble_ / fancy_ in one folder = two families.
+        List<com.volcanicmg.mccitybuilder.planner.PieceSets.Piece> ps = new java.util.ArrayList<>();
+        for (int i = 1; i <= 5; i++) ps.add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("walls/segment/segment" + i + ".blueprint", "segment", i, 6, 11 + i, 9));
+        ps.add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("walls/corner/corner1.blueprint", "corner", 1, 7, 13, 7));
+        for (int i = 1; i <= 4; i++) ps.add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("walls/stone/wall" + i + ".blueprint", "wall", i, 5, 14, 8));
+        ps.add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("walls/cobble_segment_large.blueprint", "cobble_segment_large", 0, 12, 8, 5));
+        ps.add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece("walls/fancy_segment_large.blueprint", "fancy_segment_large", 0, 12, 9, 5));
+        var fam = com.volcanicmg.mccitybuilder.planner.PieceSets.classify(ps);
+        // walls/segment and walls/corner fold into one "walls" family (role-named sub-folders).
+        var seg = fam.get("wall:walls");
+        check(seg != null && seg.straights().get(0).levels() && seg.straights().get(0).pick(3, 0).number() == 3 && !seg.of(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER).isEmpty(),
+                "segment1..5 are levels, corner folded in: " + fam.keySet());
+        var wall = fam.get("wall:walls/stone");
+        check(wall != null && !wall.straights().get(0).levels() && wall.straights().get(0).pieces().size() == 4, "wall1..4 are variants");
+        check(fam.containsKey("wall:walls/cobble") && fam.containsKey("wall:walls/fancy"), "prefix families in a shared folder: " + fam.keySet());
+        check(!fam.containsKey("wall:walls/corner") && com.volcanicmg.mccitybuilder.planner.PieceSets.prefix("long_base").isEmpty()
+                && com.volcanicmg.mccitybuilder.planner.PieceSets.prefix("cobble_gate").equals("cobble"), "role folders / role prefixes don't split families");
+        // Tiling: least left over, then fewest pieces; boxes end to end, centred across the line.
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.fill(10, new int[]{8, 5}).equals(List.of(5, 5)), "10 = 5 + 5, not 8 + 2 left");
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.fill(19, new int[]{8, 5}).equals(List.of(8, 5, 5)), "19 = 8 + 5 + 5 + 1 left");
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.fill(3, new int[]{8, 5}).isEmpty(), "too short for any piece");
+        var bx = com.volcanicmg.mccitybuilder.planner.PieceLayout.boxes(new int[]{0, 0}, 0, 2, List.of(6, 6), 5, 0);
+        check(bx.get(0)[0] == 2 && bx.get(0)[2] == 7 && bx.get(1)[0] == 8 && bx.get(0)[1] == -2 && bx.get(0)[3] == 2, "boxes east, centred");
+        var bw = com.volcanicmg.mccitybuilder.planner.PieceLayout.boxes(new int[]{0, 0}, 3, 0, List.of(4), 4, 0);
+        check(bw.get(0)[1] == -3 && bw.get(0)[3] == 0 && bw.get(0)[0] == -1 && bw.get(0)[2] == 2, "boxes north, even width");
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.turns(12, 6, 1) == 1 && com.volcanicmg.mccitybuilder.planner.PieceLayout.turns(5, 8, 1) == 0
+                && com.volcanicmg.mccitybuilder.planner.PieceLayout.turns(5, 8, 0) == 3, "quarter turns to the run direction");
+        check(java.util.Arrays.equals(com.volcanicmg.mccitybuilder.planner.PieceLayout.centred(new int[]{10, 10}, 7, 7), new int[]{7, 7, 13, 13}), "joint centred");
+        // Profile alignment: a wall face whose solid rows sit 2 to the side is shifted back onto the corner's face.
+        java.util.Set<Long> corner = new java.util.HashSet<>(), straight = new java.util.HashSet<>();
+        for (int y = 0; y < 5; y++)
+            for (int l = 0; l < 3; l++) {
+                corner.add((long) y * 65536 + 30000 + l);
+                straight.add((long) y * 65536 + 30000 + l - 2);
+            }
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.bestShift(corner, straight, 3) == 2
+                && com.volcanicmg.mccitybuilder.planner.PieceLayout.jaccard(corner, straight, 2) == 1.0, "profile alignment shift");
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{0, 0}, new int[]{0, -9}) == 3, "direction north");
+    }
+
     private static void overlays() {
-        check(com.volcanicmg.mccitybuilder.planner.Overlays.next("none").equals("builders") && com.volcanicmg.mccitybuilder.planner.Overlays.next("workers").equals("none"), "overlay cycle");
         check(com.volcanicmg.mccitybuilder.planner.Overlays.staffing(0, 0) == com.volcanicmg.mccitybuilder.planner.Overlays.Staff.NO_JOBS
                 && com.volcanicmg.mccitybuilder.planner.Overlays.staffing(0, 2) == com.volcanicmg.mccitybuilder.planner.Overlays.Staff.NONE
                 && com.volcanicmg.mccitybuilder.planner.Overlays.staffing(1, 2) == com.volcanicmg.mccitybuilder.planner.Overlays.Staff.UNDER

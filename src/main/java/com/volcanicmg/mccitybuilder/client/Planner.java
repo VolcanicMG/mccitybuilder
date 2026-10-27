@@ -343,6 +343,7 @@ public final class Planner {
         camera.xRotO = drone.pitch;
         if (isPlacing()) updatePreview();
         PlanView.refresh();
+        PlanView.refreshLines();
     }
 
     /**
@@ -868,7 +869,7 @@ public final class Planner {
             if (selected != null) LevelRenderer.renderLineBox(pose, lines, aabb(selected), 1, 1, 1, 1);
             OverlayView.renderWorld(pose, lines);
             PlanView.renderWorld(pose, lines);
-            RoadView.renderWorld(pose, lines);
+            LineView.renderWorld(pose, lines);
             BlockPos[] f = isPlacing() ? footprint() : null;
             if (f != null) {
                 boolean ok = invalidReason == null;

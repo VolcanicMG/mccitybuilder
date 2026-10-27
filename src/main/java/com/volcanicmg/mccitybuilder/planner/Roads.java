@@ -15,8 +15,8 @@ import java.util.function.IntBinaryOperator;
 public final class Roads {
     public static final int MIN_WIDTH = 1, MAX_WIDTH = 7, MAX_COLUMNS = 4096;
 
-    /** One road column: where it is and the y of the road block (the surface block it replaces). */
-    public record Column(int x, int z, int y) {
+    /** One road column: where it is, the y of the road block (the surface block it replaces), its centreline cell index. */
+    public record Column(int x, int z, int y, int cell) {
     }
 
     private Roads() {
@@ -81,13 +81,13 @@ public final class Roads {
                     if (Math.sqrt(d2) > r - 0.01 && !(dx == 0 && dz == 0)) continue;
                     long key = ((long) (cx + dx) << 32) ^ ((cz + dz) & 0xFFFFFFFFL);
                     int[] cur = best.get(key);
-                    if (cur == null || d2 < cur[1]) best.put(key, new int[]{h[i], (int) d2, cx + dx, cz + dz});
+                    if (cur == null || d2 < cur[1]) best.put(key, new int[]{h[i], (int) d2, cx + dx, cz + dz, i});
                 }
         }
         List<Column> out = new ArrayList<>();
         for (int[] v : best.values()) {
             if (out.size() >= MAX_COLUMNS) break;
-            out.add(new Column(v[2], v[3], v[0]));
+            out.add(new Column(v[2], v[3], v[0], v[4]));
         }
         return out;
     }
