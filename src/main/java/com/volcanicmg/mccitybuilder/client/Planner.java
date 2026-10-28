@@ -249,7 +249,9 @@ public final class Planner {
         if (drone != null && !Double.isNaN(baseline())) savedAbove = drone.altitudeTarget + rig.pendingFollow() - baseline();
         if (mc.player != null) mc.setCameraEntity(mc.player);
         if (previousCameraType != null) mc.options.setCameraType(previousCameraType);
-        if (mc.screen instanceof PlannerScreen) mc.setScreen(null);
+        // The planner's screens close with it (the joint editor drops its unsaved drafts when removed).
+        if (mc.screen instanceof PlannerScreen || mc.screen instanceof JointEditorScreen) mc.setScreen(null);
+        PieceCatalog.clearDrafts();
         camera = null;
         drone = null;
         colony = null;

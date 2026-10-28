@@ -63,6 +63,7 @@ final class PieceCatalog {
         rotated.clear();
         blockCounts.clear();
         grids.clear();
+        gridOf.clear();
         PieceLayout.clearCache();
         failed.clear();
         PieceView.clear();
@@ -177,11 +178,7 @@ final class PieceCatalog {
             Map<String, String> m = new LinkedHashMap<>();
             try {
                 Path f = overridesFile(pack);
-                if (Files.exists(f))
-                    for (String line : Files.readAllLines(f)) {
-                        String[] kv = line.split("\t");
-                        if (kv.length == 2) m.put(kv[0], kv[1]);
-                    }
+                if (Files.exists(f)) m.putAll(PieceSets.readOverrides(Files.readString(f)));
             } catch (Exception e) {
                 CityBuilder.LOGGER.warn("City Builder: can't read piece set overrides for {}", pack, e);
             }
@@ -194,12 +191,14 @@ final class PieceCatalog {
         Map<String, String> m = overrides(pack);
         if (base == null) m.remove(familyKey + "|" + role.name());
         else m.put(familyKey + "|" + role.name(), base);
+        saveOverrides(pack);
+    }
+
+    private static void saveOverrides(String pack) {
         try {
             Path f = overridesFile(pack);
             Files.createDirectories(f.getParent());
-            StringBuilder sb = new StringBuilder();
-            m.forEach((k, v) -> sb.append(k).append('\t').append(v).append('\n'));
-            Files.writeString(f, sb.toString());
+            Files.writeString(f, PieceSets.writeOverrides(overrides(pack)));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("City Builder: can't save piece set overrides for {}", pack, e);
         }
@@ -212,6 +211,60 @@ final class PieceCatalog {
     }
 
     private static final Map<String, PieceLayout.Grid> grids = new HashMap<>();
+    // Which piece each grid is ({pack, path, turns}), for the player alignments.
+    private static final Map<PieceLayout.Grid, Object[]> gridOf = new java.util.IdentityHashMap<>();
+
+    static {
+        // Player alignments from the joint alignment editor: looked up per joint / straight / direction.
+        PieceLayout.setAlign((j, st, d) -> {
+            Object[] a = gridOf.get(j), b = gridOf.get(st);
+            if (a == null || b == null) return null;
+            String k = PieceLayout.alignKey((String) a[1], (Integer) a[2], (String) b[1], (Integer) b[2], d);
+            String v = PieceSets.alignLookup(PieceCatalog.drafts.getOrDefault((String) a[0], Map.of()), overrides((String) a[0]), k);
+            return v == null ? null : PieceLayout.parseAlign(v);
+        });
+    }
+
+    /**
+     * Sets (or with null, resets to auto) a player alignment, saves it with the pack's overrides, and lays the plan out
+     * again so it shows at once.
+     */
+    static void setAlignment(String pack, String key, int[] shiftDepth) {
+        Map<String, String> m = overrides(pack);
+        Map<String, String> dr = drafts.get(pack);
+        if (dr != null) dr.remove(key);
+        if (shiftDepth == null) m.remove(key);
+        else m.put(key, shiftDepth[0] + "," + shiftDepth[1]);
+        saveOverrides(pack);
+        PieceLayout.clearCache();
+        PlanView.linesChanged();
+    }
+
+    // Unsaved alignments while the editor adjusts them (pack -> key -> "shift,depth"): read before the saved ones,
+    // never written to the file.
+    private static final Map<String, Map<String, String>> drafts = new HashMap<>();
+
+    /** A live (unsaved) alignment while the editor adjusts it; null = no draft (the saved one or auto shows). */
+    static void draftAlignment(String pack, String key, int[] shiftDepth) {
+        Map<String, String> m = drafts.computeIfAbsent(pack, k -> new HashMap<>());
+        if (shiftDepth == null) m.remove(key);
+        else m.put(key, shiftDepth[0] + "," + shiftDepth[1]);
+        PieceLayout.clearCache();
+        PlanView.linesChanged();
+    }
+
+    /** Drops every unsaved alignment (the editor closed, the planner ended) and lays the plan out again. */
+    static void clearDrafts() {
+        if (drafts.isEmpty()) return;
+        drafts.clear();
+        PieceLayout.clearCache();
+        PlanView.linesChanged();
+    }
+
+    /** @return the grid of a piece's blueprint as placed (turned), or null while it loads */
+    static PieceLayout.Grid gridFor(String pack, String path, int turns) {
+        return grid(pack, path, turns);
+    }
 
     /** @return the piece's blocks as placed (turned), for face matching; null while it loads */
     static PieceLayout.Grid grid(String pack, String path, int turns) {
@@ -232,6 +285,7 @@ final class PieceCatalog {
         // Ground: the local y at ground level, as the anchor math in place() puts it.
         PieceLayout.Grid g = new PieceLayout.Grid(sx, sy, sz, ids, bp.getPrimaryBlockOffset().getY() - BlueprintTagUtils.getGroundAnchorOffset(bp, 1));
         grids.put(key, g);
+        gridOf.put(g, new Object[]{pack, path, Math.floorMod(turns, 4)});
         return g;
     }
 

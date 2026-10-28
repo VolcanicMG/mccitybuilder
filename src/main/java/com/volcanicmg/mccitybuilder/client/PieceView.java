@@ -12,6 +12,7 @@ import com.mojang.math.Axis;
 import com.volcanicmg.mccitybuilder.CityBuilder;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -150,6 +151,71 @@ final class PieceView {
             en.getValue().drawWithShader(mv, RenderSystem.getProjectionMatrix(), RenderSystem.getShader());
             VertexBuffer.unbind();
             en.getKey().clearRenderState();
+        }
+        Lighting.setupFor3DItems();
+        pose.popPose();
+        g.disableScissor();
+    }
+
+    /** One piece of a scene: its bake key, blueprint (turned) and where its local 0 sits. */
+    record Part(String key, Blueprint bp, int x, int y, int z) {
+    }
+
+    /**
+     * Draws several pieces at their offsets into the box at (x, y), w by h GUI pixels: the scene is centred on all of
+     * them and turns, zooms and is lit like a single piece (each piece is baked once).
+     */
+    static void renderScene(GuiGraphics g, List<Part> parts, int x, int y, int w, int h) {
+        if (parts.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (!dragging && last != 0) yaw += Math.min(100, now - last) * 0.01f;
+        last = now;
+        if (stale) {
+            stale = false;
+            clear();
+        }
+        int x0 = Integer.MAX_VALUE, y0 = Integer.MAX_VALUE, z0 = Integer.MAX_VALUE, x1 = Integer.MIN_VALUE, y1 = Integer.MIN_VALUE, z1 = Integer.MIN_VALUE;
+        for (Part p : parts) {
+            x0 = Math.min(x0, p.x());
+            y0 = Math.min(y0, p.y());
+            z0 = Math.min(z0, p.z());
+            x1 = Math.max(x1, p.x() + p.bp().getSizeX());
+            y1 = Math.max(y1, p.y() + p.bp().getSizeY());
+            z1 = Math.max(z1, p.z() + p.bp().getSizeZ());
+        }
+        float scale = Math.min(w, h) / (Math.max(Math.max(x1 - x0, z1 - z0) * 1.45f, (y1 - y0) * 1.15f)) * zoom;
+        g.flush();
+        g.enableScissor(x, y, x + w, y + h);
+        PoseStack pose = g.pose();
+        pose.pushPose();
+        pose.translate(x + w / 2f, y + h / 2f, 400);
+        pose.scale(scale, -scale, scale);
+        pose.mulPose(Axis.XP.rotationDegrees(pitch));
+        pose.mulPose(Axis.YP.rotationDegrees(yaw));
+        pose.translate(-(x0 + x1) / 2f, -(y0 + y1) / 2f, -(z0 + z1) / 2f);
+        Lighting.setupForEntityInInventory();
+        for (Part p : parts) {
+            Map<RenderType, VertexBuffer> mesh = baked.get(p.key());
+            if (mesh == null) {
+                try {
+                    mesh = bake(p.bp());
+                } catch (RuntimeException e) {
+                    CityBuilder.LOGGER.warn("City Builder: can't bake the preview of {}", p.key(), e);
+                    mesh = Map.of();
+                }
+                baked.put(p.key(), mesh);
+            }
+            pose.pushPose();
+            pose.translate(p.x(), p.y(), p.z());
+            Matrix4f mv = new Matrix4f(RenderSystem.getModelViewMatrix()).mul(pose.last().pose());
+            for (var en : mesh.entrySet()) {
+                en.getKey().setupRenderState();
+                en.getValue().bind();
+                en.getValue().drawWithShader(mv, RenderSystem.getProjectionMatrix(), RenderSystem.getShader());
+                VertexBuffer.unbind();
+                en.getKey().clearRenderState();
+            }
+            pose.popPose();
         }
         Lighting.setupFor3DItems();
         pose.popPose();

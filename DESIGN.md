@@ -381,6 +381,22 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   kept, built / sending segments never move, a single dragged point snaps onto another end, joint types move with
   their joints. R flips, Del removes, C sets the joint type, Esc deselects (then leaves edit mode); leaving clears
   the selection. Draw mode keeps no selection.
+- Joint alignment editor (`client/JointEditorScreen`; "Joint alignment…" in the Pieces editor, "Adjust alignment…"
+  under the Edit-mode joint menu with the joint's style, family, role and turn pre-selected): pack, family, joint
+  role (corner, inner corner, T, cross, tower, end cap), case (L-left / L-right / T / cross / end, flipped), the
+  joint's turn (auto or fixed); a 3D view of the joint and its runs (`PieceView.renderScene`, each piece baked once)
+  and a top-down map (joint box yellow, runs green, the selected one cyan, destructive red; click a run to select
+  it). Per run: sideways shift and contact depth, the visible cross-section match, red when destructive (refused on
+  Save). Saved per pack in `mccitybuilder/piecesets/<pack>.txt` as `align|<joint path>|<joint turn - d>|<straight
+  path>|<straight turn - d>` -> `shift,depth` (keyed relative to the run's direction, so it holds for every
+  orientation of the shape; the family and role are implied by the joint piece). `PieceLayout.fit` asks the
+  override source (`setAlign`, the client's per-pack overrides by grid identity) before the memo and the search; a
+  destructive override is ignored. Adjustments show in the planned walls at once: unsaved drafts live in a separate
+  in-memory overlay read before the saved overrides and never written to the file (`PieceSets.alignLookup`); it is
+  cleared whenever the editor screen goes (`removed()`: Esc, death, another screen), when the planner exits or hides.
+  Save skips drafts that would break blocks and says how many (`PieceSets.saveable`); Reset returns a run to auto.
+  The planner's exit closes the editor too, the editor returns to the planner only while it runs, and a leftover
+  planner screen closes plainly (no soft-lock).
 - Joint continuity (`PieceLayout.fit`, replacing the inset rule): the ground truth is the placed blocks. For each
   sideways shift (within max(3, width)) the run's end face (the straight's solid face toward the joint, trim skipped)
   meets the joint at the first layer from its face inward that holds blocks in front of at least half the face's

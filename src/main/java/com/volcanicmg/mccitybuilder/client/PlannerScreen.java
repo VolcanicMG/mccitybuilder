@@ -113,7 +113,9 @@ final class PlannerScreen extends Screen {
 
     @Override
     public void onClose() {
-        Planner.exit(null);
+        // A planner screen left over after the planner ended (it can't exit again): just close.
+        if (Planner.active()) Planner.exit(null);
+        else minecraft.setScreen(null);
     }
 
     // Every entry point is guarded: an exception leaves planner view cleanly instead of crashing the client.
@@ -319,6 +321,32 @@ final class PlannerScreen extends Screen {
             }, Component.translatable("mccitybuilder.edit.menu.tip")));
         }
         LineView.previewJoint(hovered);
+        // Below the menu: the alignment editor for this joint (its style, family, piece role and turn pre-selected).
+        int ay = y + h + 2;
+        boolean overA = mx >= x && mx < x + w && my >= ay && my < ay + 18;
+        panels.add(new int[]{x, ay, w, 18});
+        VanillaUi.button(g, x, ay, w, 18, false, false, overA);
+        String al = Component.translatable("mccitybuilder.align.adjust").getString();
+        g.drawString(font, al, x + (w - font.width(al)) / 2, ay + 5, VanillaUi.INK, false);
+        hits.add(new Hit(x, ay, w, 18, () -> {
+            click();
+            openAlignmentFor(LineView.selectedJoint);
+        }, Component.translatable("mccitybuilder.align.open.tip")));
+    }
+
+    /** Opens the joint alignment editor on the planned joint at cell c: its pack, family, piece role and turn. */
+    private void openAlignmentFor(int[] c) {
+        for (int i = 0; i < PlanView.lines.size() && i < PlanView.linePieces.size(); i++) {
+            var l = PlanView.lines.get(i);
+            for (var p : PlanView.linePieces.get(i)) {
+                int[] b = p.box();
+                if (!p.joint() || c[0] < b[0] || c[0] > b[2] || c[1] < b[1] || c[1] > b[3]) continue;
+                minecraft.setScreen(new JointEditorScreen(l.pack(), l.family(), p.role(), Math.floorMod(p.turns(), 4)));
+                return;
+            }
+        }
+        var line = PlanView.lines.stream().filter(l -> l.x0() == c[0] && l.z0() == c[1] || l.x1() == c[0] && l.z1() == c[1]).findFirst().orElse(null);
+        if (line != null) minecraft.setScreen(new JointEditorScreen(line.pack(), line.family(), com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER, -1));
     }
 
     /** @return {index, x, y} of the overlay marker under the mouse, or null */
@@ -502,7 +530,7 @@ final class PlannerScreen extends Screen {
                 run[fi].run();
             }, Component.translatable(i == 3 && !server ? "mccitybuilder.line.needs_server" : i == 4 ? "mccitybuilder.line.clear.tip." + tool : "mccitybuilder.line." + bkeys[i] + ".tip")));
         }
-        if (editorOpen && fam != null) pieceEditor(g, x - 4 - w, Math.max(4, y + h - (PAD * 2 + 22 + EDIT_ROLES.length * 18)), w, pk, fam, mx, my);
+        if (editorOpen && fam != null) pieceEditor(g, x - 4 - w, Math.max(4, y + h - (PAD * 2 + 46 + EDIT_ROLES.length * 18)), w, pk, fam, mx, my);
     }
 
     /** @return the selected segment's flat level from the layout, or MIN_VALUE */
@@ -594,7 +622,7 @@ final class PlannerScreen extends Screen {
         var fs = PieceCatalog.families(pk);
         var f = fs == null ? null : fs.get(fam);
         if (f == null) return;
-        int h = PAD * 2 + 22 + EDIT_ROLES.length * 18;
+        int h = PAD * 2 + 46 + EDIT_ROLES.length * 18;
         x = Math.max(4, x);
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
@@ -626,6 +654,16 @@ final class PlannerScreen extends Screen {
                 click();
             }, Component.translatable("mccitybuilder.line.role.tip")) - 2;
         }
+        // The joint alignment editor for this style and family.
+        iy += 4;
+        boolean overA = mx >= ix && mx < ix + iw && my >= iy && my < iy + 20;
+        VanillaUi.button(g, ix, iy, iw, 20, false, false, overA);
+        String al = Component.translatable("mccitybuilder.align.open").getString();
+        g.drawString(font, al, ix + (iw - font.width(al)) / 2, iy + 6, VanillaUi.INK, false);
+        hits.add(new Hit(ix, iy, iw, 20, () -> {
+            click();
+            minecraft.setScreen(new JointEditorScreen(pk, fam, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER, -1));
+        }, Component.translatable("mccitybuilder.align.open.tip")));
     }
 
     /**

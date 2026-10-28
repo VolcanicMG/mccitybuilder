@@ -722,6 +722,7 @@ public final class SelfCheck {
         editing();
         continuity();
         editRules();
+        alignments();
         // Saved lines round trip; hostile rows (huge segments, old vanilla rows) are skipped.
         var line = new com.volcanicmg.mccitybuilder.planner.Plan.Line("wall", 1, 2, 30, 2, "medievaloak", "wall:walls/segment", 3, -1, true, true);
         String text = com.volcanicmg.mccitybuilder.planner.Plan.write(List.of(), List.of(line));
@@ -1341,6 +1342,54 @@ public final class SelfCheck {
                 new Plan.Line("wall", 0, 9, 9, 9, "p", "f", 1, -1, false, false).asBuilt());
         var kept = Plan.clearTool(mixed, "wall", Plan.Line::built);
         check(kept.size() == 2 && kept.get(0).tool().equals("road") && kept.get(1).built(), "clearing walls leaves roads and built walls");
+    }
+
+    /** Player joint alignments: file round trip, used exactly as set, destructive ones refused, reset back to auto. */
+    private static void alignments() throws Exception {
+        var m = new java.util.LinkedHashMap<String, String>();
+        m.put("wall:walls|CORNER", "corner");
+        String key = PieceLayout.alignKey("walls/tower/tower5.blueprint", 3, "walls/segment/segment5.blueprint", 1, 2);
+        m.put(key, "1,2");
+        var back = com.volcanicmg.mccitybuilder.planner.PieceSets.readOverrides(com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(m) + "junk\n");
+        check(back.equals(m) && java.util.Arrays.equals(PieceLayout.parseAlign(back.get(key)), new int[]{1, 2}) && PieceLayout.parseAlign("x,1") == null
+                && PieceLayout.parseAlign("99,1") == null, "alignment overrides round trip");
+        check(key.equals(PieceLayout.alignKey("walls/tower/tower5.blueprint", 0, "walls/segment/segment5.blueprint", 2, 3)), "key relative to the run's direction");
+        // Drafts: read before the saved value, never part of what is written; Save skips drafts that would break blocks.
+        var saved = new java.util.LinkedHashMap<>(m);
+        var drafts = java.util.Map.of(key, "3,1", "align|x|0|y|0", "0,0");
+        check("3,1".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.alignLookup(drafts, saved, key))
+                && "1,2".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.alignLookup(java.util.Map.of(), saved, key)), "a draft wins over the saved alignment");
+        String file = com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(saved);
+        check(!file.contains("3,1") && !file.contains("align|x|0|y|0"), "drafts are never written");
+        var ok = com.volcanicmg.mccitybuilder.planner.PieceSets.saveable(java.util.Map.of("a", new int[]{1, 0}, "b", new int[]{0, 2}), java.util.Set.of("b"));
+        check(ok.size() == 1 && ok.containsKey("a"), "save skips drafts that would break blocks");
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        PieceLayout.Grid tw = PackPieces.grid("medievaloak/walls/tower/tower5.blueprint"), sg0 = PackPieces.grid("medievaloak/walls/segment/segment5.blueprint");
+        int d = 0;
+        PieceLayout.Grid sg = sg0.turned(PieceLayout.turns(sg0.sx(), sg0.sz(), d));
+        int[] c = {0, 0}, jb = PieceLayout.centred(c, tw.sx(), tw.sz());
+        var auto = PieceLayout.fitNow(c, d, jb, tw, sg, 6, 9, 6);
+        // A safe and a destructive hand setting.
+        int[] safe = null, bad = null;
+        for (int dp = 0; dp < 4; dp++)
+            for (int sh = -3; sh <= 3; sh++) {
+                boolean de = PieceLayout.destructiveAt(c, d, jb, tw, sg, 6, 9, sh, dp);
+                if (!de && safe == null && (sh != auto.shift() || dp != auto.depth())) safe = new int[]{sh, dp};
+                if (de && bad == null) bad = new int[]{sh, dp};
+            }
+        if (safe == null) safe = new int[]{2, -1};
+        int[][] set = {safe};
+        PieceLayout.setAlign((j, s2, dd) -> j == tw && s2 == sg && dd == 0 ? set[0] : null);
+        var f = PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6);
+        int si = sg.inset(2), edge = PieceLayout.reach(c, d, jb);
+        check(f.shift() == safe[0] && f.depth() == safe[1] && f.off() == (safe[1] < 0 ? edge : edge - safe[1] - si), "override used exactly as set: " + f);
+        check(java.util.Arrays.equals(PieceLayout.attach(c, d, jb, tw, sg, 6, 9, 6), new int[]{f.off(), f.shift()}), "attach follows the override");
+        if (bad != null) {
+            set[0] = bad;
+            check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(auto), "a destructive override is refused (auto is used)");
+        }
+        PieceLayout.setAlign(null);
+        check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(auto), "reset restores auto");
     }
 
     private static void overlays() {

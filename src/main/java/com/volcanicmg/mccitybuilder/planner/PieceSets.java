@@ -174,4 +174,37 @@ public final class PieceSets {
         String p = i > 0 ? base.substring(0, i) : "";
         return p.isEmpty() || role(p) != Role.OTHER || ROLE_FOLDERS.contains(p) ? "" : p;
     }
+
+    /** @return a pack's overrides file text: one "key TAB value" line each (role groups, joint alignments) */
+    public static String writeOverrides(Map<String, String> m) {
+        StringBuilder sb = new StringBuilder();
+        m.forEach((k, v) -> sb.append(k).append('\t').append(v).append('\n'));
+        return sb.toString();
+    }
+
+    /** @return the overrides in a file's text (damaged lines skipped), in file order */
+    public static Map<String, String> readOverrides(String text) {
+        Map<String, String> m = new java.util.LinkedHashMap<>();
+        if (text != null)
+            for (String line : text.split("\n")) {
+                String[] kv = line.split("\t");
+                if (kv.length == 2) m.put(kv[0], kv[1].trim());
+            }
+        return m;
+    }
+
+    /** @return an alignment's value: the unsaved draft if there is one, else the saved override, else null */
+    public static String alignLookup(Map<String, String> drafts, Map<String, String> saved, String key) {
+        String v = drafts.get(key);
+        return v != null ? v : saved.get(key);
+    }
+
+    /** @return the drafts that may be saved: all but those that would break blocks */
+    public static Map<String, int[]> saveable(Map<String, int[]> drafts, java.util.Set<String> bad) {
+        Map<String, int[]> out = new LinkedHashMap<>();
+        drafts.forEach((k, v) -> {
+            if (!bad.contains(k)) out.put(k, v);
+        });
+        return out;
+    }
 }

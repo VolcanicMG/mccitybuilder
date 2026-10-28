@@ -278,6 +278,9 @@ public final class PieceLayout {
      * @param d        the direction from the joint cell into the run
      */
     public static Fit fit(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
+        // A player-set alignment wins over the search (it is looked up every time, so a change shows at once).
+        int[] o = align.get(joint, straight, d);
+        if (o != null && !destructiveAt(c, d, jb, joint, straight, width, run, o[0], o[1])) return fitAt(c, d, jb, joint, straight, width, run, o[0], o[1]);
         // The result depends only on the pieces and the joint box relative to the joint cell, never on where it is.
         FitKey k = new FitKey(joint, straight, d, width, run, maxShift, jb[0] - c[0], jb[1] - c[1], jb[2] - c[0], jb[3] - c[1]);
         Fit f = FITS.get(k);
@@ -287,6 +290,61 @@ public final class PieceLayout {
             FITS.put(k, f);
         }
         return f;
+    }
+
+    /** Player-set alignments (the joint alignment editor): for a joint and a straight as placed and the run's direction. */
+    public interface AlignSource {
+        /** @return {shift, depth} to use instead of the search, or null */
+        int[] get(Grid joint, Grid straight, int d);
+    }
+
+    private static AlignSource align = (j, s, d) -> null;
+
+    /** Sets where player alignments come from (the client's per-pack overrides). */
+    public static void setAlign(AlignSource a) {
+        align = a == null ? (j, s, d) -> null : a;
+    }
+
+    /**
+     * A run placed by hand: sideways by {@code shift}, butting on the joint's layer {@code depth} from its face
+     * inward (-1 = at the joint's box), with the match of the two visible cross-sections there.
+     */
+    public static Fit fitAt(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int shift, int depth) {
+        int si = straight.inset((d + 2) % 4), edge = reach(c, d, jb), ref = d % 2 == 0 ? c[1] : c[0];
+        if (depth < 0) return new Fit(edge, shift, 0, -1);
+        int[] sbox0 = boxes(c, d, edge, List.of(run), width, 0).get(0);
+        int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox0[1] : sbox0[0]) - ref;
+        Set<Long> S = visible(straight.profile((d + 2) % 4, si, sa, false));
+        int layers = d % 2 == 0 ? joint.sx() : joint.sz();
+        double m = depth < layers ? jaccard(visible(joint.profile(d, depth, ja, false)), S, shift) : 0;
+        return new Fit(edge - depth - si, shift, m, depth);
+    }
+
+    /** @return true when a run placed by hand ({@link #fitAt}) would clear or replace a block of the joint in either build order */
+    public static boolean destructiveAt(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int shift, int depth) {
+        Fit f = fitAt(c, d, jb, joint, straight, width, run, shift, depth);
+        int[] bx = boxes(c, d, f.off(), List.of(run), width, shift).get(0);
+        return destructive(joint, jb[0], -joint.ground(), jb[1], straight, bx[0], -straight.ground(), bx[1]);
+    }
+
+    /**
+     * @return the override key of an alignment: the joint piece and its turn relative to the run's direction, the
+     * straight and its turn relative to it (which side faces out), so the same setting holds wherever and however the
+     * shape is turned
+     */
+    public static String alignKey(String jointPath, int jointTurns, String straightPath, int straightTurns, int d) {
+        return "align|" + jointPath + "|" + Math.floorMod(jointTurns - d, 4) + "|" + straightPath + "|" + Math.floorMod(straightTurns - d, 4);
+    }
+
+    /** @return {shift, depth} from an override value "shift,depth", or null when damaged */
+    public static int[] parseAlign(String v) {
+        try {
+            String[] f = v.split(",");
+            int s = Integer.parseInt(f[0].trim()), dp = Integer.parseInt(f[1].trim());
+            return f.length == 2 && Math.abs(s) <= 16 && dp >= -1 && dp <= 32 ? new int[]{s, dp} : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** {@link #fit} without the cache (the self-check compares the two). */

@@ -2,6 +2,10 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Joint alignment editor: line walls up with a style's corner / T / cross / tower / end cap by hand in a 3D view
+  (sideways shift, depth, joint turn, match readout, destructive overlaps refused), saved per style and used before
+  the automatic alignment; from the Pieces editor or "Adjust alignment…" on a joint in Edit mode.
+
 - Joints: Auto gives every L the plain corner (inner corner and tower only when picked); a family without a T piece
   gets a tower, else a plain butt joint (no more corner piece at a T); a branch drawn onto a wall meets its body; a
   ring closing on its own start gets a corner there. Edit mode: a click on a joint opens a menu of the types that fit
