@@ -660,11 +660,12 @@ public final class InstantBuild {
                         reject(p, r, "a claim or protection refused placing at " + world.toShortString());
                         return false;
                     }
-                    if (a == PasteRules.Action.PLACE) continue;
-                    if (a == PasteRules.Action.KEEP) {
-                        kept++;
+                    // Cells the paste leaves as they are aren't the snapshot's to put back: a substitution, a block
+                    // already as the blueprint has it, a kept one (the hut block itself it does place).
+                    if (want.getBlock() == ModBlocks.blockSubstitution.get() || a != PasteRules.Action.PLACE && !(placesHut && local.equals(offset)))
                         keptCells.add(world);
-                    }
+                    if (a == PasteRules.Action.PLACE) continue;
+                    if (a == PasteRules.Action.KEEP) kept++;
                     skip.add(local);
                     tes[y][z][x] = null;
                 }
@@ -978,18 +979,23 @@ public final class InstantBuild {
         Snapshots.Snap snap = Snapshots.load(level, snapKey);
         if (snap == null || !snap.origin().equals(origin) || snap.sx() != bp.getSizeX() || snap.sy() != bp.getSizeY() || snap.sz() != bp.getSizeZ())
             return delete(p, r, level, bp, origin, far, report);
-        // What still stands over it: newer placements (an older one under it comes back from this snapshot, which holds
-        // its blocks) and the colony's buildings. Newer placements take over what stood before this one.
+        // What still stands over it: the cells newer placements changed (their snapshots say which; a newer record
+        // without one, by its box) and the colony's buildings. An older placement under it comes back from this
+        // snapshot, which holds its blocks. Newer placements take over what stood before this one.
         int[] mine = {origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()};
         List<int[]> live = new ArrayList<>();
         List<String> newer = new ArrayList<>();
+        List<Snapshots.Snap> newerSnaps = new ArrayList<>();
         for (var en : BuiltRecords.of(level).otherBoxes(recordKey).entrySet()) {
             if (!PasteRules.overlap(mine, en.getValue())) continue;
             String yk = Snapshots.recordSnapKey(level, en.getKey());
             Snapshots.Snap y = Snapshots.load(level, yk);
             if (y != null && y.time() < snap.time()) continue;
-            live.add(en.getValue());
-            if (y != null) newer.add(yk);
+            if (y == null) live.add(en.getValue());
+            else {
+                newer.add(yk);
+                newerSnaps.add(y);
+            }
         }
         if (colony != null)
             for (IBuilding b : colony.getServerBuildingManager().getBuildings().values()) {
@@ -999,7 +1005,15 @@ public final class InstantBuild {
                 live.add(new int[]{Math.min(a.getX(), z.getX()), Math.min(a.getY(), z.getY()), Math.min(a.getZ(), z.getZ()),
                         Math.max(a.getX(), z.getX()), Math.max(a.getY(), z.getY()), Math.max(a.getZ(), z.getZ())});
             }
-        int n = restore(p, r, level, bp, origin, far, snap, live, report);
+        java.util.function.Predicate<BlockPos> covered = w -> {
+            if (PasteRules.inAny(live, w.getX(), w.getY(), w.getZ())) return true;
+            for (Snapshots.Snap y : newerSnaps) {
+                int i = y.at(w);
+                if (i >= 0 && y.cells()[i] >= 0) return true;
+            }
+            return false;
+        };
+        int n = restore(p, r, level, bp, origin, far, snap, covered, report);
         if (n >= 0) {
             Snapshots.handOver(level, snap, newer);
             Snapshots.delete(level, snapKey);
@@ -1015,7 +1029,8 @@ public final class InstantBuild {
      *
      * @return cells changed, -1 when a claim refused
      */
-    private static int restore(ServerPlayer p, Request r, ServerLevel level, Blueprint bp, BlockPos origin, BlockPos far, Snapshots.Snap snap, List<int[]> live, boolean report) {
+    private static int restore(ServerPlayer p, Request r, ServerLevel level, Blueprint bp, BlockPos origin, BlockPos far, Snapshots.Snap snap,
+                               java.util.function.Predicate<BlockPos> covered, boolean report) {
         java.util.Set<BlockPos> entityKept = entityProtected(level, origin, far);
         short[][][] st = bp.getStructure();
         BlockState[] palette = bp.getPalette();
@@ -1028,7 +1043,7 @@ public final class InstantBuild {
                     BlockPos w = origin.offset(x, y, z);
                     int i = snap.index(x, y, z);
                     BlockState have = level.getBlockState(w);
-                    if (!PasteRules.restore(isPlaceholder(palette[st[y][z][x]]), snap.cells()[i] < 0, PasteRules.inAny(live, w.getX(), w.getY(), w.getZ()),
+                    if (!PasteRules.restore(isPlaceholder(palette[st[y][z][x]]), snap.cells()[i] < 0, covered.test(w),
                             have.getBlock() instanceof AbstractBlockHut<?> || entityKept.contains(w))) continue;
                     BlockState want = snap.palette()[snap.cells()[i]];
                     if (have.equals(want) && !snap.bes().containsKey(i)) continue;

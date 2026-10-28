@@ -1643,28 +1643,38 @@ public final class SelfCheck {
         check(!com.volcanicmg.mccitybuilder.planner.PasteRules.restore(true, false, false, false) && !com.volcanicmg.mccitybuilder.planner.PasteRules.restore(false, true, false, false)
                 && !com.volcanicmg.mccitybuilder.planner.PasteRules.restore(false, false, true, false) && !com.volcanicmg.mccitybuilder.planner.PasteRules.restore(false, false, false, true),
                 "placeholder, kept, under another placement or kept now: left alone");
-        // Three placements stacked on one cell (terrain T, then A, B, C pasted in turn): deleted in any order, each step
-        // shows the newest still standing (or T), as restore (only with nothing newer over it) and hand-over do it.
-        for (int[] order : new int[][]{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}) {
-            String[] snap = {"T", "A", "B"}, block = {"A", "B", "C"};
-            boolean[] live = {true, true, true};
-            String world = "C";
-            for (int x : order) {
-                boolean newerLive = false;
-                for (int y = x + 1; y < 3; y++) newerLive |= live[y];
-                if (!newerLive) world = snap[x];
-                else {
-                    boolean[] changed = new boolean[3 - x - 1];
-                    for (int y = x + 1; y < 3; y++) changed[y - x - 1] = live[y];
-                    int q = com.volcanicmg.mccitybuilder.planner.PasteRules.handOverTarget(changed);
-                    if (q >= 0) snap[x + 1 + q] = snap[x];
+        // Three placements stacked on one cell (terrain T, then A, B, C pasted in turn), once with B pasting a
+        // substitution there (it leaves the cell, so its snapshot holds nothing for it): deleted in any order, each step
+        // shows the newest still standing that changed the cell (or T), as restore (only with nothing newer having
+        // changed the cell) and hand-over (to the oldest newer one that did) do it.
+        for (boolean bSubstitutes : new boolean[]{false, true})
+            for (int[] order : new int[][]{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}) {
+                boolean[] changes = {true, !bSubstitutes, true}, live = {true, true, true};
+                String[] block = {"A", "B", "C"}, snap = new String[3];
+                String world = "T";
+                for (int x = 0; x < 3; x++)
+                    if (changes[x]) {
+                        snap[x] = world;
+                        world = block[x];
+                    }
+                for (int x : order) {
+                    if (snap[x] != null) {
+                        boolean[] changed = new boolean[3 - x - 1];
+                        boolean newerChanged = false;
+                        for (int y = x + 1; y < 3; y++) {
+                            changed[y - x - 1] = live[y] && snap[y] != null;
+                            newerChanged |= changed[y - x - 1];
+                        }
+                        if (!newerChanged) world = snap[x];
+                        else snap[x + 1 + com.volcanicmg.mccitybuilder.planner.PasteRules.handOverTarget(changed)] = snap[x];
+                    }
+                    live[x] = false;
+                    String want = "T";
+                    for (int y = 0; y < 3; y++) if (live[y] && changes[y]) want = block[y];
+                    check(world.equals(want), "stacked placements" + (bSubstitutes ? " (B substitutes)" : "") + " deleted in order "
+                            + java.util.Arrays.toString(order) + ": " + world + " should be " + want);
                 }
-                live[x] = false;
-                String want = "T";
-                for (int y = 0; y < 3; y++) if (live[y]) want = block[y];
-                check(world.equals(want), "stacked placements deleted in order " + java.util.Arrays.toString(order) + ": " + world + " should be " + want);
             }
-        }
         List<int[]> live = List.of(new int[]{0, 60, 0, 4, 66, 2}, new int[]{10, 60, 10, 12, 61, 12});
         check(com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(live, 4, 66, 2) && com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(live, 11, 60, 10)
                 && !com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(live, 5, 63, 1) && !com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(List.of(), 0, 0, 0),
