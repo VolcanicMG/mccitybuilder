@@ -1,0 +1,2 @@
+joint|infrastructure/roads/path/pathintersection.blueprint|0:infrastructure/roads/path/pathlong.blueprint:0,1:infrastructure/roads/path/pathlong.blueprint:1,2:infrastructure/roads/path/pathlong.blueprint:0,3:infrastructure/roads/path/pathlong.blueprint:3	1 2:-2,0 0:-1,0 1:-2,0 3:-2,0
+joint|infrastructure/roads/path/pathintersection.blueprint|0:infrastructure/roads/path/pathlong.blueprint:0,1:infrastructure/roads/path/pathlong.blueprint:3,2:infrastructure/roads/path/pathlong.blueprint:0,3:infrastructure/roads/path/pathlong.blueprint:1	2 0:-1,0 2:-2,0 3:-1,0 1:-1,0

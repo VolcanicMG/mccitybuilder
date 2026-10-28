@@ -23,7 +23,12 @@ final class JointCases {
     record Run(int out, PieceLayout.Grid straight, PieceLayout.Fit fit, int[] box) {
     }
 
-    record Case(String family, String name, String jointPath, PieceLayout.Grid joint, int[] jointBox, List<Run> runs, boolean butt) {
+    /** @param fixed laid out by a built-in setting ({@link PieceLayout#jointFix}), not the search */
+    record Case(String family, String name, String jointPath, PieceLayout.Grid joint, int[] jointBox, List<Run> runs, boolean butt, boolean fixed) {
+        Case(String family, String name, String jointPath, PieceLayout.Grid joint, int[] jointBox, List<Run> runs, boolean butt) {
+            this(family, name, jointPath, joint, jointBox, runs, butt, false);
+        }
+
         Case(String family, String name, String jointPath, PieceLayout.Grid joint, int[] jointBox, List<Run> runs) {
             this(family, name, jointPath, joint, jointBox, runs, false);
         }
@@ -95,7 +100,7 @@ final class JointCases {
         try {
             for (int n : numbers) {
                 level = n;
-                for (Case cs : all()) out.add(new Case(cs.family() + " L" + n, cs.name(), cs.jointPath(), cs.joint(), cs.jointBox(), cs.runs(), cs.butt()));
+                for (Case cs : all()) out.add(new Case(cs.family() + " L" + n, cs.name(), cs.jointPath(), cs.joint(), cs.jointBox(), cs.runs(), cs.butt(), cs.fixed()));
             }
         } finally {
             level = 0;
@@ -235,16 +240,28 @@ final class JointCases {
             ks.add(k);
         }
         best = ks.get(PieceLayout.pickTurn(contact, bestMatch, shape));
+        PieceLayout.JointFix fix = null;
+        if (role != PieceSets.Role.END) {
+            // The mod's built-in setting for this configuration, as the planner reads it.
+            int[] sts = new int[outs.length];
+            String[] sps = new String[outs.length];
+            for (int q = 0; q < outs.length; q++) {
+                sts[q] = Math.floorMod(PieceLayout.turns(sg.sx(), sg.sz(), dirs[q]) + (flip ? 2 : 0), 4);
+                sps[q] = st.path();
+            }
+            fix = PieceLayout.jointFix(PieceSets.builtIn(PackPieces.packName(pack))::get, jp.path(), outs, sps, sts);
+            if (fix != null) best = fix.turn();
+        }
         PieceLayout.Grid t = jg.turned(best);
         int[] jb = box(c, outs[0], t, role, jp);
         List<Run> runs = new ArrayList<>();
         for (int q = 0; q < outs.length; q++) {
             int o = outs[q];
             PieceLayout.Grid s = straight(sg, dirs[q], flip);
-            PieceLayout.Fit f = PieceLayout.fit(c, o, jb, t, s, width, run, Math.max(3, width));
+            PieceLayout.Fit f = PieceLayout.fit(c, o, jb, t, s, width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
             runs.add(new Run(o, s, f, PieceLayout.boxes(c, o, f.off(), List.of(run), width, f.shift()).get(0)));
         }
-        out.add(new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name, jp.path(), t, jb, runs));
+        out.add(new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name, jp.path(), t, jb, runs, false, fix != null));
     }
 
     /** @return the joint's box: centred on the joint cell; a cap lies along the line from the free end (shift 0) */

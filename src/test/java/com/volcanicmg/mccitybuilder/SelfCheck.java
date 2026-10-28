@@ -1530,7 +1530,8 @@ public final class SelfCheck {
         for (var cs : JointCases.all()) {
             String id = cs.family() + " " + cs.name() + " (" + cs.jointPath().substring(cs.jointPath().lastIndexOf('/') + 1) + ")";
             var rep = JointCases.report(cs);
-            check(rep.match() >= rep.best() - 1e-9, "layout as continuous as the pieces allow: " + id + String.format(" %.2f < %.2f", rep.match(), rep.best()));
+            // A built-in setting is the hand-checked layout (flush outer edges before the best cross-section match).
+            if (!cs.fixed()) check(rep.match() >= rep.best() - 1e-9, "layout as continuous as the pieces allow: " + id + String.format(" %.2f < %.2f", rep.match(), rep.best()));
             for (var r : cs.runs())
                 check(Math.abs(JointCases.measure(cs, r) - r.fit().match()) < 1e-9, "fit metric agrees with the placed blocks: " + id + " run " + "ESWN".charAt(r.out()));
             if (rep.match() >= 1 - 1e-9) ok.add(id);
@@ -1668,8 +1669,21 @@ public final class SelfCheck {
         // Drafts: read before the saved value, never part of what is written; Save skips drafts that would break blocks.
         var saved = new java.util.LinkedHashMap<>(m);
         var drafts = java.util.Map.of(key, "3,1", "align|x|0|y|0", "0,0");
-        check("3,1".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.alignLookup(drafts, saved, key))
-                && "1,2".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.alignLookup(java.util.Map.of(), saved, key)), "a draft wins over the saved alignment");
+        var builtIn = java.util.Map.of(key, "0,0", "align|b|0|c|0", "2,0");
+        check("3,1".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.alignLookup(drafts, saved, builtIn, key))
+                && "1,2".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.alignLookup(java.util.Map.of(), saved, builtIn, key)), "a draft wins over the saved alignment");
+        check("2,0".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.alignLookup(drafts, saved, builtIn, "align|b|0|c|0")), "built-in alignment under the player's");
+        // A joint configuration's setting holds however the shape is turned (the whole shape a quarter turn on: same
+        // key, turn + 1, each run's setting following its line); a mirrored shape is another key.
+        String[] sp = {"walls/s.blueprint", "walls/s.blueprint"};
+        var jk = PieceLayout.jointKey("walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1});
+        java.util.function.Function<String, String> one = k -> k.equals(jk.key())
+                ? Math.floorMod(3 - jk.rot(), 4) + " " + Math.floorMod(2 - jk.rot(), 4) + ":1,0 " + Math.floorMod(1 - jk.rot(), 4) + ":-2,1" : null;
+        var f0 = PieceLayout.jointFix(one, "walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1});
+        var f1 = PieceLayout.jointFix(one, "walls/c.blueprint", new int[]{3, 2}, sp, new int[]{1, 2});
+        check(f0 != null && f0.turn() == 3 && java.util.Arrays.equals(f0.runs()[0], new int[]{1, 0}) && java.util.Arrays.equals(f0.runs()[1], new int[]{-2, 1})
+                && f1 != null && f1.turn() == 0 && java.util.Arrays.equals(f1.runs()[0], new int[]{1, 0}) && java.util.Arrays.equals(f1.runs()[1], new int[]{-2, 1})
+                && PieceLayout.jointFix(one, "walls/c.blueprint", new int[]{2, 3}, sp, new int[]{0, 1}) == null, "joint setting relative to the shape");
         String file = com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(saved);
         check(!file.contains("3,1") && !file.contains("align|x|0|y|0"), "drafts are never written");
         var ok = com.volcanicmg.mccitybuilder.planner.PieceSets.saveable(java.util.Map.of("a", new int[]{1, 0}, "b", new int[]{0, 2}), java.util.Set.of("b"));
@@ -1689,18 +1703,44 @@ public final class SelfCheck {
                 if (de && bad == null) bad = new int[]{sh, dp};
             }
         if (safe == null) safe = new int[]{2, -1};
-        int[][] set = {safe};
+        int[][] set = {{PieceLayout.alignShift(c, d, jb, 6, safe[0]), safe[1]}};
         PieceLayout.setAlign((j, s2, dd) -> j == tw && s2 == sg && dd == 0 ? set[0] : null);
         var f = PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6);
         int si = sg.inset(2), edge = PieceLayout.reach(c, d, jb);
         check(f.shift() == safe[0] && f.depth() == safe[1] && f.off() == (safe[1] < 0 ? edge : edge - safe[1] - si), "override used exactly as set: " + f);
         check(java.util.Arrays.equals(PieceLayout.attach(c, d, jb, tw, sg, 6, 9, 6), new int[]{f.off(), f.shift()}), "attach follows the override");
         if (bad != null) {
-            set[0] = bad;
+            set[0] = new int[]{PieceLayout.alignShift(c, d, jb, 6, bad[0]), bad[1]};
             check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(auto), "a destructive override is refused (auto is used)");
         }
         PieceLayout.setAlign(null);
         check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(auto), "reset restores auto");
+        // A stored shift places the run the same against the joint box however the shape is turned (an uneven box).
+        int[] b0 = null, j0 = null;
+        for (int dd = 0; dd < 4; dd++) {
+            int[] jbd = PieceLayout.centred(c, dd % 2 == 0 ? 6 : 7, dd % 2 == 0 ? 7 : 6);
+            int ws = PieceLayout.worldShift(c, dd, jbd, 4, 1);
+            int[] bd = PieceLayout.boxes(c, dd, PieceLayout.reach(c, dd, jbd), List.of(9), 4, ws).get(0);
+            check(PieceLayout.alignShift(c, dd, jbd, 4, ws) == 1, "stored shift round trip");
+            if (dd == 0) {
+                b0 = bd;
+                j0 = jbd;
+                continue;
+            }
+            // b0 turned dd quarter turns inside the joint box's frame ((x, z) -> (H-1-z, x) per turn).
+            int x0 = b0[0] - j0[0], z0 = b0[1] - j0[1], x1 = b0[2] - j0[0], z1 = b0[3] - j0[1], w = 6, h = 7;
+            for (int t = 0; t < dd; t++) {
+                int nx0 = h - 1 - z1, nx1 = h - 1 - z0;
+                z0 = x0;
+                z1 = x1;
+                x0 = nx0;
+                x1 = nx1;
+                int tmp = w;
+                w = h;
+                h = tmp;
+            }
+            check(x0 == bd[0] - jbd[0] && z0 == bd[1] - jbd[1] && x1 == bd[2] - jbd[0] && z1 == bd[3] - jbd[1], "stored shift turns with the shape: " + dd);
+        }
     }
 
     private static void overlays() {

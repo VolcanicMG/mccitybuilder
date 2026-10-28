@@ -1,0 +1,1 @@
+joint|walls/wallincorner.blueprint|0:walls/wallstraight.blueprint:0,1:walls/wallstraight.blueprint:3	1 1:-1,0 0:0,0

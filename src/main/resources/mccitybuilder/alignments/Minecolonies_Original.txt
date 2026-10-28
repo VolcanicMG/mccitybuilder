@@ -1,0 +1,8 @@
+joint|infrastructure/roads/poor/poorintersectionodd.blueprint|0:infrastructure/roads/poor/poorpathodd.blueprint:1,1:infrastructure/roads/poor/poorpathodd.blueprint:0,2:infrastructure/roads/poor/poorpathodd.blueprint:1,3:infrastructure/roads/poor/poorpathodd.blueprint:2	0 0:-4,0 2:-3,0 3:-4,0 1:-3,0
+joint|walls/basic/wooden_corner.blueprint|0:walls/basic/wooden_segment_large.blueprint:0,1:walls/basic/wooden_segment_large.blueprint:1	1 1:0,0 0:0,0
+joint|walls/basic/wooden_corner.blueprint|0:walls/basic/wooden_segment_large.blueprint:0,3:walls/basic/wooden_segment_large.blueprint:1	1 0:0,0 3:-1,0
+joint|walls/basic/wooden_inner_corner.blueprint|0:walls/basic/wooden_segment_large.blueprint:0,1:walls/basic/wooden_segment_large.blueprint:1	1 1:2,0 0:2,0
+joint|walls/basic/wooden_inner_corner.blueprint|0:walls/basic/wooden_segment_large.blueprint:0,1:walls/basic/wooden_segment_large.blueprint:3	0 0:2,0 1:-1,0
+joint|walls/oak/oakwallincorner3.blueprint|0:walls/oak/oakwallsegment3.blueprint:0,3:walls/oak/oakwallsegment3.blueprint:1	1 0:0,0 3:0,0
+joint|walls/oak/oakwallincorner4.blueprint|0:walls/oak/oakwallsegment4.blueprint:0,3:walls/oak/oakwallsegment4.blueprint:1	1 0:0,0 3:0,0
+joint|walls/original/outer_corner1.blueprint|0:walls/original/long1.blueprint:1,3:walls/original/long1.blueprint:2	1 3:-1,0 0:0,0

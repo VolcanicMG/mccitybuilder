@@ -1,0 +1,1 @@
+joint|walls/fancy/tower_incline.blueprint|0:walls/fancy/section_long.blueprint:0,1:walls/fancy/section_long.blueprint:3,2:walls/fancy/section_long.blueprint:0,3:walls/fancy/section_long.blueprint:1	1 0:-5,0 2:-1,0 3:0,0 1:0,0

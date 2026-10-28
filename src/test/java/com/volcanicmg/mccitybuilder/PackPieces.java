@@ -37,6 +37,22 @@ final class PackPieces {
         return id > 0 && id < NAMES.size() ? NAMES.get(id) : "";
     }
 
+    private static final Map<String, String> NAMES_OF = new HashMap<>();
+
+    /** @return a pack folder's name as the game knows the pack (its pack.json "name"; the folder without one) */
+    static String packName(String folder) {
+        return NAMES_OF.computeIfAbsent(folder, f -> {
+            try (ZipFile z = new ZipFile(JAR)) {
+                var e = z.getEntry("blueprints/minecolonies/" + f + "/pack.json");
+                if (e == null) return f;
+                var m = java.util.regex.Pattern.compile("\"name\"\\s*:\\s*\"([^\"]*)\"").matcher(new String(z.getInputStream(e).readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                return m.find() ? m.group(1) : f;
+            } catch (IOException ex) {
+                return f;
+            }
+        });
+    }
+
     /** @return every road / wall blueprint path in the jar, as "pack/path inside the pack" */
     static List<String> pieces() throws IOException {
         List<String> out = new ArrayList<>();

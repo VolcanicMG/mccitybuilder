@@ -362,9 +362,20 @@ public final class PieceLayout {
      * @param d        the direction from the joint cell into the run
      */
     public static Fit fit(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift) {
+        return fit(c, d, jb, joint, straight, width, run, maxShift, null);
+    }
+
+    /**
+     * {@link #fit} with the joint's built-in setting for this run ({@link JointFix}, null for none): a player-set
+     * alignment first, then the built-in one, then the search; a destructive setting is skipped.
+     */
+    public static Fit fit(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift, int[] builtIn) {
         // A player-set alignment wins over the search (it is looked up every time, so a change shows at once).
-        int[] o = align.get(joint, straight, d);
-        if (o != null && !destructiveAt(c, d, jb, joint, straight, width, run, o[0], o[1])) return fitAt(c, d, jb, joint, straight, width, run, o[0], o[1]);
+        for (int[] o : new int[][]{align.get(joint, straight, d), builtIn}) {
+            if (o == null) continue;
+            int os = worldShift(c, d, jb, width, o[0]);
+            if (!destructiveAt(c, d, jb, joint, straight, width, run, os, o[1])) return fitAt(c, d, jb, joint, straight, width, run, os, o[1]);
+        }
         // The result depends only on the pieces and the joint box relative to the joint cell, never on where it is.
         FitKey k = new FitKey(joint, straight, d, width, run, maxShift, jb[0] - c[0], jb[1] - c[1], jb[2] - c[0], jb[3] - c[1]);
         Fit f = FITS.get(k);
@@ -376,9 +387,24 @@ public final class PieceLayout {
         return f;
     }
 
+    /**
+     * @return a run's world shift from an alignment's: the run box's right-hand edge (looking along {@code d}) less the
+     * joint box's, so a setting holds however the shape is turned (the boxes' centring isn't symmetric)
+     */
+    public static int worldShift(int[] c, int d, int[] jb, int width, int rel) {
+        int lat = d % 2 == 0 ? 1 : 0, cl = c[lat];
+        return d == 0 || d == 3 ? rel - cl - width / 2 + jb[lat + 2] : jb[lat] - cl + (width - 1) / 2 - rel;
+    }
+
+    /** @return an alignment's shift for a run's world shift (the inverse of {@link #worldShift}) */
+    public static int alignShift(int[] c, int d, int[] jb, int width, int shift) {
+        int lat = d % 2 == 0 ? 1 : 0, cl = c[lat];
+        return d == 0 || d == 3 ? shift + cl + width / 2 - jb[lat + 2] : jb[lat] - cl + (width - 1) / 2 - shift;
+    }
+
     /** Player-set alignments (the joint alignment editor): for a joint and a straight as placed and the run's direction. */
     public interface AlignSource {
-        /** @return {shift, depth} to use instead of the search, or null */
+        /** @return {shift ({@link #worldShift}), depth} to use instead of the search, or null */
         int[] get(Grid joint, Grid straight, int d);
     }
 
@@ -391,7 +417,8 @@ public final class PieceLayout {
 
     /**
      * A run placed by hand: sideways by {@code shift}, butting on the joint's layer {@code depth} from its face
-     * inward (-1 = at the joint's box), with the match of the two visible cross-sections there.
+     * inward (-1 = at the joint's box), with the match of the two visible cross-sections there (0 when under half the
+     * run's cells meet a block).
      */
     public static Fit fitAt(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int shift, int depth) {
         int si = straight.inset((d + 2) % 4), edge = reach(c, d, jb), ref = d % 2 == 0 ? c[1] : c[0];
@@ -400,7 +427,11 @@ public final class PieceLayout {
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox0[1] : sbox0[0]) - ref;
         Set<Long> S = visible(straight.profile((d + 2) % 4, si, sa, false), straight);
         int layers = d % 2 == 0 ? joint.sx() : joint.sz();
-        double m = depth < layers ? jaccard(visible(joint.profile(d, depth, ja, false), joint), S, shift) : 0;
+        Set<Long> J = depth < layers ? visible(joint.profile(d, depth, ja, false), joint) : Set.of();
+        int hit = 0;
+        for (long v : S) if (J.contains(v + shift)) hit++;
+        // Under half the run's cells meeting a block isn't a joint (as in the search).
+        double m = hit * 2 < S.size() ? 0 : jaccard(J, S, shift);
         return new Fit(edge - depth - si, shift, m, depth);
     }
 
@@ -418,6 +449,58 @@ public final class PieceLayout {
      */
     public static String alignKey(String jointPath, int jointTurns, String straightPath, int straightTurns, int d) {
         return "align|" + jointPath + "|" + Math.floorMod(jointTurns - d, 4) + "|" + straightPath + "|" + Math.floorMod(straightTurns - d, 4);
+    }
+
+    /** A joint configuration's override key and the quarter turns taking the shape to the key's (least) rotation. */
+    public record JointKey(String key, int rot) {
+    }
+
+    /**
+     * @param outs each line's direction out of the joint; @param straightTurns each line's straight as placed
+     * @return the override key of a joint configuration: the joint piece and every line's out and straight (path,
+     * turns), relative to the rotation whose key sorts first, so it holds however the shape is turned
+     */
+    public static JointKey jointKey(String jointPath, int[] outs, String[] straightPaths, int[] straightTurns) {
+        String best = null;
+        int rot = 0;
+        for (int r = 0; r < 4; r++) {
+            List<String> e = new java.util.ArrayList<>();
+            for (int q = 0; q < outs.length; q++) e.add(Math.floorMod(outs[q] - r, 4) + ":" + straightPaths[q] + ":" + Math.floorMod(straightTurns[q] - r, 4));
+            e.sort(null);
+            String k = "joint|" + jointPath + "|" + String.join(",", e);
+            if (best == null || k.compareTo(best) < 0) {
+                best = k;
+                rot = r;
+            }
+        }
+        return new JointKey(best, rot);
+    }
+
+    /** A joint set by hand for one configuration: its turn, and per line (as given) {shift, depth} ({@link #fit}) or null. */
+    public record JointFix(int turn, int[][] runs) {
+    }
+
+    /**
+     * Only the exact configuration is affected (the per-run settings never reach other joints or the turn search).
+     * Value: the turn in the key's rotation, then per run "out:shift,depth" with the out in that rotation.
+     *
+     * @return the joint's setting ({@code lookup} by {@link #jointKey}), or null
+     */
+    public static JointFix jointFix(java.util.function.Function<String, String> lookup, String jointPath, int[] outs, String[] straightPaths, int[] straightTurns) {
+        JointKey k = jointKey(jointPath, outs, straightPaths, straightTurns);
+        String v = lookup.apply(k.key());
+        if (v == null) return null;
+        try {
+            String[] f = v.trim().split("\\s+");
+            int[][] runs = new int[outs.length][];
+            for (int i = 1; i < f.length; i++) {
+                int o = Math.floorMod(Integer.parseInt(f[i].substring(0, f[i].indexOf(':'))) + k.rot(), 4);
+                for (int q = 0; q < outs.length; q++) if (outs[q] == o) runs[q] = parseAlign(f[i].substring(f[i].indexOf(':') + 1));
+            }
+            return new JointFix(Math.floorMod(Integer.parseInt(f[0]) + k.rot(), 4), runs);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** @return {shift, depth} from an override value "shift,depth", or null when damaged */

@@ -232,7 +232,7 @@ final class PieceCatalog {
             Object[] a = gridOf.get(j), b = gridOf.get(st);
             if (a == null || b == null) return null;
             String k = PieceLayout.alignKey((String) a[1], (Integer) a[2], (String) b[1], (Integer) b[2], d);
-            String v = PieceSets.alignLookup(PieceCatalog.drafts.getOrDefault((String) a[0], Map.of()), overrides((String) a[0]), k);
+            String v = PieceSets.alignLookup(PieceCatalog.drafts.getOrDefault((String) a[0], Map.of()), overrides((String) a[0]), Map.of(), k);
             return v == null ? null : PieceLayout.parseAlign(v);
         });
     }
@@ -390,6 +390,7 @@ final class PieceCatalog {
         jointNotes.clear();
         jointMatch.clear();
         jointGapAir.clear();
+        jointFixes.clear();
         List<List<Placed>> out = new ArrayList<>();
         List<Integer> shortened = new ArrayList<>(), need = new ArrayList<>();
         List<int[]> gaps = new ArrayList<>();
@@ -595,7 +596,7 @@ final class PieceCatalog {
                     PieceLayout.Grid jg = grid(l.pack(), joint.path(), joint.turns()), sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
                     if (sg == null && !failed(l.pack(), primary.path())) ok = false;
                     if (jg != null && sg != null) {
-                        PieceLayout.Fit ft = PieceLayout.fit(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width));
+                        PieceLayout.Fit ft = PieceLayout.fit(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width), jointFixes.getOrDefault(Plan.cell(c[0], c[1]), Map.of()).get(d));
                         noteFit(Plan.cell(c[0], c[1]), ft);
                         off[end] = ft.off();
                         if (end == 0 || !aligned) {
@@ -897,6 +898,8 @@ final class PieceCatalog {
     // Per joint cell, from the last layout: {role ordinal, cells the meeting runs leave uncovered, the same with a
     // tower (-1: no tower)}, for the edit-mode labels and the "try Tower" hint.
     static final Map<Long, int[]> jointNotes = new HashMap<>();
+    // Per joint cell from the last layout: its configuration's set run alignments by direction out ({@link PieceLayout.JointFix}).
+    private static final Map<Long, Map<Integer, int[]>> jointFixes = new HashMap<>();
     /** Per joint cell from the last layout: the least match of the runs meeting it ({@link PieceLayout.Fit#match}, 1 = continuous). */
     static final Map<Long, Double> jointMatch = new HashMap<>();
     /** Per joint cell from the last layout: a run stops at the joint's box (its ring is air an overlap would clear). */
@@ -957,6 +960,7 @@ final class PieceCatalog {
         if (cands.isEmpty()) return null;
         List<int[]> fits = new ArrayList<>();
         int[] turns = new int[cands.size()];
+        PieceLayout.JointFix[] fixes = new PieceLayout.JointFix[cands.size()];
         for (int q = 0; q < cands.size(); q++) {
             PieceSets.Piece p = cands.get(q);
             double[] contact = new double[4], shape = new double[4], bestMatch = new double[4];
@@ -997,6 +1001,8 @@ final class PieceCatalog {
                 }
             }
             int best = PieceLayout.pickTurn(contact, bestMatch, shape);
+            fixes[q] = jointFix(l.pack(), p.path(), outs, at);
+            if (fixes[q] != null) best = fixes[q].turn();
             turns[q] = best;
             // What the meeting runs keep with this piece: whole straights and uncovered cells (other ends taken as free).
             PieceLayout.Grid jg = grid(l.pack(), p.path(), best);
@@ -1009,7 +1015,7 @@ final class PieceCatalog {
                 int ldir = PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()});
                 PieceLayout.Grid sg = grid(ln.pack(), st.path(), sturn(st, ldir, ln.flip()));
                 if (sg == null) continue;
-                int off = PieceLayout.attach(c, outs.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across()))[0];
+                int off = PieceLayout.fit(c, outs.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across()), fixes[q] == null ? null : fixes[q].runs()[o]).off();
                 int cells = Math.max(Math.abs(ln.x1() - ln.x0()), Math.abs(ln.z1() - ln.z0())) + 1 - off;
                 int[] fit = PieceLayout.runFit(cells, runLengths(ln));
                 pieces += fit[0];
@@ -1021,6 +1027,11 @@ final class PieceCatalog {
         int towerGap = -1;
         for (int k = primaries; k < fits.size(); k++) towerGap = towerGap < 0 ? fits.get(k)[1] : Math.min(towerGap, fits.get(k)[1]);
         jointNotes.put(Plan.cell(c[0], c[1]), new int[]{roles.get(q).ordinal(), fits.get(q)[1], towerGap});
+        if (fixes[q] != null) {
+            Map<Integer, int[]> byOut = new HashMap<>();
+            for (int o = 0; o < outs.size(); o++) if (fixes[q].runs()[o] != null) byOut.put(outs.get(o), fixes[q].runs()[o]);
+            jointFixes.put(Plan.cell(c[0], c[1]), byOut);
+        }
         Blueprint jbp = rotated(l.pack(), cands.get(q).path(), turns[q]);
         if (jbp == null) return null;
         return place(l.pack(), cands.get(q).path(), turns[q], PieceLayout.centred(c, jbp.getSizeX(), jbp.getSizeZ()), roles.get(q));
@@ -1036,6 +1047,26 @@ final class PieceCatalog {
         if (x[0] > y[2] || y[0] > x[2] || x[1] > y[3] || y[1] > x[3] || a.y0() + a.h() <= b.y0() || b.y0() + b.h() <= a.y0()) return false;
         PieceLayout.Grid ga = grid(packA, a.path(), a.turns()), gb = grid(packB, b.path(), b.turns());
         return ga != null && gb != null && PieceLayout.destructive(ga, x[0], a.y0(), x[1], gb, y[0], b.y0(), y[1]);
+    }
+
+    /** @return the joint's setting from the player's or the built-in overrides for these lines meeting it, or null */
+    static PieceLayout.JointFix jointFix(String pack, String jointPath, List<Integer> outs, List<Plan.Line> at) {
+        int[] o = new int[outs.size()], st = new int[outs.size()];
+        String[] sp = new String[outs.size()];
+        for (int q = 0; q < o.length; q++) {
+            Plan.Line ln = at.get(q);
+            PieceSets.Piece p = primary(ln, 0);
+            if (p == null) return null;
+            o[q] = outs.get(q);
+            sp[q] = p.path();
+            st[q] = Math.floorMod(sturn(p, PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()}), ln.flip()), 4);
+        }
+        return PieceLayout.jointFix(jointLookup(pack), jointPath, o, sp, st);
+    }
+
+    /** @return a pack's joint configuration overrides: the player's, else the built-in ones */
+    static java.util.function.Function<String, String> jointLookup(String pack) {
+        return k -> PieceSets.alignLookup(Map.of(), overrides(pack), PieceSets.builtIn(pack), k);
     }
 
     /** @return the quarter turns of a straight or gate running along {@code dir} (+2 when the segment is flipped) */

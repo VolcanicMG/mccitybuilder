@@ -1,0 +1,1 @@
+joint|walls/city/corner_inner1.blueprint|0:walls/city/straight1.blueprint:1,3:walls/city/straight1.blueprint:2	1 3:-3,0 0:0,0

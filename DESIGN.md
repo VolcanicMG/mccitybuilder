@@ -446,12 +446,28 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   it). Per run: sideways shift and contact depth, the visible cross-section match, red when destructive (refused on
   Save). Saved per pack in `mccitybuilder/piecesets/<pack>.txt` as `align|<joint path>|<joint turn - d>|<straight
   path>|<straight turn - d>` -> `shift,depth` (keyed relative to the run's direction, so it holds for every
-  orientation of the shape; the family and role are implied by the joint piece). `PieceLayout.fit` asks the
+  orientation of the shape; the family and role are implied by the joint piece). The stored shift is the run box's
+  right-hand edge (looking along the run) less the joint box's (`PieceLayout.worldShift` / `alignShift`): a world
+  shift would land differently once the shape turns, as the boxes' centring isn't symmetric (saves made before this
+  change are read in the new sense). `PieceLayout.fit` asks the
   override source (`setAlign`, the client's per-pack overrides by grid identity) before the memo and the search; a
   destructive override is ignored. Adjustments show in the planned walls at once: unsaved drafts live in a separate
   in-memory overlay read before the saved overrides and never written to the file (`PieceSets.alignLookup`); it is
   cleared whenever the editor screen goes (`removed()`: Esc, death, another screen), when the planner exits or hides.
   Save skips drafts that would break blocks and says how many (`PieceSets.saveable`); Reset returns a run to auto.
+- Built-in joint settings (`src/main/resources/mccitybuilder/alignments/<pack name>.txt`, `PieceSets.builtIn`, the
+  overrides file format; the pack name as the game knows it, `[^A-Za-z0-9._-]` -> `_`): hand-checked fixes for
+  joints the search lays out badly. One line per configuration, `joint|<joint path>|<out:straight path:straight
+  turns>,...` (every line's out and straight relative to the rotation whose key sorts first, `PieceLayout.jointKey`)
+  -> `<turn> <out>:<shift>,<depth> ...` (the joint's turn and each run's alignment in that rotation). It applies to
+  that exact configuration only (`PieceLayout.jointFix`): the turn replaces the turn search and each run's setting
+  goes to `fit` after a player's alignment and before the search; nothing reaches other joints or their turn
+  scores. A player's saved override of the configuration key or a run's `align|` key wins (`PieceCatalog.jointLookup`).
+  The client applies it in `joint()` (per joint cell, `jointFixes`), the editor shows it as the auto turn, and the
+  harness reads the same files (`JointCases`, the folder's pack.json name via `PackPieces.packName`); SelfCheck's
+  optimality check skips cases a built-in lays out (`Case.fixed`). The fixes were derived with: the turn whose open
+  sides face the arms, each run's outer edge flush with the joint's (for the filled square corners of original/basic,
+  the run's wall face flush with the corner's rim), and through arms of a cross on one lateral line.
   The planner's exit closes the editor too, the editor returns to the planner only while it runs, and a leftover
   planner screen closes plainly (no soft-lock).
 - Joint continuity (`PieceLayout.fit`, replacing the inset rule): the ground truth is the placed blocks. For each
@@ -473,7 +489,8 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   corner and T. It prints the continuous joints and a table of the rest with the rows that differ (most are a
   joint arm wider or narrower than the straight, or a tower's air ring). `./gradlew wallJoints -Pout=dir` writes
   top-down PNGs of every case (columns by highest block, joint box yellow, run boxes green, one contact strip per
-  run); add `-PallLevels` for every level / variant number (names get " L<n>"; the default is each group's top).
+  run); add `-PallLevels` for every level / variant number (names get " L<n>"; the default is each group's top) and
+  `-Ponly=<regex>` to write only matching file names.
   SelfCheck's joint checks run over all levels as ratchets against `src/test/resources/joint-baseline.txt`
   (wallCornerTurns, noOverhang, throughArmsAligned, tShiftCentred) and `no-contact.tsv` (runs touching nothing per
   family): a new failure or a baselined case that now passes fails; `-DwriteBaseline=true` on SelfCheck rewrites them.

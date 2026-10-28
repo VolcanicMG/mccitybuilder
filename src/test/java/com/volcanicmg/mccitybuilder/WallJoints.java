@@ -14,7 +14,7 @@ import javax.imageio.ImageIO;
  * Top-down pictures of real road / wall joints as the planner lays them out ({@link JointCases}): every column coloured by
  * its highest block (lighter = higher), the joint's box yellow, the runs' boxes green, and under it one strip per run
  * showing the contact: the run's end face (blue), the joint layer it butts on (grey), both (green), run cells with
- * nothing in front (red). {@code ./gradlew wallJoints [-Pout=dir]}.
+ * nothing in front (red). {@code ./gradlew wallJoints [-Pout=dir] [-Ponly=file name regex]}.
  */
 public final class WallJoints {
     private static final int CELL = 14, R = 16;
@@ -29,6 +29,7 @@ public final class WallJoints {
         int n = 0;
         for (var cs : Boolean.getBoolean("allLevels") ? JointCases.allLevels() : JointCases.all()) {
             File f = new File(dir, (cs.family().replace(' ', '_').replace('/', '_') + "_" + cs.name() + ".png"));
+            if (!f.getName().matches(System.getProperty("only", ".*"))) continue;
             ImageIO.write(render(cs), "png", f);
             n++;
         }

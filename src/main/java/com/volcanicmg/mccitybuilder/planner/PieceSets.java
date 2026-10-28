@@ -193,10 +193,27 @@ public final class PieceSets {
         return m;
     }
 
-    /** @return an alignment's value: the unsaved draft if there is one, else the saved override, else null */
-    public static String alignLookup(Map<String, String> drafts, Map<String, String> saved, String key) {
+    /** @return an alignment's value: the unsaved draft if there is one, else the player's saved override, else the built-in one, else null */
+    public static String alignLookup(Map<String, String> drafts, Map<String, String> saved, Map<String, String> builtIn, String key) {
         String v = drafts.get(key);
-        return v != null ? v : saved.get(key);
+        if (v == null) v = saved.get(key);
+        return v != null ? v : builtIn.get(key);
+    }
+
+    private static final Map<String, Map<String, String>> BUILT_IN = new java.util.HashMap<>();
+
+    /**
+     * @return the mod's own overrides for a pack (joint turns and alignments fixed by hand, read before the search but
+     * after the player's), from {@code /mccitybuilder/alignments/<pack name>.txt} in the overrides file format
+     */
+    public static synchronized Map<String, String> builtIn(String pack) {
+        return BUILT_IN.computeIfAbsent(pack, p -> {
+            try (var in = PieceSets.class.getResourceAsStream("/mccitybuilder/alignments/" + p.replaceAll("[^A-Za-z0-9._-]", "_") + ".txt")) {
+                return in == null ? Map.of() : readOverrides(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            } catch (java.io.IOException e) {
+                return Map.of();
+            }
+        });
     }
 
     /** @return the drafts that may be saved: all but those that would break blocks */

@@ -236,6 +236,16 @@ final class JointEditorScreen extends Screen {
         int width = sp.across(), run = sp.run();
         // The joint's turn: chosen, or the planner's pick (best face score over the runs).
         int t = turn;
+        int[] sts = new int[outs.length];
+        String[] sps = new String[outs.length];
+        for (int q = 0; q < outs.length; q++) {
+            sts[q] = sturn(sp, outs, q);
+            sps[q] = sp.path();
+        }
+        // The configuration's built-in setting holds for its own turn only.
+        PieceLayout.JointFix fix = PieceLayout.jointFix(PieceCatalog.jointLookup(pack), jp.path(), outs, sps, sts);
+        if (t < 0 && fix != null) t = fix.turn();
+        if (fix != null && fix.turn() != t) fix = null;
         if (t < 0) {
             double bs = -1;
             for (int k = 0; k < 4; k++) {
@@ -264,7 +274,7 @@ final class JointEditorScreen extends Screen {
             if (sg == null) return null;
             String key = PieceLayout.alignKey(jp.path(), t, sp.path(), stt, o);
             int[] dr = drafts.get(key);
-            PieceLayout.Fit fit = dr != null ? PieceLayout.fitAt(c, o, jb, jg, sg, width, run, dr[0], dr[1]) : PieceLayout.fit(c, o, jb, jg, sg, width, run, Math.max(3, width));
+            PieceLayout.Fit fit = dr != null ? PieceLayout.fitAt(c, o, jb, jg, sg, width, run, dr[0], dr[1]) : PieceLayout.fit(c, o, jb, jg, sg, width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
             boolean bad = dr != null && PieceLayout.destructiveAt(c, o, jb, jg, sg, width, run, dr[0], dr[1]);
             runs.add(new Run(o, sp.path(), stt, sg, fit, bad, key, dr != null || PieceCatalog.overrides(pack).containsKey(key)));
         }
@@ -284,7 +294,12 @@ final class JointEditorScreen extends Screen {
         drafts.put(r.key(), n);
         Layout lay = layout();
         boolean bad = lay != null && lay.runs.stream().anyMatch(x -> x.key().equals(r.key()) && x.bad());
-        PieceCatalog.draftAlignment(pack, r.key(), bad ? null : n);
+        PieceCatalog.draftAlignment(pack, r.key(), bad || lay == null ? null : stored(lay, r, n));
+    }
+
+    /** @return a run's {world shift, depth} as stored (the shift relative to the joint box, {@link PieceLayout#alignShift}) */
+    private static int[] stored(Layout lay, Run r, int[] n) {
+        return new int[]{PieceLayout.alignShift(new int[]{0, 0}, r.out(), lay.jb, lay.width, n[0]), n[1]};
     }
 
     /**
@@ -301,7 +316,7 @@ final class JointEditorScreen extends Screen {
         java.util.Set<String> bad = new java.util.HashSet<>();
         for (Run r : lay.runs) if (r.bad()) bad.add(r.key());
         Map<String, int[]> ok = PieceSets.saveable(drafts, bad);
-        for (var en : ok.entrySet()) PieceCatalog.setAlignment(pack, en.getKey(), en.getValue());
+        for (Run r : lay.runs) if (ok.containsKey(r.key())) PieceCatalog.setAlignment(pack, r.key(), stored(lay, r, ok.get(r.key())));
         int skipped = drafts.size() - ok.size();
         drafts.keySet().retainAll(bad);
         note = skipped > 0 ? Component.translatable("mccitybuilder.align.skipped", skipped).getString() : Component.translatable("mccitybuilder.align.saved").getString();
