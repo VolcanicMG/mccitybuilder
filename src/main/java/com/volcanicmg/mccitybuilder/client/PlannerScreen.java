@@ -1367,6 +1367,8 @@ final class PlannerScreen extends Screen {
             VanillaUi.slot(g, rx, ry, rw, ROW_H - 2);
             if (dragFrom >= 0 && idx == dragOver) g.fill(rx + 1, ry + 1, rx + rw - 1, ry + 2, 0xFFFFFFFF);
             if (idx == dragFrom) g.fill(rx + 1, ry + 1, rx + rw - 1, ry + ROW_H - 3, 0x40FFFFFF);
+            // Clickable: opens the assigned builder's hut.
+            else if (dragFrom < 0 && o.isClaimed() && mx >= rx && mx < rx + rw - 42 && my >= ry && my < ry + ROW_H - 2) g.fill(rx + 1, ry + 1, rx + rw - 1, ry + ROW_H - 3, 0x20FFFFFF);
             String kind = o instanceof com.minecolonies.core.colony.workorders.view.WorkOrderDecorationView ? "decoration"
                     : o.getWorkOrderType().name().toLowerCase();
             icon(g, kind, rx + 3, ry + 3, 0xFFFFFFFF);
@@ -1764,6 +1766,14 @@ final class PlannerScreen extends Screen {
         if (button == 0) Planner.endGhostDrag();
         if (button == 0 && dragFrom >= 0) {
             if (dragOver >= 0 && dragOver != dragFrom && Planner.colony() != null) reorder(Planner.colony(), dragFrom, dragOver);
+            // A click without a drag opens the assigned builder's hut.
+            else if (dragOver == dragFrom && Planner.colony() != null && dragFrom < shownOrders.size() && shownOrders.get(dragFrom).isClaimed()) {
+                IBuildingView b = Planner.colony().getClientBuildingManager().getBuilding(shownOrders.get(dragFrom).getClaimedBy());
+                if (b != null) {
+                    click();
+                    b.openGui(false);
+                }
+            }
             dragFrom = dragOver = -1;
             return true;
         }
