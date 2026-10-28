@@ -945,8 +945,10 @@ public final class InstantBuild {
             if (!level.getFluidState(surface).isEmpty()) return Integer.MIN_VALUE;
             BlockPos top = new BlockPos(c[0], level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c[0], c[1]) - 1, c[1]);
             BlockState t = level.getBlockState(top);
+            if (t.is(net.minecraft.world.level.block.Blocks.SNOW)) t = level.getBlockState(top = top.below());
+            // Terracotta stays out: it's a common roof and wall block.
             if (t.is(net.minecraft.tags.BlockTags.DIRT) || t.is(net.minecraft.tags.BlockTags.SAND) || t.is(net.minecraft.tags.BlockTags.BASE_STONE_OVERWORLD)
-                    || t.is(net.minecraft.tags.BlockTags.TERRACOTTA) || t.is(net.minecraft.world.level.block.Blocks.GRAVEL) || t.is(net.minecraft.world.level.block.Blocks.DIRT_PATH))
+                    || t.is(net.minecraft.world.level.block.Blocks.GRAVEL) || t.is(net.minecraft.world.level.block.Blocks.DIRT_PATH))
                 hs.add(top.getY());
         }
         return PasteRules.mode(hs);
