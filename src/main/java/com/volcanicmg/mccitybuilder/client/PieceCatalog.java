@@ -1050,6 +1050,7 @@ final class PieceCatalog {
             int rot = frames[0], best = 0;
             List<Integer> oc = new ArrayList<>();
             double bestScore = -1;
+            int bestFlush = -1;
             for (int fr : frames) {
                 List<Integer> ocf = new ArrayList<>();
                 for (int o : outs) ocf.add(Math.floorMod(o - fr, 4));
@@ -1092,16 +1093,27 @@ final class PieceCatalog {
                 }
                 int pick = PieceLayout.pickTurn(contact, bestMatch, shape);
                 PieceLayout.Grid jp = grid(l.pack(), p.path(), pick);
+                int[] jpb = jp == null ? null : PieceLayout.centred(c, jp.sx(), jp.sz());
                 double worst = 1;
+                List<int[]> bxs = new ArrayList<>();
+                List<PieceLayout.Fit> fs = new ArrayList<>();
+                int[] ocArr = new int[ocf.size()];
                 for (int o = 0; o < at.size() && jp != null; o++) {
+                    ocArr[o] = ocf.get(o);
                     Plan.Line ln = at.get(o);
                     PieceSets.Piece st = primary(ln, 0);
                     PieceLayout.Grid sg = st == null ? null : grid(ln.pack(), st.path(), sturn(st, PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()}), ln.flip()) - fr);
-                    if (sg != null) worst = Math.min(worst, PieceLayout.fit(c, ocf.get(o), PieceLayout.centred(c, jp.sx(), jp.sz()), jp, sg, st.across(), st.run(), Math.max(3, st.across())).match());
+                    PieceLayout.Fit rf = sg == null ? new PieceLayout.Fit(0, 0, 1, 0) : PieceLayout.fit(c, ocf.get(o), jpb, jp, sg, st.across(), st.run(), Math.max(3, st.across()));
+                    worst = Math.min(worst, rf.match());
+                    fs.add(rf);
+                    bxs.add(sg == null ? new int[4] : PieceLayout.boxes(c, ocf.get(o), rf.off(), List.of(st.run()), st.across(), rf.shift()).get(0));
                 }
                 double score = PieceLayout.frameScore(worst, contact[pick]);
-                if (score > bestScore + 1e-9) {
+                // A tie: the frame whose runs sit flush with the L's outer edge.
+                int flush = jp == null || fs.size() < ocArr.length ? 0 : PieceLayout.outerFlush(ocArr, jpb, bxs);
+                if (score > bestScore + 1e-9 || score > bestScore - 1e-9 && flush > bestFlush) {
                     bestScore = score;
+                    bestFlush = flush;
                     best = pick;
                     rot = fr;
                     oc = ocf;

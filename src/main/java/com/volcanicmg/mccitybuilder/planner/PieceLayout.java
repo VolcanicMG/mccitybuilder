@@ -154,6 +154,25 @@ public final class PieceLayout {
         return Math.round(worstMatch * 1000) * 100.0 + contact;
     }
 
+    /**
+     * Breaks a tie between an L's frames the same way whichever way it is drawn: runs are better flush with the L's
+     * outer edge (away from the other arm) than inside it.
+     *
+     * @param boxes each run's box
+     * @return how many runs are flush with the joint box's outer edge
+     */
+    public static int outerFlush(int[] outs, int[] jb, List<int[]> boxes) {
+        int n = 0;
+        for (int q = 0; q < outs.length; q++) {
+            int d = outs[q], other = -1, lat = d % 2 == 0 ? 1 : 0;
+            for (int o : outs) if (o % 2 != d % 2) other = o;
+            if (other < 0) continue;
+            boolean high = other == 2 || other == 3;
+            if (high ? boxes.get(q)[lat + 2] == jb[lat + 2] : boxes.get(q)[lat] == jb[lat]) n++;
+        }
+        return n;
+    }
+
     /** @return box {x0, z0, x1, z1} turned {@code r} quarter turns clockwise about cell {@code c} (like Structurize) */
     public static int[] rotBox(int[] c, int[] b, int r) {
         int x0 = b[0] - c[0], z0 = b[1] - c[1], x1 = b[2] - c[0], z1 = b[3] - c[1];

@@ -276,7 +276,9 @@ final class JointEditorScreen extends Screen {
             if (sg == null) return null;
             String key = PieceLayout.alignKey(jp.path(), t, sp.path(), stt, o);
             int[] dr = drafts.get(key);
-            PieceLayout.Fit fit = dr != null ? PieceLayout.fitAt(c, o, jb, jg, sg, width, run, dr[0], dr[1]) : PieceLayout.fit(c, o, jb, jg, sg, width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
+            PieceLayout.Fit fit = dr != null ? PieceLayout.fitAt(c, o, jb, jg, sg, width, run, dr[0], dr[1]) : PieceLayout.fitWith(c, o, jb, jg, sg, width, run, Math.max(3, width),
+                    // As the planner places it: a legacy world shift converted on this joint.
+                    PieceLayout.relAlign(PieceLayout.alignAt(jg, sg, o), c, o, jb, width), fix == null ? null : fix.runs()[q]);
             boolean bad = dr != null && PieceLayout.destructiveAt(c, o, jb, jg, sg, width, run, dr[0], dr[1]);
             runs.add(new Run(o, sp.path(), stt, sg, fit, bad, key, dr != null || PieceCatalog.overrides(pack).containsKey(key)));
         }

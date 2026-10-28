@@ -277,6 +277,7 @@ final class JointCases {
         int rot = frames[0], best = 0;
         int[] oc = new int[outs.length], dc = new int[outs.length];
         double bestScore = -1;
+        int bestFlush = -1;
         for (int fr : frames) {
             int[] ocf = new int[outs.length], dcf = new int[outs.length];
             for (int q = 0; q < outs.length; q++) {
@@ -310,12 +311,21 @@ final class JointCases {
             int pick = PieceLayout.pickTurn(contact, bestMatch, shape);
             // Of the frames, the one whose weakest run meets the joint best, then the most contact.
             PieceLayout.Grid tp = jg.turned(ks.get(pick));
+            int[] tpb = box(c, ocf[0], tp, role, jp);
             double worst = 1;
-            for (int q = 0; q < outs.length; q++)
-                worst = Math.min(worst, PieceLayout.fit(c, ocf[q], box(c, ocf[0], tp, role, jp), tp, straight(sg, dcf[q], flip), width, run, Math.max(3, width)).match());
+            List<int[]> bxs = new ArrayList<>();
+            List<PieceLayout.Fit> fs = new ArrayList<>();
+            for (int q = 0; q < outs.length; q++) {
+                PieceLayout.Fit f = PieceLayout.fit(c, ocf[q], tpb, tp, straight(sg, dcf[q], flip), width, run, Math.max(3, width));
+                worst = Math.min(worst, f.match());
+                fs.add(f);
+                bxs.add(PieceLayout.boxes(c, ocf[q], f.off(), List.of(run), width, f.shift()).get(0));
+            }
             double score = PieceLayout.frameScore(worst, contact[pick]);
-            if (score > bestScore + 1e-9) {
+            int flush = PieceLayout.outerFlush(ocf, tpb, bxs);
+            if (score > bestScore + 1e-9 || score > bestScore - 1e-9 && flush > bestFlush) {
                 bestScore = score;
+                bestFlush = flush;
                 best = ks.get(pick);
                 rot = fr;
                 oc = ocf;
