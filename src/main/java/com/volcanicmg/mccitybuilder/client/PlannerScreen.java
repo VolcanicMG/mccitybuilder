@@ -1383,8 +1383,11 @@ final class PlannerScreen extends Screen {
             String builder = builderName(colony, o);
             String detail = Component.translatable("mccitybuilder.wo.levels", o.getCurrentLevel(), o.getTargetLevel()).getString() + "  " + builder;
             g.drawString(font, font.plainSubstrByWidth(detail, rw - 46), rx + 3, ry + 12, 0xFFE0E0E0, false);
-            // Progress: the builder's stage (the client view has no finer progress).
+            // Progress: the builder's "used" share of this order's materials, at least the stage estimate (clearing uses none).
             double frac = o.isClaimed() && o.getStage() != null ? QueueOrder.stageFraction(o.getStage().name()) : -1;
+            IBuildingView claimer = o.isClaimed() ? colony.getClientBuildingManager().getBuilding(o.getClaimedBy()) : null;
+            var res = claimer == null ? null : claimer.getModuleViewByType(com.minecolonies.core.colony.buildings.moduleviews.BuildingResourcesModuleView.class);
+            if (res != null && res.getWorkOrderId() == o.getID()) frac = Math.max(frac, Math.min(1, res.getProgress() / 100.0));
             if (frac >= 0) {
                 g.fill(rx + 1, ry + ROW_H - 4, rx + rw - 1, ry + ROW_H - 3, 0xFF373737);
                 g.fill(rx + 1, ry + ROW_H - 4, rx + 1 + (int) ((rw - 2) * frac), ry + ROW_H - 3, 0xFF55FF55);
