@@ -220,6 +220,29 @@ public final class LineSnap {
     }
 
     /**
+     * A free end of a perpendicular segment that the live run passes: within {@code r} of the run's line and between
+     * its start and {@code cells} along it. The run then goes through the cell on its line beside that end (the end
+     * moves onto it along its own axis, by at most r) and is split there: a T.
+     *
+     * @param ends per candidate: {x, z, 1 when the segment runs across the live direction and the end is free}
+     * @return {cell x, cell z, index into ends}, or null
+     */
+    public static int[] passing(int[] start, int dir, int cells, List<int[]> ends, double r) {
+        int[] best = null;
+        double bd = r;
+        for (int i = 0; i < ends.size(); i++) {
+            int[] e = ends.get(i);
+            if (e[2] != 1) continue;
+            int along = dir == 0 ? e[0] - start[0] : dir == 2 ? start[0] - e[0] : dir == 1 ? e[1] - start[1] : start[1] - e[1];
+            double lateral = Math.abs(dir % 2 == 0 ? e[1] - start[1] : e[0] - start[0]);
+            if (along < 1 || along >= cells - 1 || lateral > bd) continue;
+            bd = lateral;
+            best = new int[]{dir % 2 == 0 ? e[0] : start[0], dir % 2 == 0 ? start[1] : e[1], i};
+        }
+        return best;
+    }
+
+    /**
      * @param c the T snap's cell; @param e a segment end; @param chainStart the live chain's first start (null: none)
      * @return true when the end should be the joint instead of the T: the chain closing on its own start within the
      * snap radius, or an end within 2 cells of the T cell; a free end farther away never hijacks a T into a long wall

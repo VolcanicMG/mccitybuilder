@@ -522,6 +522,7 @@ public final class Planner {
     }
 
     static void stopPlacing() {
+        moving = null;
         placing = null;
         deco = null;
         placingHut = null;
@@ -695,6 +696,12 @@ public final class Planner {
             stopPlacing();
             return true;
         }
+        if (moving != null && creative() && serverInstant()) {
+            PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.MOVE, at, moving.getBuildingLevel(), "", "", rotation, 0, moving.getPosition(), RotationMirror.NONE));
+            moving = null;
+            stopPlacing();
+            return true;
+        }
         if (creative() && serverInstant()) {
             PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.PLACE, at, creative() ? placingLevel : 1, placingHut.pack(), placingHut.path(), rotation));
         } else if (creative()) {
@@ -754,6 +761,18 @@ public final class Planner {
     }
 
     /** Creative repair with CityBuilder on the server: the current level pasted at once. @return false otherwise */
+    // A building being moved (creative, server part): placed like a new hut, then the server rebuilds it there.
+    static IBuildingView moving;
+
+    /** Move: the building's hut goes out as a ghost at its level; confirming sends MOVE. @return false without the server part */
+    static boolean startMove(IBuildingView b) {
+        if (!serverInstant() || !creative() || b.getBuildingLevel() < 1 || !(b.getBuildingType().getBuildingBlock() instanceof Block hut)) return false;
+        startPlacing(hut);
+        placingLevel = b.getBuildingLevel();
+        moving = b;
+        return true;
+    }
+
     static boolean creativeRepair(IBuildingView b) {
         if (!serverInstant() || b.getBuildingLevel() < 1) return false;
         PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.REPAIR, b.getPosition(), b.getBuildingLevel(), "", "", RotationMirror.NONE));

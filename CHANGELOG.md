@@ -2,6 +2,17 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Citizen icons show what they hold (sword, bow, tool) with an armour badge; builders show their tool; tooltips say
+  "Holding" / "Armour".
+- Joint menu rows show the alignment percentage and flip walls when that aligns better; the 1-block gap at
+  towers whose ring is air is explained in the joint label; drawing past a
+  wall's free end makes a T there; Clear asks once and reports what it kept.
+- Server: deleting / moving / ordering the removal of decorations is limited to what City Builder itself built
+  (recorded per world); a move's footprints may not overlap; built segments freeze the pieces they actually sent.
+- Creative + server part: Move a building (rebuilt at the new spot at its level; inventories copied container by
+  container, citizens and name carried over, the old one taken down; module settings aren't kept). Removing a built
+  road / wall record also removes its blocks (creative: those still as the blueprint had them; survival: a builder
+  removal order, which clears whatever stands there). Protocol 4.
 - A wall's free end can be set (click its node in edit mode): auto, end cap, a tower at the end, or none; the menu no
   longer offers corner types there, and the panel says "This end".
 - Joint alignment editor: line walls up with a style's corner / T / cross / tower / end cap by hand in a 3D view

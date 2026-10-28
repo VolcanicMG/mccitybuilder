@@ -106,6 +106,12 @@ final class JointCases {
                 add(out, pack, famKey, name, fam, PieceLayout.jointRoles(Plan.J_AUTO, outs.length, false, false), sg, st, outs, dirsOf(outs), flip);
                 if (outs.length == 2) {
                     add(out, pack, famKey, name + "-inner", fam, List.of(PieceSets.Role.INNER), sg, st, outs, dirsOf(outs), flip);
+                    // Both walls leaving the joint (two chains started there) or both arriving: the straights turn differently.
+                    int[] leave = outs.clone(), arrive = {(outs[0] + 2) % 4, (outs[1] + 2) % 4};
+                    add(out, pack, famKey, name + "-leave", fam, PieceLayout.jointRoles(Plan.J_AUTO, 2, false, false), sg, st, outs, leave, flip);
+                    add(out, pack, famKey, name + "-leave-inner", fam, List.of(PieceSets.Role.INNER), sg, st, outs, leave, flip);
+                    add(out, pack, famKey, name + "-arrive", fam, PieceLayout.jointRoles(Plan.J_AUTO, 2, false, false), sg, st, outs, arrive, flip);
+                    add(out, pack, famKey, name + "-arrive-inner", fam, List.of(PieceSets.Role.INNER), sg, st, outs, arrive, flip);
                     if (!flip) add(out, pack, famKey, en.getKey() + "-tower", fam, PieceLayout.jointRoles(Plan.J_TOWER, 2, false, false), sg, st, outs, dirsOf(outs), false);
                 }
             }

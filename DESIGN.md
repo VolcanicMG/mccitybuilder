@@ -185,6 +185,47 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Place first puts the hut block and calls `onBlockPlacedByBuildTool` (registers the building at level 0), then the
   same paste and finish take it to the chosen level.
 
+### Moving and removing (server part, protocol 4)
+
+- `Request` carries a source position and rotation (`from`, `fromRot`); `PieceBatch` a mode instead of a survival
+  flag. Modes: MOVE (a building), DECO_DELETE, DECO_MOVE, DECO_REMOVE_ORDER (survival).
+- MOVE: creative, MANAGE_HUTS + PLACE_HUTS, the source building exists at its level (>= 1), is not the town hall and
+  has no parent or children, the target has no building, both in the same colony; the source's own pack / blueprint
+  at its level; then every PLACE check at the target (hut anchor, replaceable, `canPlaceAt`, level within max,
+  footprint chunks loaded + owned, break / place events all or nothing) and the source footprint's chunks loaded,
+  owned and locked with the target's; both positions busy-marked. The new building is placed and pasted exactly like
+  PLACE (abort = nothing lost: the old building is untouched until the paste completed), then `moveFinish`: every
+  item handler in the old footprint (the hut's inventory included) is emptied into the handler at the same
+  blueprint-relative position of the new one (`newPos = pos + (oldRot.calcDifferenceTowards(newRot)).applyToPos(old -
+  from)`; the rotation difference is checked with `add`, else inverted), leftovers go to the new hut's inventory, then
+  the player's inventory, then are dropped at the player; each `IAssignsCitizen` module of the old building hands its
+  citizens to the module of the same class in the new one; the custom name is copied; `destroy()`, the old hut block
+  removed, then `delete` over the old footprint. Module settings are not carried (said in the chat summary).
+- `delete` (DECO_DELETE, and a move's retirement): only blocks that still equal the blueprint's state go
+  (`PasteRules.remove`): never a hut, storage that still holds items, or an item-holding entity's support; an emptied
+  container goes; one BreakEvent per block before anything changes, all or nothing; removed top down.
+- DECO_MOVE: the DECO paste at the target, then the container copy and the matching delete of the old (from +
+  fromRot). DECO_REMOVE_ORDER: MineColonies' `WorkOrderDecoration` with REMOVE (the builder removes whatever stands
+  at the blueprint's solid positions), MANAGE_HUTS, owned chunks, one order per location, the 64 open-order cap.
+- Client: a Move button on a built building (creative + server part; off for the town hall and parent / child
+  buildings): the hut goes out as a ghost at the building's level, placed like a new hut (rotate, mirror, nudge),
+  confirm sends MOVE. Removing a built road / wall record (Del / Remove) also takes its stored pieces down: creative
+  DECO_DELETE batches, survival DECO_REMOVE_ORDER batches with the warning. Decorations placed from the palette
+  leave the plan when built, so they have no record to move or delete from the planner (the server modes are there
+  for a later entry point; decoration controllers aren't read on the client).
+
+- Only what City Builder built: `server/BuiltRecords` (per-dimension `SavedData`) records every decoration / piece
+  placed (DECO completion, DECO_MOVE's new spot) or ordered (DECO_ORDER) as colony | pack | path | anchor | turn
+  (`PasteRules.recordKey`). DECO_DELETE, DECO_MOVE and DECO_REMOVE_ORDER need an exact record (removed on success or
+  when the removal order is placed), refuse a footprint that overlaps any building's corners, a hut block or storage
+  with contents (`touchesOthers`), a removal order needs the decoration mostly standing (half its solid blocks), and
+  removal orders count toward the 64-order cap. A move's source and target footprints may not overlap
+  (`PasteRules.overlap`); the one loaded blueprint is turned to the source's rotation for its footprint and the
+  clean-up, to the target's for the paste. A claim refusing the clean-up after a move leaves the move done and says
+  "old site partly kept". The client has no list of those records yet (palette decorations still aren't selectable
+  for move / delete; a sync on planner open would give that).
+- Built segments freeze the pieces their accepted batches actually sent (`PlanView.batchSent`), never a later layout.
+
 ### Decorations, cleaning, entities (phase A)
 
 - Palette: after the hut categories come "Deco: <folder>" categories, one per folder of the style pack holding
@@ -442,6 +483,30 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Closing a ring: the end snap onto the chain's own start (any free end) wins over the T snap when that end is
   within the snap radius of the T cell, so a ring never splits its first wall a cell from its start and leaves the
   corner without a joint; each corner then has two ends and gets the chain's joint (towers when drawn with towers).
+- Joint menu rows show the alignment too: "fits · 92% aligned" (green from 90%, amber below; the least run match at
+  the joint, `PieceCatalog.jointMatch`), and each type is tried with every flip of the unlocked walls there (a corner
+  piece's ledge sits on one side): the trial that fits, then matches best, then flips fewest wins, "flips 1 wall" says
+  so, and applying it flips them. The harness's medievaloak inner corner cases (both turns, both flips, walls arriving
+  or leaving) are all 0.77 (plinth row only) or 1.00, so an offset there in game isn't the turn or the flip.
+- Towers: a run stops at a tower's box when the ring beside the body is air (an overlap would clear it in either
+  build order); the edit-mode joint label says "1-block gap (the joint's ring holds air ...)" (`jointGapAir`). A
+  thin wall on a wide tower is centred to half a block (shift 0 on ties: walls stay straight through a tower).
+  Dormant: `PieceLayout.jointFirst` + `destructiveAfter` (only a run's air over a joint block counts, so a run may
+  fill the ring: 127 of 162 tower cases would reach the body, medievaloak included; 35 still stop). It is OFF
+  (`PlanView` sets it false) because nothing guarantees the paste order the rule assumes: the server pastes in
+  the order it receives, a refused or timed-out batch drops only its own segment's rest while other segments' runs
+  still go, Build selected can send runs before their joint's owner, and a joint next to an already built run is
+  never first; in each case the joint's air would clear standing run blocks. `commit` still sends a segment's own
+  joints first (harmless). Turning it on needs a server-side atomic paste of a joint together with its touching run
+  ends, or a server re-check of a joint paste against standing blocks (skip its air cells over them); survival
+  would keep the gap either way (builders take orders in any order).
+- Drawing past a perpendicular wall's free end (`LineSnap.passing`): an unlocked free end within the snap radius of
+  the live line, between its start and its end, moves onto the line along its own axis (`adjust`) and the live
+  segment is split there on the click (`teeCell`): a T with the chosen joint type, shown live ("snap: T with a
+  wall's end"), the same result as dragging that end onto the line in edit mode.
+- Clear asks "Click Clear again to remove all N planned wall segments" (3 s), then removes every planned segment of
+  the tool at once (the chain ends, the plan is laid out again) and says what stayed: "N built or sending walls kept
+  (Remove deletes built ones)".
 - Joint menu (edit mode, a click on a joint node; `LineView.openJointMenu`, `Plan.menuTypes`): the types that mean
   something for the node's shape (a free end: auto = its cap, end cap, tower standing at the wall's end, none; an L:
   auto, corner, inner corner, tower, none; a T: auto, T, tower, none; a cross: auto, cross, tower, none; straight

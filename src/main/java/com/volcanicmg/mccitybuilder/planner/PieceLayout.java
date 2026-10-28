@@ -371,7 +371,8 @@ public final class PieceLayout {
                 for (long v : S) if (J.get(i).contains(v + s)) hit++;
                 if (hit * 2 < S.size()) continue;
                 int[] bx = boxes(c, d, edge - i - si, List.of(run), width, s).get(0);
-                if (i + si == 0 || !destructive(joint, jb[0], -joint.ground(), jb[1], straight, bx[0], -straight.ground(), bx[1]))
+                if (i + si == 0 || !(jointFirst ? destructiveAfter(joint, jb[0], -joint.ground(), jb[1], straight, bx[0], -straight.ground(), bx[1])
+                        : destructive(joint, jb[0], -joint.ground(), jb[1], straight, bx[0], -straight.ground(), bx[1])))
                     f = new Fit(edge - i - si, s, jaccard(J.get(i), S, s), i);
                 break;
             }
@@ -435,6 +436,23 @@ public final class PieceLayout {
     public static void clearCache() {
         FITS.clear();
         SCORES.clear();
+    }
+
+    /**
+     * Joints are always pasted before the runs meeting them (creative batches send them first): a run then only hurts a
+     * joint where its air would clear a joint block; its blocks may fill the joint's air (a tower's parapet ring), so
+     * runs reach the tower body. Off for survival, where builders take orders in any order.
+     */
+    public static boolean jointFirst;
+
+    /** @return true when {@code b}, pasted after {@code a}, would clear or replace a block of {@code a} */
+    public static boolean destructiveAfter(Grid a, int ax, int ay, int az, Grid b, int bx, int by, int bz) {
+        int x0 = Math.max(ax, bx), x1 = Math.min(ax + a.sx(), bx + b.sx()), y0 = Math.max(ay, by), y1 = Math.min(ay + a.sy(), by + b.sy());
+        int z0 = Math.max(az, bz), z1 = Math.min(az + a.sz(), bz + b.sz());
+        for (int x = x0; x < x1; x++)
+            for (int y = y0; y < y1; y++)
+                for (int z = z0; z < z1; z++) if (hurts(a.id(x - ax, y - ay, z - az), b.id(x - bx, y - by, z - bz))) return true;
+        return false;
     }
 
     private static boolean hurts(int first, int second) {
@@ -511,6 +529,18 @@ public final class PieceLayout {
         int best = own;
         for (int n : neighbours) best = Math.max(best, n);
         return best;
+    }
+
+    /**
+     * @return the levels with piece {@code idx} raised to at least {@code level} and the rest raised outward from it
+     * so neighbours differ by at most 1 (never lowered): a smoothed run whose first piece rose to its joint
+     */
+    public static int[] raiseSmooth(int[] lv, int idx, int level) {
+        int[] out = lv.clone();
+        out[idx] = Math.max(out[idx], level);
+        for (int k = idx + 1; k < out.length; k++) out[k] = Math.max(out[k], out[k - 1] - 1);
+        for (int k = idx - 1; k >= 0; k--) out[k] = Math.max(out[k], out[k + 1] - 1);
+        return out;
     }
 
     /**

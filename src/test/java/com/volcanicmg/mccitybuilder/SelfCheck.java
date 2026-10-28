@@ -1029,6 +1029,28 @@ public final class SelfCheck {
         check(base == 74 && s1[0] == 75 && s1[1] == 75 && s2[0] == 75, "chain-flat shares one level: " + base);
         check(PieceLayout.jointLevel(64, new int[]{66, 70}) == 70 && PieceLayout.jointLevel(64, new int[]{}) == 64 && PieceLayout.jointLevel(72, new int[]{66, 70}) == 72,
                 "joint = highest of its ground and its neighbours (one Y at the seam)");
+        // A smoothed run whose first piece rose to its joint: the rest rises outward by at most 1 per piece, never down.
+        check(java.util.Arrays.equals(PieceLayout.raiseSmooth(new int[]{64, 64, 65, 66}, 0, 68), new int[]{68, 67, 66, 66})
+                && java.util.Arrays.equals(PieceLayout.raiseSmooth(new int[]{70, 64, 64}, 1, 66), new int[]{70, 66, 65}), "re-smoothed outward after a raise");
+        // Deleting a decoration / a retired building: only the blueprint's own blocks, never a hut, storage with
+        // contents or an entity's support; an emptied container (a moved building's) goes.
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, false, true, false, false) && !com.volcanicmg.mccitybuilder.planner.PasteRules.remove(false, false, true, false, false)
+                && !com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, true, false, false, false) && com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, true, true, false, false)
+                && !com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, false, true, true, false) && !com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, false, true, false, true),
+                "matching-only removal decisions");
+        // A move's footprints may not share a block; records match exactly (pack, normalised path, anchor, turn).
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.overlap(new int[]{0, 60, 0, 9, 70, 9}, new int[]{9, 70, 9, 20, 80, 20})
+                && !com.volcanicmg.mccitybuilder.planner.PasteRules.overlap(new int[]{0, 60, 0, 9, 70, 9}, new int[]{10, 60, 0, 20, 70, 9}), "footprint overlap");
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.recordKey(3, "p", "a\\b.blueprint", 1, 2, 3, 1).equals(com.volcanicmg.mccitybuilder.planner.PasteRules.recordKey(3, "p", "a/b.blueprint", 1, 2, 3, 1))
+                && !com.volcanicmg.mccitybuilder.planner.PasteRules.recordKey(3, "p", "a/b.blueprint", 1, 2, 3, 1).equals(com.volcanicmg.mccitybuilder.planner.PasteRules.recordKey(3, "p", "a/b.blueprint", 1, 2, 3, 2)),
+                "built record keys");
+        // Built pieces round trip and stay as built (a new run meeting a built joint takes them as they are).
+        var bp = new Plan.BuiltPiece(0, 0, 20, 0, "walls/corner/corner5.blueprint", 3, 23, 71, 2, 17, -3, 23, 3, "CORNER");
+        var built = Plan.readBuilt(Plan.write(List.of(), List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 5, -1, false, false).asBuilt()), java.util.Map.of(), java.util.Map.of(bp.key(), List.of(bp))));
+        check(built.get(Plan.lineKey(0, 0, 20, 0)).equals(List.of(bp)), "built pieces round trip");
+        var pruned = new java.util.HashMap<>(built);
+        Plan.pruneBuilt(pruned, List.of());
+        check(pruned.isEmpty(), "built pieces go with their segment");
         // Sloped ground under a run with a cap at its start: the cap and the first straight meet at one level.
         check(java.util.Arrays.equals(PieceLayout.shareSeams(new int[]{64, 66, 67, 69}, new boolean[]{true, false, false, false}), new int[]{66, 66, 67, 69})
                 && java.util.Arrays.equals(PieceLayout.shareSeams(new int[]{64, 66, 70, 67}, new boolean[]{false, false, true, false}), new int[]{64, 70, 70, 70}),
@@ -1276,6 +1298,23 @@ public final class SelfCheck {
             for (var r : cs.runs())
                 if (!cs.name().contains("tower") && (cs.name().startsWith("L-") || cs.name().startsWith("T")))
                     check(JointCases.measure(cs, r, 3, 6) >= 1 - 1e-9, "medievaloak " + cs.name() + " run " + "ESWN".charAt(r.out()) + " body continues: " + JointCases.report(cs).reason());
+        // Towers with joints pasted first (creative): a run may fill the ring's air, so it reaches the body.
+        List<String> closed = new java.util.ArrayList<>(), still = new java.util.ArrayList<>();
+        PieceLayout.jointFirst = true;
+        try {
+            for (var cs : JointCases.all()) {
+                if (!cs.name().contains("tower")) continue;
+                var rep = JointCases.report(cs);
+                check(rep.match() >= rep.best() - 1e-9, "joint-first layout optimal: " + cs.family() + " " + cs.name());
+                boolean gap = false;
+                for (var r : cs.runs()) gap |= r.fit().depth() < 0;
+                (gap ? still : closed).add(cs.family() + " " + cs.name() + String.format(" %.2f", rep.match()));
+            }
+        } finally {
+            PieceLayout.jointFirst = false;
+        }
+        System.out.println("CityBuilder self-check: tower runs reaching the body with joints pasted first (" + closed.size() + "): " + closed);
+        System.out.println("CityBuilder self-check: tower runs still stopping at the box (" + still.size() + "): " + still);
         System.out.println("CityBuilder self-check: continuous joints (" + ok.size() + "): " + ok);
         System.out.println("CityBuilder self-check: joints that can't be continuous (" + bad.size() + "):");
         for (String b : bad) System.out.println("  " + b);
@@ -1306,6 +1345,19 @@ public final class SelfCheck {
         var shown = Plan.withJoint(types, Plan.cell(0, 0), Plan.J_INNER);
         check(shown.get(Plan.cell(0, 0)) == Plan.J_INNER && types.get(Plan.cell(0, 0)) == Plan.J_TOWER && !Plan.withJoint(types, Plan.cell(0, 0), Plan.J_AUTO).containsKey(Plan.cell(0, 0)),
                 "joint preview never touches the saved types");
+        // A live run passing a perpendicular wall's free end within the radius: the T cell on the run's line beside it,
+        // both sides and both directions; an end behind the start, past the cursor or a parallel wall's end is ignored.
+        List<int[]> ends = List.of(new int[]{10, 2, 1}, new int[]{30, -1, 1}, new int[]{5, 0, 0});
+        int[] ps = LineSnap.passing(new int[]{0, 0}, 0, 20, ends, 3);
+        check(ps != null && ps[0] == 10 && ps[1] == 0 && ps[2] == 0, "passing a free end: T cell on the line");
+        check(LineSnap.passing(new int[]{0, 0}, 0, 8, ends, 3) == null && LineSnap.passing(new int[]{0, 0}, 2, 20, ends, 3) == null, "no T behind or past the run");
+        int[] pw = LineSnap.passing(new int[]{0, 0}, 3, 20, List.of(new int[]{-2, -12, 1}), 3);
+        check(pw != null && pw[0] == 0 && pw[1] == -12, "passing an end on the other side heading north");
+        // One confirmed Clear leaves no planned segment of the tool; built and sending ones and the other tool stay.
+        List<Plan.Line> clearMix = List.of(new Plan.Line("wall", 0, 0, 9, 0, "p", "f", 1, -1, false, false), new Plan.Line("wall", 9, 0, 9, 9, "p", "f", 1, -1, false, false).asBuilt(),
+                new Plan.Line("road", 0, 5, 9, 5, "p", "r", 1, -1, false, false), new Plan.Line("wall", 20, 0, 29, 0, "p", "f", 1, -1, false, false));
+        List<Plan.Line> left = Plan.clearTool(clearMix, "wall", Plan.Line::built);
+        check(left.size() == 2 && left.stream().noneMatch(l -> l.tool().equals("wall") && !l.built()), "one Clear removes every planned wall");
         List<Plan.Line> tri = List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, false), new Plan.Line("wall", 20, 0, 20, 20, "p", "f", 1, -1, false, false),
                 new Plan.Line("wall", 20, 20, 0, 20, "p", "f", 1, -1, false, false), new Plan.Line("wall", 0, 20, 0, 0, "p", "f", 1, -1, false, false));
         check(Plan.connected(tri, 0).size() == 4, "a closed loop is one wall");

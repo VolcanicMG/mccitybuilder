@@ -34,8 +34,17 @@ final class OverlayView {
     record Site(IBuildingView builder, BlockPos site, AABB box, List<Overlays.Need> needs, ICitizenDataView citizen) {
     }
 
-    /** A citizen marker in the world: position, colour, the citizen, its builder site for builders, its workplace's hut item for workers (null: none). */
-    record Marker(Vec3 pos, int color, ICitizenDataView citizen, Site site, net.minecraft.world.item.ItemStack icon) {
+    /**
+     * A citizen marker in the world: position, colour, the citizen, its builder site for builders, its workplace's hut
+     * item for workers (null: none), what its entity holds in the main hand (empty: nothing) and wears: the best
+     * armour piece (chest > head > legs > feet; empty: none) and how many of the four slots are filled.
+     */
+    record Marker(Vec3 pos, int color, ICitizenDataView citizen, Site site, net.minecraft.world.item.ItemStack icon, net.minecraft.world.item.ItemStack held,
+                  net.minecraft.world.item.ItemStack armour, int armourPieces) {
+        /** @return the main icon: the held item, else the workplace hut item, else null */
+        net.minecraft.world.item.ItemStack mainIcon() {
+            return !held.isEmpty() ? held : icon;
+        }
     }
 
     static List<Site> sites = List.of();
@@ -82,7 +91,7 @@ final class OverlayView {
                 Site site = new Site(b, order == null ? null : order.getLocation(), order == null ? null : order.getBoundingBox(), Overlays.waiting(needs, 8), who);
                 s.add(site);
                 Vec3 at = where(who);
-                if (at != null) builders.add(new Marker(at, 0xFFFFD040, who, site, null));
+                if (at != null) builders.add(marker(at, 0xFFFFD040, who, site, null));
             }
             int slots = 0, assigned = 0;
             for (WorkerBuildingModuleView w : b.getModuleViews(WorkerBuildingModuleView.class)) {
@@ -96,13 +105,33 @@ final class OverlayView {
             for (ICitizenDataView c : colony.getCitizens().values()) {
                 if (builderIds.contains(c.getId())) continue;
                 Vec3 at = where(c);
-                if (at != null) citizens.add(new Marker(at, Overlays.jobColor(c.getJob()), c, null, hutItem(colony, c)));
+                if (at != null) citizens.add(marker(at, Overlays.jobColor(c.getJob()), c, null, hutItem(colony, c)));
             }
         citizens.addAll(builders);
         sites = s;
         markers = citizens;
         staff = st;
         counts = ct;
+    }
+
+    private static final net.minecraft.world.entity.EquipmentSlot[] ARMOUR = {net.minecraft.world.entity.EquipmentSlot.CHEST, net.minecraft.world.entity.EquipmentSlot.HEAD,
+            net.minecraft.world.entity.EquipmentSlot.LEGS, net.minecraft.world.entity.EquipmentSlot.FEET};
+
+    /** A marker with the entity's equipment (vanilla syncs held and worn items to the client). */
+    private static Marker marker(Vec3 at, int color, ICitizenDataView c, Site site, net.minecraft.world.item.ItemStack icon) {
+        Entity e = Minecraft.getInstance().level.getEntity(c.getEntityId());
+        net.minecraft.world.item.ItemStack held = net.minecraft.world.item.ItemStack.EMPTY, best = net.minecraft.world.item.ItemStack.EMPTY;
+        int pieces = 0;
+        if (e instanceof net.minecraft.world.entity.LivingEntity le) {
+            held = le.getMainHandItem();
+            for (var slot : ARMOUR) {
+                net.minecraft.world.item.ItemStack st = le.getItemBySlot(slot);
+                if (st.isEmpty()) continue;
+                pieces++;
+                if (best.isEmpty()) best = st;
+            }
+        }
+        return new Marker(at, color, c, site, icon, held, best, pieces);
     }
 
     /** @return the hut block item of the citizen's workplace (its building type's block), or null without a job there */

@@ -185,9 +185,40 @@ public final class Plan {
         return write(entries, lines, java.util.Map.of());
     }
 
+    /**
+     * A piece of a built segment as it was built: the segment's ends (its key), the blueprint, its turns, anchor and
+     * footprint box, and its role. Built segments are never laid out again: these are fixed inputs for new segments.
+     */
+    public record BuiltPiece(int x0, int z0, int x1, int z1, String path, int turns, int ax, int ay, int az, int bx0, int bz0, int bx1, int bz1, String role) {
+        public String key() {
+            return lineKey(x0, z0, x1, z1);
+        }
+    }
+
+    /** @return the key built pieces are stored under: the segment's ends */
+    public static String lineKey(int x0, int z0, int x1, int z1) {
+        return x0 + "," + z0 + "," + x1 + "," + z1;
+    }
+
+    /** Drops the built pieces of segments that are no longer built records of the plan. */
+    public static void pruneBuilt(java.util.Map<String, List<BuiltPiece>> built, List<Line> lines) {
+        java.util.Set<String> keep = new java.util.HashSet<>();
+        for (Line l : lines) if (l.built()) keep.add(lineKey(l.x0(), l.z0(), l.x1(), l.z1()));
+        built.keySet().retainAll(keep);
+    }
+
     /** @return entries, lines and the joint types chosen per joint cell (rows {@code J x z type}) */
     public static String write(List<Entry> entries, List<Line> lines, java.util.Map<Long, Integer> joints) {
+        return write(entries, lines, joints, java.util.Map.of());
+    }
+
+    /** @return entries, lines, joint types and the built segments' pieces (rows {@code P}) */
+    public static String write(List<Entry> entries, List<Line> lines, java.util.Map<Long, Integer> joints, java.util.Map<String, List<BuiltPiece>> built) {
         StringBuilder sb = new StringBuilder("mccitybuilder-plan\t" + VERSION + "\n");
+        for (var en : new java.util.TreeMap<>(built).entrySet())
+            for (BuiltPiece b : en.getValue())
+                sb.append(String.join("\t", "P", "" + b.x0(), "" + b.z0(), "" + b.x1(), "" + b.z1(), b.path(), "" + b.turns(), "" + b.ax(), "" + b.ay(), "" + b.az(),
+                        "" + b.bx0(), "" + b.bz0(), "" + b.bx1(), "" + b.bz1(), b.role())).append('\n');
         for (var en : new java.util.TreeMap<>(joints).entrySet())
             if (en.getValue() != J_AUTO) sb.append("J\t").append(cellX(en.getKey())).append('\t').append(cellZ(en.getKey())).append('\t').append(en.getValue()).append('\n');
         for (Line l : lines)
@@ -247,6 +278,28 @@ public final class Plan {
                             mode, dy, base, Boolean.parseBoolean(f[16].trim()));
                 }
                 out.add(l);
+            } catch (NumberFormatException ignored) {
+                // A damaged row: skip it.
+            }
+        }
+        return out;
+    }
+
+    /** @return the built pieces in {@code text} (rows {@code P}) by segment key; damaged rows are skipped */
+    public static java.util.Map<String, List<BuiltPiece>> readBuilt(String text) {
+        java.util.Map<String, List<BuiltPiece>> out = new java.util.HashMap<>();
+        if (text == null) return out;
+        String[] rows = text.split("\n");
+        if (rows.length == 0 || !rows[0].startsWith("mccitybuilder-plan\t")) return out;
+        for (int i = 1; i < rows.length; i++) {
+            String[] f = rows[i].split("\t");
+            if (f.length != 15 || !f[0].equals("P")) continue;
+            try {
+                int[] n = new int[12];
+                int[] at = {1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13};
+                for (int k = 0; k < 12; k++) n[k] = Integer.parseInt(f[at[k]].trim());
+                BuiltPiece b = new BuiltPiece(n[0], n[1], n[2], n[3], f[5], Math.floorMod(n[4], 4), n[5], n[6], n[7], n[8], n[9], n[10], n[11], f[14].trim());
+                out.computeIfAbsent(b.key(), k -> new ArrayList<>()).add(b);
             } catch (NumberFormatException ignored) {
                 // A damaged row: skip it.
             }

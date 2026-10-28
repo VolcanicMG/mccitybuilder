@@ -19,6 +19,29 @@ public final class PasteRules {
     }
 
     /**
+     * Deleting a decoration or a retired building: only blocks that still are the blueprint's go, and never a hut,
+     * storage that still holds items, or a block an item-holding entity needs.
+     *
+     * @param sameState   the world block is exactly the blueprint's; @param protectedBl storage or a hut
+     * @param emptied     the storage holds nothing (a moved building's chest, just copied); @param hut a hut block
+     * @param entityKept  an entity with items stands on or hangs from it
+     */
+    public static boolean remove(boolean sameState, boolean protectedBl, boolean emptied, boolean hut, boolean entityKept) {
+        if (!sameState || hut || entityKept) return false;
+        return !protectedBl || emptied;
+    }
+
+    /** @return the key a built decoration / piece is recorded under: colony, normalised pack / path, anchor, rotation ordinal */
+    public static String recordKey(int colony, String pack, String path, int x, int y, int z, int rot) {
+        return colony + "|" + pack + "|" + (path == null ? "" : path.replace('\\', '/')) + "|" + x + "," + y + "," + z + "|" + rot;
+    }
+
+    /** @return true when two footprint boxes {x0, y0, z0, x1, y1, z1} (inclusive) share any block: a move's source and target may not */
+    public static boolean overlap(int[] a, int[] b) {
+        return a[0] <= b[3] && b[0] <= a[3] && a[1] <= b[4] && b[1] <= a[4] && a[2] <= b[5] && b[2] <= a[5];
+    }
+
+    /**
      * @return null when a client-sent place path is safe (relative, inside the pack, not a scan, a blueprint, and for
      * {@code level > 0} that level's file), else why not
      */

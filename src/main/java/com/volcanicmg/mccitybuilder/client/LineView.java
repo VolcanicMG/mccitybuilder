@@ -229,6 +229,14 @@ final class LineView {
             if (adjust != null && adjust[0] < all.size()) all.set(adjust[0], moveEnd(all.get(adjust[0]), adjust[1], adjust[2], adjust[3]));
             // Ending on a segment: preview it split there (the click splits it for real), so the T shows.
             if (tee) Plan.split(all, b, PlanView::locked);
+            // Passing a wall's free end: the live run itself is split there.
+            if (teeCell != null && !merge) {
+                List<Plan.Line> one = new ArrayList<>(List.of(nl));
+                if (Plan.split(one, teeCell, l -> false) == 0) {
+                    all.add(one.get(0));
+                    nl = one.get(1);
+                }
+            }
             if (merge && !chain.isEmpty() && all.remove(chain.get(chain.size() - 1))) {
                 // Straight on: the chain's last segment, extended, is what is laid out live.
                 Plan.Line prev = chain.get(chain.size() - 1);
@@ -243,8 +251,9 @@ final class LineView {
             for (int k = 0; k < last; k++)
                 if (onLine(all.get(k), a) || onLine(all.get(k), b))
                     for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
+            boolean wasEmpty = live.isEmpty();
             live = ps;
-            if (liveA == null || liveA[0] != a[0] || liveA[1] != a[1] || liveB[0] != b[0] || liveB[1] != b[1]) PlanView.relayout();
+            if (wasEmpty != live.isEmpty() || liveA == null || liveA[0] != a[0] || liveA[1] != a[1] || liveB[0] != b[0] || liveB[1] != b[1]) PlanView.relayout();
             liveA = a.clone();
             liveB = b.clone();
             liveShort = lay.shortened().get(last);
@@ -497,28 +506,46 @@ final class LineView {
         setJointType(Math.floorMod(PlanView.jointTypes.getOrDefault(k, Plan.J_AUTO) + d, Plan.J_TYPES));
     }
 
-    /** A trial of a joint type at the selected joint: the types, the lines re-fitted, and the blocks a fixed run would lack (0 = fits). */
-    private record Trial(java.util.Map<Long, Integer> types, List<Plan.Line> lines, int lacks) {
+    /** A trial of a joint type at the selected joint: the types, the lines re-fitted (flipped where that aligns better), the blocks a fixed run would lack (0 = fits), the least run match there, and how many walls flip. */
+    private record Trial(java.util.Map<Long, Integer> types, List<Plan.Line> lines, int lacks, double match, int flips) {
     }
 
+    /**
+     * Tries the type with every flip combination of the unlocked walls at the joint (a corner piece's ledge sits on
+     * one side: a wall facing the other way meets it stepped): the one that fits, then matches best, then flips fewest.
+     */
     private static Trial trial(int t) {
-        long k = Plan.cell(selectedJoint[0], selectedJoint[1]);
-        java.util.Map<Long, Integer> trial = new java.util.HashMap<>(PlanView.jointTypes);
-        if (t == Plan.J_AUTO) trial.remove(k);
-        else trial.put(k, t);
-        // A type that costs a run a straight: runs with a free end grow to fit; a run fixed at both ends refuses it.
         List<Integer> at = linesAt(selectedJoint);
-        PieceCatalog.Layout lay = PieceCatalog.layout(PlanView.lines, trial);
-        List<Plan.Line> ls = Plan.refitFree(PlanView.lines, at, lay.offs(), lensAll(), PlanView::locked, 12);
+        List<Integer> flippable = new ArrayList<>();
+        for (int i : at) if (!PlanView.locked(PlanView.lines.get(i))) flippable.add(i);
+        Trial best = null;
+        for (int mask = 0; mask < 1 << Math.min(3, flippable.size()); mask++) {
+            List<Plan.Line> ls = new ArrayList<>(PlanView.lines);
+            for (int b = 0; b < flippable.size() && b < 3; b++)
+                if ((mask >> b & 1) == 1) ls.set(flippable.get(b), ls.get(flippable.get(b)).withFlip(!ls.get(flippable.get(b)).flip()));
+            Trial tr = trial(t, ls, at, Integer.bitCount(mask));
+            if (best == null || tr.lacks() == 0 && best.lacks() > 0 || (tr.lacks() == 0) == (best.lacks() == 0)
+                    && (tr.match() > best.match() + 1e-9 || Math.abs(tr.match() - best.match()) < 1e-9 && tr.flips() < best.flips())) best = tr;
+        }
+        PieceCatalog.layout(PlanView.lines, PlanView.jointTypes);
+        return best;
+    }
+
+    private static Trial trial(int t, List<Plan.Line> base, List<Integer> at, int flips) {
+        long k = Plan.cell(selectedJoint[0], selectedJoint[1]);
+        java.util.Map<Long, Integer> trial = Plan.withJoint(PlanView.jointTypes, k, t);
+        // A type that costs a run a straight: runs with a free end grow to fit; a run fixed at both ends refuses it.
+        PieceCatalog.Layout lay = PieceCatalog.layout(base, trial);
+        List<Plan.Line> ls = Plan.refitFree(base, at, lay.offs(), lensAll(), PlanView::locked, 12);
         PieceCatalog.Layout lay2 = PieceCatalog.layout(ls, trial);
+        double match = PieceCatalog.jointMatch.getOrDefault(k, t == Plan.J_NONE ? 1.0 : 0.0);
         int short2 = 0;
         for (int i : at) {
             int before = straights(PlanView.linePieces, i), after = straights(lay2.lines(), i);
             int avail = Plan.cells(ls.get(i)) - lay2.offs().get(i)[0] - lay2.offs().get(i)[1];
             if (after < before) short2 = Math.max(short2, Math.max(1, before * minRun(i) - avail));
         }
-        PieceCatalog.layout(PlanView.lines, PlanView.jointTypes);
-        return new Trial(trial, ls, short2);
+        return new Trial(trial, ls, short2, match, flips);
     }
 
     /** @return true when the selected joint took type {@code t}; refused (a flash) when a run fixed at both ends would lose a straight */
@@ -546,8 +573,8 @@ final class LineView {
 
     // ---- the joint menu (a click on a joint node) ----
 
-    /** One option of the joint menu: the type, the piece it would use (null for none), the blocks a fixed run would lack (0 fits, -1 unknown). */
-    record JointOption(int type, PieceSets.Piece piece, int lacks) {
+    /** One option of the joint menu: the type, the piece it would use (null for none), the blocks a fixed run would lack (0 fits), the run match (1 = continuous) and the walls that flip for it. */
+    record JointOption(int type, PieceSets.Piece piece, int lacks, double match, int flips) {
     }
 
     static boolean jointMenu;
@@ -591,7 +618,8 @@ final class LineView {
             if (piece == null && t != Plan.J_AUTO && t != Plan.J_NONE) continue;
             final PieceSets.Piece pc = piece;
             if (t != Plan.J_AUTO && t != Plan.J_NONE && pc != null && out.stream().anyMatch(o -> o.piece() != null && o.piece().path().equals(pc.path()) && o.type() != Plan.J_AUTO)) continue;
-            out.add(new JointOption(t, piece, trial(t).lacks()));
+            Trial tr = trial(t);
+            out.add(new JointOption(t, piece, tr.lacks(), tr.match(), tr.flips()));
         }
         jointOptions = out;
         jointMenu = true;
@@ -765,6 +793,29 @@ final class LineView {
             return c;
         }
         int cells = LineSnap.length(start, raw) + 1;
+        // A perpendicular wall's free end the run passes: the end moves onto the line (along its own axis) and the
+        // run is split there on the click, a T, like dragging that end onto the line by hand.
+        teeCell = null;
+        List<int[]> ends = new ArrayList<>();
+        List<int[]> endRef = new ArrayList<>();
+        for (int i = 0; i < PlanView.lines.size(); i++) {
+            Plan.Line a = PlanView.lines.get(i);
+            boolean across = (a.z0() == a.z1()) != (dir % 2 == 0);
+            for (int k = 0; k < 2; k++) {
+                int[] e = a.ends()[k];
+                boolean free = endCount(e) == 1 && !PlanView.locked(a) && !(e[0] == start[0] && e[1] == start[1]);
+                ends.add(new int[]{e[0], e[1], across && free ? 1 : 0});
+                endRef.add(new int[]{i, k});
+            }
+        }
+        int[] pass = LineSnap.passing(start, dir, cells, ends, r);
+        if (pass != null) {
+            int[] ref = endRef.get(pass[2]), e = ends.get(pass[2]);
+            if (e[0] != pass[0] || e[1] != pass[1]) adjust = new int[]{ref[0], ref[1], pass[0], pass[1]};
+            teeCell = new int[]{pass[0], pass[1]};
+            snap = "tee_end";
+            snapPoints = List.of(teeCell);
+        }
         Plan.Line nl = next(start, raw);
         int[] lens = PieceCatalog.runLengths(nl);
         if (liveOffs != null && lens.length > 0 && !net.minecraft.client.gui.screens.Screen.hasShiftDown()) {
@@ -936,6 +987,7 @@ final class LineView {
             chainBase = nb;
         }
         Plan.Line l = next(start, end);
+        int[] splitAt = teeCell == null ? null : teeCell.clone();
         if (merge && !chain.isEmpty() && !PlanView.locked(chain.get(chain.size() - 1))) {
             // Straight on: the last segment grows instead of a second one butting against it.
             Plan.Line prev = chain.get(chain.size() - 1);
@@ -946,8 +998,9 @@ final class LineView {
             PlanView.addLine(l);
             chain.add(l);
         }
+        if (splitAt != null) PlanView.splitAt(splitAt);
         // The joint default for the joints this segment makes.
-        for (int[] c : new int[][]{start, end})
+        for (int[] c : splitAt == null ? new int[][]{start, end} : new int[][]{start, end, splitAt})
             if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         refitAround(new int[][]{start, end}, l);
         prevDir = new int[]{end[0] - start[0], end[1] - start[1]};
@@ -1109,6 +1162,15 @@ final class LineView {
         List<Plan.Line> gone = new ArrayList<>();
         for (int i : which) if (i >= 0 && i < PlanView.lines.size()) gone.add(PlanView.lines.get(i));
         if (gone.isEmpty()) return false;
+        // Built records: with the server part their pieces are taken down too (creative: matching blocks removed at
+        // once; survival: a builder's REMOVE order per piece, which clears whatever stands where its blocks are).
+        int sent = 0;
+        for (Plan.Line l : gone) if (l.built() && PlanView.sendRemoval(l)) sent++;
+        if (sent > 0) {
+            flash = Planner.creative() ? "mccitybuilder.line.built_deleted" : "mccitybuilder.line.built_remove_ordered";
+            flashArg = sent;
+            flashUntil = System.currentTimeMillis() + 4000;
+        }
         removed.push(gone);
         while (removed.size() > 32) removed.removeLast();
         List<Plan.Line> keep = new ArrayList<>(PlanView.lines);
@@ -1120,6 +1182,9 @@ final class LineView {
         endChain();
         return true;
     }
+
+    // A perpendicular wall's free end the live run passes: the run is split there on the click (a T).
+    static int[] teeCell;
 
     private static long clearArmed;
 
@@ -1146,8 +1211,11 @@ final class LineView {
         endChain();
         select(List.of(), false);
         PlanView.setLines(keep);
-        flash = "mccitybuilder.line.cleared";
-        flashArg = n;
+        // What stays and why: built records (Remove deletes them) and segments on their way to the server.
+        int kept = 0;
+        for (Plan.Line l : keep) if (l.tool().equals(tool)) kept++;
+        flash = kept > 0 ? "mccitybuilder.line.cleared_kept." + tool : "mccitybuilder.line.cleared";
+        flashArg = kept > 0 ? kept : n;
         flashUntil = now + 1500;
     }
 

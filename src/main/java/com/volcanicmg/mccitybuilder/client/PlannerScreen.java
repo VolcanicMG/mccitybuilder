@@ -255,21 +255,23 @@ final class PlannerScreen extends Screen {
             if (ndc == null || Math.abs(ndc[0]) > 1.05 || Math.abs(ndc[1]) > 1.05) continue;
             int sx = (int) Math.round((ndc[0] + 1) / 2 * width), sy = (int) Math.round((1 - ndc[1]) / 2 * height);
             if (m.site() != null) {
+                // A builder: its hammer badge, or the tool it actually holds.
                 g.fill(sx - 7, sy - 7, sx + 7, sy + 7, 0xFF000000);
                 g.fill(sx - 6, sy - 6, sx + 6, sy + 6, m.color());
-                icon(g, "build", sx - 4, sy - 4, 0xFF202020);
-            } else if (m.icon() != null && icons < MAX_JOB_ICONS) {
-                // A worker: its hut's item on a dark rounded backing with a job-coloured ring, ~10 px.
+                if (!m.held().isEmpty() && icons < MAX_JOB_ICONS) {
+                    icons++;
+                    miniItem(g, m.held(), sx - 5, sy - 5, 0.625f);
+                } else icon(g, "build", sx - 4, sy - 4, 0xFF202020);
+                icons += armourBadge(g, m, sx, sy, icons);
+            } else if (m.mainIcon() != null && icons < MAX_JOB_ICONS) {
+                // A worker: what it holds (else its hut's item) on a dark rounded backing with a job-coloured ring, ~10 px.
                 icons++;
                 g.fill(sx - 7, sy - 6, sx + 7, sy + 6, m.color());
                 g.fill(sx - 6, sy - 7, sx + 6, sy + 7, m.color());
                 g.fill(sx - 6, sy - 5, sx + 6, sy + 5, 0xFF202020);
                 g.fill(sx - 5, sy - 6, sx + 5, sy + 6, 0xFF202020);
-                g.pose().pushPose();
-                g.pose().translate(sx - 5, sy - 5, 0);
-                g.pose().scale(0.625f, 0.625f, 1);
-                g.renderItem(m.icon(), 0, 0);
-                g.pose().popPose();
+                miniItem(g, m.mainIcon(), sx - 5, sy - 5, 0.625f);
+                icons += armourBadge(g, m, sx, sy, icons);
             } else {
                 g.fill(sx - 4, sy - 4, sx + 4, sy + 4, 0xFF000000);
                 g.fill(sx - 3, sy - 3, sx + 3, sy + 3, m.color());
@@ -278,8 +280,25 @@ final class PlannerScreen extends Screen {
         }
     }
 
-    // Item icons drawn per frame at most (each is a model render).
+    // Item icons drawn per frame at most (each is a model render); armour badges count too.
     private static final int MAX_JOB_ICONS = 96;
+
+    /** An item drawn at {@code scale} of its 16 px size with its top-left at (x, y). */
+    private void miniItem(GuiGraphics g, net.minecraft.world.item.ItemStack st, int x, int y, float scale) {
+        g.pose().pushPose();
+        g.pose().translate(x, y, 0);
+        g.pose().scale(scale, scale, 1);
+        g.renderItem(st, 0, 0);
+        g.pose().popPose();
+    }
+
+    /** The armour badge at a marker's bottom-right corner: the best piece worn as a ~7 px item. @return icons used (0 or 1) */
+    private int armourBadge(GuiGraphics g, OverlayView.Marker m, int sx, int sy, int icons) {
+        if (m.armour().isEmpty() || icons >= MAX_JOB_ICONS) return 0;
+        g.fill(sx + 2, sy + 2, sx + 10, sy + 10, 0xFF202020);
+        miniItem(g, m.armour(), sx + 2, sy + 2, 0.45f);
+        return 1;
+    }
 
     /**
      * The joint menu beside the selected joint: one row per type that fits its shape (a 3D thumbnail of the piece,
@@ -311,9 +330,11 @@ final class PlannerScreen extends Screen {
             }
             int ink = VanillaUi.ink(o.type() == current, o.lacks() > 0);
             g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.line.joint." + o.type()).getString(), rw - 32), rx + 30, ry + 4, ink, false);
+            // "fits · 92%" green from 90% match, amber below; "flips 1 wall" when the walls turn to meet the piece.
+            int pct = (int) Math.round(o.match() * 100);
             String hint = o.type() == com.volcanicmg.mccitybuilder.planner.Plan.J_NONE ? "" : o.lacks() > 0 ? Component.translatable("mccitybuilder.edit.menu_no_fit", o.lacks()).getString()
-                    : Component.translatable("mccitybuilder.edit.menu_fits").getString();
-            g.drawString(font, hint, rx + 30, ry + 15, o.lacks() > 0 ? 0xFFA02020 : 0xFF206020, false);
+                    : Component.translatable(o.flips() > 0 ? "mccitybuilder.edit.menu_fits_flip" : "mccitybuilder.edit.menu_fits_pct", pct, o.flips()).getString();
+            g.drawString(font, hint, rx + 30, ry + 15, o.lacks() > 0 ? 0xFFA02020 : o.match() >= 0.9 ? 0xFF206020 : 0xFFA06010, false);
             int t = o.type();
             hits.add(new Hit(rx, ry, rw, rowH - 2, () -> {
                 click();
@@ -364,6 +385,12 @@ final class PlannerScreen extends Screen {
         ICitizenDataView c = m.citizen();
         out.add(Component.literal(c == null ? "?" : c.getName()));
         if (c != null) out.add(c.getJobComponent().copy().withStyle(net.minecraft.ChatFormatting.GRAY));
+        if (!m.held().isEmpty()) out.add(Component.translatable("mccitybuilder.overlay.holding", m.held().getHoverName()).withStyle(net.minecraft.ChatFormatting.GRAY));
+        if (!m.armour().isEmpty()) {
+            // "Iron Chestplate" -> "Iron": the material is the name's first word.
+            String tier = m.armour().getHoverName().getString().split(" ")[0];
+            out.add(Component.translatable("mccitybuilder.overlay.armour", tier, m.armourPieces()).withStyle(net.minecraft.ChatFormatting.GRAY));
+        }
         if (c != null && c.hasBlockingInteractions()) out.add(Component.translatable("mccitybuilder.overlay.needs_help").withStyle(net.minecraft.ChatFormatting.RED));
         if (m.site() != null) {
             out.add(m.site().site() == null ? Component.translatable("mccitybuilder.overlay.idle")
@@ -755,7 +782,8 @@ final class PlannerScreen extends Screen {
             if (p == null) continue;
             int[] n = en.getValue();
             String t = Component.translatable("mccitybuilder.line.role." + com.volcanicmg.mccitybuilder.planner.PieceSets.Role.values()[n[0]].name().toLowerCase(java.util.Locale.ROOT)).getString()
-                    + (n[1] > 0 ? " · " + Component.translatable("mccitybuilder.edit.gap", n[1]).getString() + (n[2] >= 0 && n[2] < n[1] ? " " + Component.translatable("mccitybuilder.edit.try_tower", n[2]).getString() : "") : "");
+                    + (n[1] > 0 ? " · " + Component.translatable("mccitybuilder.edit.gap", n[1]).getString() + (n[2] >= 0 && n[2] < n[1] ? " " + Component.translatable("mccitybuilder.edit.try_tower", n[2]).getString() : "") : "")
+                    + (PlanView.jointGapAir.contains(en.getKey()) ? " · " + Component.translatable("mccitybuilder.edit.gap_air").getString() : "");
             int tw = font.width(t);
             g.fill((int) p[0] - tw / 2 - 2, (int) p[1] - 5, (int) p[0] + tw / 2 + 2, (int) p[1] + 5, 0xA0202020);
             g.drawString(font, t, (int) p[0] - tw / 2, (int) p[1] - 4, n[1] > 0 ? 0xFFFFC040 : 0xFFE0E0E0, false);
@@ -1405,23 +1433,27 @@ final class PlannerScreen extends Screen {
         // Bottom, right of the palette (which can run tall).
         // Creative with the server part adds an instant Clean (placeholders) button; it pastes over pending work orders too.
         boolean instant = Planner.creative() && Planner.serverInstant();
-        int n = instant ? 4 : 3, w = instant ? PALETTE_W + 44 : PALETTE_W, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
+        int n = instant ? 5 : 3, w = instant ? PALETTE_W + 88 : PALETTE_W, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         g.drawString(font, font.plainSubstrByWidth(name(b) + "  " + levelText(b), w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
         String info = Component.translatable("mccitybuilder.workers", b.getAllAssignedCitizens().size()).getString()
                 + (b.hasWorkOrder() ? "  " + Component.translatable("mccitybuilder.has_work_order").getString() : "");
         g.drawString(font, font.plainSubstrByWidth(info, w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
-        String[] keys = {"upgrade", "repair", "open", "clean"};
+        String[] keys = {"upgrade", "repair", "open", "clean", "move"};
         // Open uses the client-side building view, so it works however buried or far the hut block is.
         Runnable[] run = {() -> upgrade(b), () -> repair(b), () -> b.openGui(false), () -> {
             if (Planner.creativeClean(b)) toast(Component.translatable("mccitybuilder.clean_sent"));
+        }, () -> {
+            if (Planner.startMove(b)) toast(Component.translatable("mccitybuilder.move_started"));
         }};
         // Why a button is off, or null when it is on.
         boolean pending = b.hasWorkOrder() && !instant;
+        boolean townHall = b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall.View, family = b.getParent() != null && !b.getParent().equals(BlockPos.ZERO);
         String[] why = {b.isBuildingMaxLevel() ? "mccitybuilder.upgrade.max" : pending ? "mccitybuilder.upgrade.pending" : null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, null,
-                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : null};
+                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : null,
+                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : townHall ? "mccitybuilder.move.townhall" : family ? "mccitybuilder.move.family" : null};
         int bw = (w - 2 * PAD - 2 * (n - 1)) / n;
         for (int i = 0; i < n; i++) {
             int bx = x + PAD + i * (bw + 2), by = y + PAD + 24;

@@ -318,8 +318,42 @@ final class PieceCatalog {
      * exactly at the joint's face (no overlap, no gap); free ends get an end cap; a gate goes in the middle when
      * asked; straights fill the rest, and what can't be covered is left at a free end and reported.
      */
+    /** The built segments' pieces as built (keyed by {@link Plan#lineKey}): fixed inputs, never laid out again. Set by PlanView. */
+    static Map<String, List<Plan.BuiltPiece>> builtPieces = Map.of();
+
+    /** @return a built piece as placed when it was built, or null while its blueprint loads */
+    static Placed frozen(String pack, Plan.BuiltPiece b) {
+        Blueprint bp = rotated(pack, b.path(), b.turns());
+        if (bp == null) return null;
+        int[] box = {b.bx0(), b.bz0(), b.bx1(), b.bz1()};
+        int level = b.ay() - BlueprintTagUtils.getGroundAnchorOffset(bp, 1) + 2;
+        PieceSets.Role role;
+        try {
+            role = PieceSets.Role.valueOf(b.role());
+        } catch (IllegalArgumentException e) {
+            role = PieceSets.Role.OTHER;
+        }
+        return new Placed(b.path(), b.turns(), new BlockPos(b.ax(), b.ay(), b.az()), box, role, blocks(pack, b.path()), b.ay() - bp.getPrimaryBlockOffset().getY(),
+                bp.getSizeY(), level, under(box)[0]);
+    }
+
+    /** @return the pieces of a placed segment as built records */
+    static List<Plan.BuiltPiece> freeze(Plan.Line l, List<Placed> ps) {
+        List<Plan.BuiltPiece> out = new ArrayList<>();
+        for (Placed p : ps)
+            out.add(new Plan.BuiltPiece(l.x0(), l.z0(), l.x1(), l.z1(), p.path(), p.turns(), p.anchor().getX(), p.anchor().getY(), p.anchor().getZ(),
+                    p.box()[0], p.box()[1], p.box()[2], p.box()[3], p.role().name()));
+        return out;
+    }
+
+    private static boolean covers(int[] box, int[] c) {
+        return c[0] >= box[0] && c[0] <= box[2] && c[1] >= box[1] && c[1] <= box[3];
+    }
+
     static Layout layout(List<Plan.Line> lines, Map<Long, Integer> jointTypes) {
         jointNotes.clear();
+        jointMatch.clear();
+        jointGapAir.clear();
         List<List<Placed>> out = new ArrayList<>();
         List<Integer> shortened = new ArrayList<>(), need = new ArrayList<>();
         List<int[]> gaps = new ArrayList<>();
@@ -339,10 +373,48 @@ final class PieceCatalog {
         Map<Long, Placed> joints = new HashMap<>();
         // Butt joints: {x0, z0, x1, z1, owner line, 1 = only because the joint piece is still loading}.
         Map<Long, int[]> butts = new HashMap<>();
+        // Built segments with their pieces stored: those pieces as built, their joint pieces registered first so new
+        // runs attach to them (fixed: never moved or re-levelled).
+        Map<Integer, List<Placed>> frozenLines = new HashMap<>();
+        java.util.Set<Long> fixed = new java.util.HashSet<>();
+        for (int i = 0; i < lines.size(); i++) {
+            Plan.Line l = lines.get(i);
+            List<Plan.BuiltPiece> stored = l.built() ? builtPieces.get(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1())) : null;
+            if (stored == null || stored.isEmpty()) continue;
+            List<Placed> ps = new ArrayList<>();
+            boolean loading = false;
+            for (Plan.BuiltPiece b : stored) {
+                Placed p = frozen(l.pack(), b);
+                if (p == null) loading = true;
+                else ps.add(p);
+            }
+            frozenLines.put(i, ps);
+            if (loading) complete = false;
+            for (Placed p : ps)
+                if (p.joint())
+                    for (int[] e : l.ends())
+                        if (covers(p.box(), e) && !joints.containsKey(key(e[0], e[1]))) {
+                            joints.put(key(e[0], e[1]), p);
+                            fixed.add(key(e[0], e[1]));
+                        }
+        }
+        // Per line, for the seam levelling after the joints: the run pieces in order and their levels.
+        Map<Integer, List<Integer>> lineRun = new HashMap<>();
+        Map<Integer, int[]> lineLv = new HashMap<>();
         for (int i = 0; i < lines.size(); i++) {
             Plan.Line l = lines.get(i);
             List<Placed> placed = new ArrayList<>();
             out.add(placed);
+            if (frozenLines.containsKey(i)) {
+                placed.addAll(frozenLines.get(i));
+                lineComplete.add(true);
+                heights.add(new int[]{Integer.MIN_VALUE, Integer.MIN_VALUE});
+                offs.add(new int[2]);
+                shortened.add(0);
+                gaps.add(null);
+                need.add(Integer.MAX_VALUE);
+                continue;
+            }
             Map<String, PieceSets.Family> fs = families(l.pack());
             PieceSets.Family f = fs == null ? null : fs.get(l.family());
             List<PieceSets.Group> straights = f == null ? List.of() : groups(l.pack(), f, PieceSets.Role.STRAIGHT);
@@ -400,10 +472,11 @@ final class PieceCatalog {
                         off[end] = PieceLayout.reach(c, d, jb);
                         PieceLayout.Grid jg = grid(l.pack(), endTower.path(), endTower.turns()), sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
                         if (jg != null && sg != null) {
-                            int[] att = PieceLayout.attach(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width));
-                            off[end] = att[0];
+                            PieceLayout.Fit ft = PieceLayout.fit(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width));
+                            noteFit(Plan.cell(c[0], c[1]), ft);
+                            off[end] = ft.off();
                             if (end == 0 || !aligned) {
-                                shift = att[1];
+                                shift = ft.shift();
                                 aligned = true;
                             }
                         }
@@ -474,10 +547,11 @@ final class PieceCatalog {
                     PieceLayout.Grid jg = grid(l.pack(), joint.path(), joint.turns()), sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
                     if (sg == null && !failed(l.pack(), primary.path())) ok = false;
                     if (jg != null && sg != null) {
-                        int[] att = PieceLayout.attach(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width));
-                        off[end] = att[0];
+                        PieceLayout.Fit ft = PieceLayout.fit(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width));
+                        noteFit(Plan.cell(c[0], c[1]), ft);
+                        off[end] = ft.off();
                         if (end == 0 || !aligned) {
-                            shift = att[1];
+                            shift = ft.shift();
                             aligned = true;
                         }
                     }
@@ -594,6 +668,8 @@ final class PieceCatalog {
                 lv = PieceLayout.shareSeams(lv, special);
             }
             for (int q = 0; q < run.size(); q++) placed.set(run.get(q), relevel(l.pack(), placed.get(run.get(q)), lv[q]));
+            lineRun.put(i, run);
+            lineLv.put(i, lv);
             int segMax = Integer.MIN_VALUE;
             for (int h : hi) segMax = Math.max(segMax, h);
             boolean flat = l.height() == Plan.FLAT || l.height() == Plan.CHAIN;
@@ -602,13 +678,18 @@ final class PieceCatalog {
             if (lv.length > 0)
                 for (int end = 0; end < 2; end++) {
                     long k = end == 0 ? key(a[0], a[1]) : key(b[0], b[1]);
-                    if (joints.containsKey(k)) jointNext.computeIfAbsent(k, x -> new ArrayList<>()).add(new int[]{i, run.get(end == 0 ? 0 : run.size() - 1), flat ? 0 : 1});
+                    if (joints.containsKey(k)) jointNext.computeIfAbsent(k, x -> new ArrayList<>()).add(new int[]{i, run.get(end == 0 ? 0 : run.size() - 1), flat || l.built() ? 0 : 1});
                 }
             lineComplete.add(ok);
             complete &= ok;
         }
         // One level at every joint: the joint stands as high as its own ground or the first piece of any run meeting
         // it, and those first pieces (follow / smooth runs) rise to it; a run steps only further away.
+        // A built joint keeps its level (the world has its blocks); only the new runs adapt to it.
+        for (long k : fixed) {
+            int level = joints.get(k).level();
+            for (int[] n : jointNext.getOrDefault(k, List.of())) if (n[2] == 1) raiseTo(out, lines, lineRun, lineLv, n, level);
+        }
         for (var en : jointAt.entrySet()) {
             int[] where = en.getValue();
             List<Placed> ps = out.get(where[0]);
@@ -618,10 +699,26 @@ final class PieceCatalog {
             for (int q = 0; q < nb.length; q++) nb[q] = out.get(next.get(q)[0]).get(next.get(q)[1]).level();
             int level = PieceLayout.jointLevel(j.level(), nb);
             ps.set(where[1], relevel(lines.get(where[0]).pack(), j, level));
-            for (int[] n : next)
-                if (n[2] == 1) out.get(n[0]).set(n[1], relevel(lines.get(n[0]).pack(), out.get(n[0]).get(n[1]), level));
+            for (int[] n : next) if (n[2] == 1) raiseTo(out, lines, lineRun, lineLv, n, level);
         }
         return new Layout(out, shortened, gaps, need, lineComplete, heights, offs, complete);
+    }
+
+    /**
+     * Raises a run's first piece {@code n} = {line, index} to a joint's level; a smoothed run is smoothed outward from
+     * it again (raised only), so no piece sits more than one block below the one before.
+     */
+    private static void raiseTo(List<List<Placed>> out, List<Plan.Line> lines, Map<Integer, List<Integer>> lineRun, Map<Integer, int[]> lineLv, int[] n, int level) {
+        Plan.Line l = lines.get(n[0]);
+        List<Integer> run = lineRun.get(n[0]);
+        int[] lv = lineLv.get(n[0]);
+        if (run == null || lv == null || l.height() != Plan.SMOOTH) {
+            out.get(n[0]).set(n[1], relevel(l.pack(), out.get(n[0]).get(n[1]), Math.max(level, out.get(n[0]).get(n[1]).level())));
+            return;
+        }
+        int[] raised = PieceLayout.raiseSmooth(lv, run.indexOf(n[1]), level);
+        for (int q = 0; q < run.size(); q++) if (raised[q] != lv[q]) out.get(n[0]).set(run.get(q), relevel(l.pack(), out.get(n[0]).get(run.get(q)), raised[q]));
+        lineLv.put(n[0], raised);
     }
 
     /**
@@ -726,6 +823,15 @@ final class PieceCatalog {
     // Per joint cell, from the last layout: {role ordinal, cells the meeting runs leave uncovered, the same with a
     // tower (-1: no tower)}, for the edit-mode labels and the "try Tower" hint.
     static final Map<Long, int[]> jointNotes = new HashMap<>();
+    /** Per joint cell from the last layout: the least match of the runs meeting it ({@link PieceLayout.Fit#match}, 1 = continuous). */
+    static final Map<Long, Double> jointMatch = new HashMap<>();
+    /** Per joint cell from the last layout: a run stops at the joint's box (its ring is air an overlap would clear). */
+    static final java.util.Set<Long> jointGapAir = new java.util.HashSet<>();
+
+    private static void noteFit(long cell, PieceLayout.Fit f) {
+        jointMatch.merge(cell, f.match(), Math::min);
+        if (f.depth() < 0) jointGapAir.add(cell);
+    }
 
     // Set by joint() when it returned null only because a blueprint is still loading.
     private static boolean jointLoading;

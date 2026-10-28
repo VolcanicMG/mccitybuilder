@@ -58,10 +58,14 @@ final class PlanView {
     static List<Plan.Line> lines = new ArrayList<>();
     /** Joint type per joint cell ({@link Plan#cell}); missing = auto. */
     static Map<Long, Integer> jointTypes = new HashMap<>();
+    /** Built segments' pieces as built ({@link Plan#lineKey}); built segments without them (older plans) are laid out once and frozen. */
+    static Map<String, List<Plan.BuiltPiece>> builtPieces = new HashMap<>();
     static List<int[]> lineOffs = new ArrayList<>();
     static List<Integer> lineNeed = new ArrayList<>();
     /** Per joint cell from the last plan layout: {role, uncovered cells, the same with a tower} (edit-mode labels). */
     static Map<Long, int[]> jointNotes = new HashMap<>();
+    static Map<Long, Double> jointMatch = new HashMap<>();
+    static java.util.Set<Long> jointGapAir = new java.util.HashSet<>();
     static List<List<PieceCatalog.Placed>> linePieces = new ArrayList<>();
     static List<Boolean> lineBad = new ArrayList<>();
     static List<Integer> lineShort = new ArrayList<>();
@@ -96,12 +100,15 @@ final class PlanView {
             entries = new ArrayList<>(Plan.read(text));
             lines = new ArrayList<>(Plan.readLines(text));
             jointTypes = new java.util.HashMap<>(Plan.readJoints(text));
+            builtPieces = new HashMap<>(Plan.readBuilt(text));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't read plan {}", file, e);
             entries = new ArrayList<>();
             lines = new ArrayList<>();
             jointTypes = new HashMap<>();
+            builtPieces = new HashMap<>();
         }
+        PieceCatalog.builtPieces = builtPieces;
         selected = -1;
         selectedLine = -1;
         linesDirty = true;
@@ -121,7 +128,8 @@ final class PlanView {
             Files.createDirectories(file.getParent());
             // Joint types of joints that no longer exist (removed, moved, replaced segments) go.
             Plan.pruneJoints(jointTypes, lines);
-            Files.writeString(file, Plan.write(entries, lines, jointTypes));
+            Plan.pruneBuilt(builtPieces, lines);
+            Files.writeString(file, Plan.write(entries, lines, jointTypes, builtPieces));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't save plan {}", file, e);
         }
@@ -378,18 +386,25 @@ final class PlanView {
                 continue;
             }
             // The segment stays in the plan until the server has accepted all its batches (see onBatchResult).
+            // Joint pieces go first (the layout's overlap rule counts on it in creative), then the runs.
+            List<PieceCatalog.Placed> ordered = new ArrayList<>();
+            for (PieceCatalog.Placed p : ps) if (p.joint()) ordered.add(p);
+            for (PieceCatalog.Placed p : ps) if (!p.joint()) ordered.add(p);
             List<InstantBuild.Piece> batch = new ArrayList<>();
+            List<PieceCatalog.Placed> sent = new ArrayList<>();
             int n = 0;
-            for (PieceCatalog.Placed p : ps) {
+            for (PieceCatalog.Placed p : ordered) {
                 batch.add(new InstantBuild.Piece(p.path(), p.anchor(), PieceCatalog.rotation(p.turns()).ordinal()));
+                sent.add(p);
                 if (batch.size() == InstantBuild.MAX_BATCH) {
-                    queueBatch(l, batch);
+                    queueBatch(l, batch, sent);
                     n++;
                     batch = new ArrayList<>();
+                    sent = new ArrayList<>();
                 }
             }
             if (!batch.isEmpty()) {
-                queueBatch(l, batch);
+                queueBatch(l, batch, sent);
                 n++;
             }
             sending.put(l, n);
@@ -500,9 +515,24 @@ final class PlanView {
         if (!linesDirty && !(waitingForPieces && (PieceCatalog.loadVersion != seenLoads || now - lastTry > 500))) return;
         seenLoads = PieceCatalog.loadVersion;
         lastTry = now;
+        PieceCatalog.builtPieces = builtPieces;
+        // Off: the paste order can't be guaranteed end to end (a dropped batch, Build selected, a joint next to a
+        // built run), and a joint pasted after a run would clear the run's blocks where its ring is air. See DESIGN.
+        com.volcanicmg.mccitybuilder.planner.PieceLayout.jointFirst = false;
         PieceCatalog.Layout lay = PieceCatalog.layout(lines, LineView.previewTypes());
         layoutVersion++;
         linePieces = lay.lines();
+        // Older plans: a built segment without stored pieces is laid out this once and frozen.
+        boolean froze = false;
+        for (int i = 0; i < lines.size() && i < linePieces.size(); i++) {
+            Plan.Line l = lines.get(i);
+            String k = Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1());
+            if (l.built() && !builtPieces.containsKey(k) && lay.lineComplete().get(i) && !linePieces.get(i).isEmpty()) {
+                builtPieces.put(k, PieceCatalog.freeze(l, linePieces.get(i)));
+                froze = true;
+            }
+        }
+        if (froze) save();
         lineShort = lay.shortened();
         lineGaps = lay.gaps();
         lineComplete = lay.lineComplete();
@@ -510,6 +540,8 @@ final class PlanView {
         lineOffs = lay.offs();
         lineNeed = lay.need();
         jointNotes = new HashMap<>(PieceCatalog.jointNotes);
+        jointMatch = new HashMap<>(PieceCatalog.jointMatch);
+        jointGapAir = new java.util.HashSet<>(PieceCatalog.jointGapAir);
         lineBad = new ArrayList<>();
         pieceBad = new ArrayList<>();
         List<int[]> boxes = buildingBoxes();
@@ -637,6 +669,25 @@ final class PlanView {
         linesDirty = true;
     }
 
+    /**
+     * Takes a built segment's pieces down through the server part: creative deletes the blocks that still match the
+     * blueprints at once, survival orders a builder to remove them. @return false without the server part or pieces
+     */
+    static boolean sendRemoval(Plan.Line l) {
+        List<Plan.BuiltPiece> ps = builtPieces.get(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1()));
+        if (!Planner.serverInstant() || ps == null || ps.isEmpty()) return false;
+        List<InstantBuild.Piece> batch = new ArrayList<>();
+        for (Plan.BuiltPiece b : ps) {
+            batch.add(new InstantBuild.Piece(b.path(), new BlockPos(b.ax(), b.ay(), b.az()), PieceCatalog.rotation(b.turns()).ordinal()));
+            if (batch.size() == InstantBuild.MAX_BATCH) {
+                queue.add(new InstantBuild.PieceBatch(nextBatchId++, l.pack(), Planner.creative() ? InstantBuild.DECO_DELETE : InstantBuild.DECO_REMOVE_ORDER, batch));
+                batch = new ArrayList<>();
+            }
+        }
+        if (!batch.isEmpty()) queue.add(new InstantBuild.PieceBatch(nextBatchId++, l.pack(), Planner.creative() ? InstantBuild.DECO_DELETE : InstantBuild.DECO_REMOVE_ORDER, batch));
+        return true;
+    }
+
     /** @return true for a segment that must not change (built, or its batches on their way to the server) */
     static boolean locked(Plan.Line l) {
         return l.built() || sending.containsKey(l);
@@ -715,12 +766,16 @@ final class PlanView {
     // Road / wall batches: which segment each belongs to, and how many of a segment's batches still wait for a yes.
     private static final Map<Integer, Plan.Line> batchLine = new HashMap<>();
     private static final Map<Plan.Line, Integer> sending = new HashMap<>();
+    // The pieces each batch sent, and the accepted ones per segment: what a built record freezes (never a later layout).
+    private static final Map<Integer, List<PieceCatalog.Placed>> batchSent = new HashMap<>();
+    private static final Map<Plan.Line, List<PieceCatalog.Placed>> acceptedPieces = new HashMap<>();
     private static int nextBatchId = 1;
 
-    private static void queueBatch(Plan.Line l, List<InstantBuild.Piece> pieces) {
+    private static void queueBatch(Plan.Line l, List<InstantBuild.Piece> pieces, List<PieceCatalog.Placed> sent) {
         int id = nextBatchId++;
         batchLine.put(id, l);
-        queue.add(new InstantBuild.PieceBatch(id, l.pack(), !Planner.creative(), pieces));
+        batchSent.put(id, new ArrayList<>(sent));
+        queue.add(new InstantBuild.PieceBatch(id, l.pack(), Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER, pieces));
     }
 
     /**
@@ -742,6 +797,7 @@ final class PlanView {
             return;
         }
         Plan.Line l = batchLine.remove(r.id());
+        List<PieceCatalog.Placed> sentNow = batchSent.remove(r.id());
         if (waitingFor instanceof InstantBuild.PieceBatch b && b.id() == r.id()) {
             waitingFor = null;
             waitUntil = System.currentTimeMillis() + 1_100;
@@ -749,13 +805,19 @@ final class PlanView {
         }
         if (l == null) return;
         if (r.accepted()) {
+            if (sentNow != null) acceptedPieces.computeIfAbsent(l, k -> new ArrayList<>()).addAll(sentNow);
             int left = sending.getOrDefault(l, 1) - 1;
             if (left > 0) sending.put(l, left);
             else {
                 sending.remove(l);
                 // Kept as a built record: new segments snap and join onto it; it is never built again.
                 int at = lines.indexOf(l);
-                if (at >= 0) lines.set(at, l.asBuilt());
+                List<PieceCatalog.Placed> sentAll = acceptedPieces.remove(l);
+                if (at >= 0) {
+                    // Its pieces as sent and accepted: fixed from now on (the world has them), whatever a later layout says.
+                    if (sentAll != null && !sentAll.isEmpty()) builtPieces.put(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1()), PieceCatalog.freeze(l, sentAll));
+                    lines.set(at, l.asBuilt());
+                }
                 if (selectedLine >= lines.size()) selectedLine = -1;
                 save();
                 linesDirty = true;
@@ -763,7 +825,8 @@ final class PlanView {
             return;
         }
         sending.remove(l);
-        queue.removeIf(o -> o instanceof InstantBuild.PieceBatch b && batchLine.get(b.id()) == l && batchLine.remove(b.id()) != null);
+        acceptedPieces.remove(l);
+        queue.removeIf(o -> o instanceof InstantBuild.PieceBatch b && batchLine.get(b.id()) == l && batchLine.remove(b.id()) != null && batchSent.remove(b.id()) != null);
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) mc.player.displayClientMessage(Component.translatable("mccitybuilder.pieces.refused." + r.reason()), false);
     }
