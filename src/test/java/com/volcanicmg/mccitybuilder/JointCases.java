@@ -285,24 +285,6 @@ final class JointCases {
         };
     }
 
-    /**
-     * @return how open the joint is toward a run: the share of the run's visible face cells with a joint block at the
-     * same height and lateral cell on the joint's outer face toward it (a corner turned away shows its closed side)
-     */
-    static double openness(Case cs, Run r) {
-        int d = r.out(), outer = switch (d) {
-            case 0 -> cs.jointBox()[2];
-            case 2 -> cs.jointBox()[0];
-            case 1 -> cs.jointBox()[3];
-            default -> cs.jointBox()[1];
-        };
-        Set<Integer> a = section(r.straight(), r.box()[0], r.box()[1], d, face(r)), b = section(cs.joint(), cs.jointBox()[0], cs.jointBox()[1], d, outer);
-        if (a.isEmpty()) return 1;
-        int hit = 0;
-        for (int v : a) if (b.contains(v)) hit++;
-        return (double) hit / a.size();
-    }
-
     /** @return the cell one step from {@code along} toward the joint cell, for runs leaving in {@code d} */
     private static int inward(int d, int along) {
         return d == 0 || d == 1 ? along - 1 : along + 1;
