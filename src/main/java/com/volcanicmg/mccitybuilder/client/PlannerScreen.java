@@ -459,7 +459,7 @@ final class PlannerScreen extends Screen {
         // Joints: the selected joint's type (edit mode), else the default for new joints.
         int jt = LineView.selectedJoint != null ? PlanView.jointTypes.getOrDefault(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1]),
                 com.volcanicmg.mccitybuilder.planner.Plan.J_AUTO) : LineView.jointDefault;
-        iy = picker(g, ix, iy, iw, Component.translatable(LineView.selectedJoint != null ? "mccitybuilder.line.joint.this" : "mccitybuilder.line.joint.new",
+        iy = picker(g, ix, iy, iw, Component.translatable(LineView.selectedJoint != null ? LineView.selectedIsEnd() ? "mccitybuilder.line.joint.this_end" : "mccitybuilder.line.joint.this" : "mccitybuilder.line.joint.new",
                 Component.translatable("mccitybuilder.line.joint." + jt)).getString(), mx, my, d -> {
             LineView.cycleJoint(d);
             click();

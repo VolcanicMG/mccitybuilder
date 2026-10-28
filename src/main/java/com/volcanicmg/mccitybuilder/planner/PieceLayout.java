@@ -503,11 +503,31 @@ public final class PieceLayout {
         return base == Plan.NO_BASE ? segMax : Math.max(base, segMax);
     }
 
-    /** @return a joint piece's level: its highest neighbour's, or its own with none */
+    /**
+     * @return a joint piece's level: the highest of its own ground and the first pieces of the runs meeting it (those
+     * pieces then take the same level, {@link #shareSeams}: one Y at every seam, runs step only further away)
+     */
     public static int jointLevel(int own, int[] neighbours) {
-        int best = Integer.MIN_VALUE;
+        int best = own;
         for (int n : neighbours) best = Math.max(best, n);
-        return neighbours.length == 0 ? own : best;
+        return best;
+    }
+
+    /**
+     * Levels along a run with every seam at a cap or gate levelled: such a piece and the run pieces next to it take
+     * the highest of their levels, so the pieces meet with no step (follow / smooth modes; flat runs are flat already).
+     *
+     * @param special which pieces are caps or gates
+     */
+    public static int[] shareSeams(int[] lv, boolean[] special) {
+        int[] out = lv.clone();
+        for (int i = 0; i < out.length; i++) {
+            if (!special[i]) continue;
+            int lo = Math.max(0, i - 1), hi = Math.min(out.length - 1, i + 1), m = Integer.MIN_VALUE;
+            for (int k = lo; k <= hi; k++) m = Math.max(m, out[k]);
+            for (int k = lo; k <= hi; k++) out[k] = m;
+        }
+        return out;
     }
 
     // ---- joint choice ----
@@ -568,12 +588,16 @@ public final class PieceLayout {
     /**
      * The piece roles a joint may use, best first: the chosen type's role (or auto's, {@link #autoRole}), then the
      * stand-ins when the family lacks it (a corner for an inner corner and the other way round, a tower for a T or
-     * cross and for a tower-less family's tower pick a corner). Empty = a butt joint (none, or straight on).
+     * cross and for a tower-less family's tower pick a corner); a free end its cap, or a tower when chosen. Empty = a
+     * butt joint (none, or straight on) or a bare end.
      *
      * @param type   {@link Plan#J_AUTO} .. {@link Plan#J_NONE}; @param towers the line was drawn with towers
      */
     public static List<PieceSets.Role> jointRoles(int type, int degree, boolean collinear, boolean towers) {
         if (type == Plan.J_NONE) return List.of();
+        // A free end: its cap, or a tower standing at the wall's end when chosen.
+        if (degree <= 1) return type == Plan.J_TOWER ? List.of(PieceSets.Role.TOWER, PieceSets.Role.END) : List.of(PieceSets.Role.END);
+        if (type == Plan.J_CAP) type = Plan.J_AUTO;
         if (type == Plan.J_AUTO) {
             if (towers) return List.of(PieceSets.Role.TOWER, PieceSets.Role.CORNER, PieceSets.Role.INNER);
             int auto = autoRole(degree, collinear, 0, 0, false);

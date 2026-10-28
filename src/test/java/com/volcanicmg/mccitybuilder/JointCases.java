@@ -99,7 +99,8 @@ final class JointCases {
                 int[] outs = en.getValue();
                 String name = en.getKey() + (flip ? "-flipped" : "");
                 if (outs.length == 1) {
-                    add(out, pack, famKey, name, fam, List.of(PieceSets.Role.END), sg, st, outs, dirsOf(outs), flip);
+                    add(out, pack, famKey, name, fam, PieceLayout.jointRoles(Plan.J_AUTO, 1, false, false), sg, st, outs, dirsOf(outs), flip);
+                    add(out, pack, famKey, name + "-tower", fam, List.of(PieceSets.Role.TOWER), sg, st, outs, dirsOf(outs), flip);
                     continue;
                 }
                 add(out, pack, famKey, name, fam, PieceLayout.jointRoles(Plan.J_AUTO, outs.length, false, false), sg, st, outs, dirsOf(outs), flip);

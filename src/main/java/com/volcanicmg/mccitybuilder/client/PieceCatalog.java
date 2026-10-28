@@ -327,7 +327,7 @@ final class PieceCatalog {
         List<int[]> heights = new ArrayList<>(), offs = new ArrayList<>();
         // Joint pieces: where each sits (line, index) and the levels of the run pieces next to it.
         Map<Long, int[]> jointAt = new HashMap<>();
-        Map<Long, List<Integer>> jointNext = new HashMap<>();
+        Map<Long, List<int[]>> jointNext = new HashMap<>();
         boolean complete = true;
         // Endpoints: which lines meet at each cell.
         Map<Long, List<int[]>> at = new HashMap<>();
@@ -375,8 +375,41 @@ final class PieceCatalog {
                     if (m[0] != i && lines.get(m[0]).family().equals(l.family()) && lines.get(m[0]).pack().equals(l.pack())) meet.add(m);
                 if (meet.isEmpty()) {
                     free[end] = true;
-                    // A free end: an end cap, if the family has one; the run meets it like a joint (fit, turn by face score).
-                    List<PieceSets.Group> capGroups = groups(l.pack(), f, PieceSets.Role.END);
+                    // A free end: its cap, a tower when chosen (laid out like a joint with one run), or nothing.
+                    int endType = jointTypes.getOrDefault(Plan.cell(c[0], c[1]), Plan.J_AUTO);
+                    List<PieceSets.Role> endRoles = PieceLayout.jointRoles(endType, 1, false, l.towers());
+                    PieceSets.Role endRole = null;
+                    for (PieceSets.Role r : endRoles) if (!groups(l.pack(), f, r).isEmpty()) {
+                        endRole = r;
+                        break;
+                    }
+                    if (endRole == PieceSets.Role.TOWER && !joints.containsKey(k)) {
+                        jointLoading = false;
+                        Placed tower = joint(l, f, c, d, meet, lines, i, primary, width, endType);
+                        if (tower != null) {
+                            joints.put(k, tower);
+                            jointAt.put(k, new int[]{i, placed.size()});
+                            placed.add(tower);
+                            free[end] = false;
+                        } else if (jointLoading) ok = false;
+                    }
+                    Placed endTower = joints.get(k);
+                    if (endTower != null) {
+                        free[end] = false;
+                        int[] jb = endTower.box();
+                        off[end] = PieceLayout.reach(c, d, jb);
+                        PieceLayout.Grid jg = grid(l.pack(), endTower.path(), endTower.turns()), sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
+                        if (jg != null && sg != null) {
+                            int[] att = PieceLayout.attach(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width));
+                            off[end] = att[0];
+                            if (end == 0 || !aligned) {
+                                shift = att[1];
+                                aligned = true;
+                            }
+                        }
+                        continue;
+                    }
+                    List<PieceSets.Group> capGroups = endRole == PieceSets.Role.END ? groups(l.pack(), f, PieceSets.Role.END) : List.of();
                     if (!capGroups.isEmpty()) {
                         PieceSets.Piece cap = capGroups.get(0).pick(l.level(), i);
                         int[] cb = PieceLayout.boxes(c, d, 0, List.of(cap.run()), cap.across(), 0).get(0);
@@ -554,28 +587,39 @@ final class PieceCatalog {
                 hi[q] = under(placed.get(run.get(q)).box())[1];
             }
             int[] lv = PieceLayout.levels(l.height(), own, hi, l.dy(), l.base());
+            if (l.height() == Plan.FOLLOW || l.height() == Plan.SMOOTH) {
+                // A cap or gate and the pieces next to it meet at one level.
+                boolean[] special = new boolean[run.size()];
+                for (int q = 0; q < run.size(); q++) special[q] = placed.get(run.get(q)).role() != PieceSets.Role.STRAIGHT;
+                lv = PieceLayout.shareSeams(lv, special);
+            }
             for (int q = 0; q < run.size(); q++) placed.set(run.get(q), relevel(l.pack(), placed.get(run.get(q)), lv[q]));
             int segMax = Integer.MIN_VALUE;
             for (int h : hi) segMax = Math.max(segMax, h);
             boolean flat = l.height() == Plan.FLAT || l.height() == Plan.CHAIN;
             heights.add(new int[]{flat && lv.length > 0 ? lv[0] : Integer.MIN_VALUE, segMax});
+            // The run's first piece at each joint: {line, index in placed, follows the joint's level}.
             if (lv.length > 0)
                 for (int end = 0; end < 2; end++) {
                     long k = end == 0 ? key(a[0], a[1]) : key(b[0], b[1]);
-                    if (joints.containsKey(k)) jointNext.computeIfAbsent(k, x -> new ArrayList<>()).add(end == 0 ? lv[0] : lv[lv.length - 1]);
+                    if (joints.containsKey(k)) jointNext.computeIfAbsent(k, x -> new ArrayList<>()).add(new int[]{i, run.get(end == 0 ? 0 : run.size() - 1), flat ? 0 : 1});
                 }
             lineComplete.add(ok);
             complete &= ok;
         }
-        // A joint stands as high as its highest neighbour.
+        // One level at every joint: the joint stands as high as its own ground or the first piece of any run meeting
+        // it, and those first pieces (follow / smooth runs) rise to it; a run steps only further away.
         for (var en : jointAt.entrySet()) {
             int[] where = en.getValue();
             List<Placed> ps = out.get(where[0]);
             Placed j = ps.get(where[1]);
-            List<Integer> next = jointNext.getOrDefault(en.getKey(), List.of());
+            List<int[]> next = jointNext.getOrDefault(en.getKey(), List.of());
             int[] nb = new int[next.size()];
-            for (int q = 0; q < nb.length; q++) nb[q] = next.get(q);
-            ps.set(where[1], relevel(lines.get(where[0]).pack(), j, PieceLayout.jointLevel(j.level(), nb)));
+            for (int q = 0; q < nb.length; q++) nb[q] = out.get(next.get(q)[0]).get(next.get(q)[1]).level();
+            int level = PieceLayout.jointLevel(j.level(), nb);
+            ps.set(where[1], relevel(lines.get(where[0]).pack(), j, level));
+            for (int[] n : next)
+                if (n[2] == 1) out.get(n[0]).set(n[1], relevel(lines.get(n[0]).pack(), out.get(n[0]).get(n[1]), level));
         }
         return new Layout(out, shortened, gaps, need, lineComplete, heights, offs, complete);
     }

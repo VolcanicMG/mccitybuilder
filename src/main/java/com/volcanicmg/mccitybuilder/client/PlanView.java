@@ -534,7 +534,7 @@ final class PlanView {
         linePreviews = 0;
         if (on || LineView.active())
             for (int i = 0; i < linePieces.size() && i < lines.size(); i++)
-                for (PieceCatalog.Placed p : lines.get(i).built() ? List.<PieceCatalog.Placed>of() : linePieces.get(i)) {
+                for (PieceCatalog.Placed p : lines.get(i).built() || LineView.liveTouches(lines.get(i)) ? List.<PieceCatalog.Placed>of() : linePieces.get(i)) {
                     Blueprint bp = PieceCatalog.rotated(lines.get(i).pack(), p.path(), p.turns());
                     if (bp == null) continue;
                     BlueprintPreviewData data = new BlueprintPreviewData(false);

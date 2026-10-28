@@ -108,6 +108,8 @@ final class LineView {
 
     /** Drops the live pieces and their ghosts (they come back on the next aim while the tool is on). */
     static void clearLive() {
+        if (liveA != null) PlanView.relayout();
+        liveA = liveB = null;
         live = List.of();
         liveBad = List.of();
         liveGap = null;
@@ -236,11 +238,15 @@ final class LineView {
             PieceCatalog.Layout lay = PieceCatalog.layout(all, previewTypes());
             int last = all.size() - 1;
             List<PieceCatalog.Placed> ps = new ArrayList<>(lay.lines().get(last));
-            // Joint pieces at the live segment's ends that another segment owns in the layout.
+            // The segments the live one attaches to are laid out with it (their joint, cap, shift, heights change):
+            // their pieces come from this layout, and the plan stops drawing its own for them (PlanView.liveTouched).
             for (int k = 0; k < last; k++)
-                for (PieceCatalog.Placed p : lay.lines().get(k))
-                    if (p.joint() && (covers(p.box(), a) || covers(p.box(), b)) && !ps.contains(p)) ps.add(p);
+                if (onLine(all.get(k), a) || onLine(all.get(k), b))
+                    for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
             live = ps;
+            if (liveA == null || liveA[0] != a[0] || liveA[1] != a[1] || liveB[0] != b[0] || liveB[1] != b[1]) PlanView.relayout();
+            liveA = a.clone();
+            liveB = b.clone();
             liveShort = lay.shortened().get(last);
             liveGap = lay.gaps().get(last);
             liveNeed = lay.need().get(last);
@@ -272,6 +278,14 @@ final class LineView {
         // Pieces still loading: lay out again next frame.
         // Pieces still loading: laid out again when one finishes (or twice a second), not every frame.
         liveIncomplete = !complete;
+    }
+
+    // The live segment's ends as last laid out; the plan skips its ghosts for segments touching them (the live layout draws them).
+    private static int[] liveA, liveB;
+
+    /** @return true when the live layout draws this planned segment's pieces instead of the plan */
+    static boolean liveTouches(Plan.Line l) {
+        return !live.isEmpty() && liveA != null && (onLine(l, liveA) || onLine(l, liveB));
     }
 
     /** @return true when cell c is on the segment (ends included) */
@@ -548,9 +562,10 @@ final class LineView {
     }
 
     /**
-     * Opens the menu for the selected joint: the types that mean something for its shape (an L: auto, corner, inner
-     * corner, tower, none; a T: auto, T, tower, none; a cross: auto, cross, tower, none; straight on: auto, tower,
-     * none), only those the family has a piece for, each with its piece and whether it fits.
+     * Opens the menu for the selected joint: the types that mean something for its shape ({@link Plan#menuTypes}: a
+     * free end: auto, end cap, tower, none; an L: auto, corner, inner corner, tower, none; a T: auto, T, tower, none; a
+     * cross: auto, cross, tower, none; straight on: auto, tower, none), only those the family has a piece for, each
+     * with its piece and whether it fits.
      */
     static void openJointMenu() {
         if (selectedJoint == null) return;
@@ -561,12 +576,7 @@ final class LineView {
         var f = fs == null ? null : fs.get(l.family());
         int degree = at.size();
         boolean collinear = degree == 2 && Plan.collinearAt(PlanView.lines, at.get(0), at.get(1));
-        List<Integer> types = new ArrayList<>(List.of(Plan.J_AUTO));
-        if (degree >= 4) types.addAll(List.of(Plan.J_CROSS, Plan.J_TOWER));
-        else if (degree == 3) types.addAll(List.of(Plan.J_TEE, Plan.J_TOWER));
-        else if (collinear) types.add(Plan.J_TOWER);
-        else types.addAll(List.of(Plan.J_CORNER, Plan.J_INNER, Plan.J_TOWER));
-        types.add(Plan.J_NONE);
+        List<Integer> types = Plan.menuTypes(degree, collinear);
         List<JointOption> out = new ArrayList<>();
         for (int t : types) {
             PieceSets.Piece piece = null;
@@ -586,6 +596,11 @@ final class LineView {
         jointOptions = out;
         jointMenu = true;
         menuPreview = -1;
+    }
+
+    /** @return true when the selected node is a wall's free end (one segment end there), not a joint */
+    static boolean selectedIsEnd() {
+        return selectedJoint != null && linesAt(selectedJoint).size() == 1;
     }
 
     /** Shows the joint with type {@code t} in the world while an option is hovered (-1: its own type); drawing only. */

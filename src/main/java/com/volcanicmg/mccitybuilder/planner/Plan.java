@@ -40,8 +40,22 @@ public final class Plan {
      * A drawn road or wall segment from (x0, z0) to (x1, z1), built from a style pack's pieces: the pack, the piece
      * family, the level (level groups) or variant (-1 = varied), towers at its joints, a gate in its middle.
      */
-    /** Joint types a joint can be set to: picked automatically, or a tower / outer corner / inner corner / T / cross, or none (butt joint). */
-    public static final int J_AUTO = 0, J_TOWER = 1, J_CORNER = 2, J_INNER = 3, J_TEE = 4, J_CROSS = 5, J_NONE = 6, J_TYPES = 7;
+    /**
+     * Joint types a joint can be set to: picked automatically, or a tower / outer corner / inner corner / T / cross, or
+     * none (butt joint); a free end takes auto (its cap), a tower, an end cap or none.
+     */
+    public static final int J_AUTO = 0, J_TOWER = 1, J_CORNER = 2, J_INNER = 3, J_TEE = 4, J_CROSS = 5, J_NONE = 6, J_CAP = 7, J_TYPES = 8;
+
+    /**
+     * @return the types the joint menu offers for a cell where {@code degree} segment ends meet: a free end gets auto,
+     * end cap, tower, none; an L the corners and a tower; a T or cross its piece and a tower; straight on a tower only
+     */
+    public static List<Integer> menuTypes(int degree, boolean collinear) {
+        if (degree <= 1) return List.of(J_AUTO, J_CAP, J_TOWER, J_NONE);
+        if (degree >= 4) return List.of(J_AUTO, J_CROSS, J_TOWER, J_NONE);
+        if (degree == 3) return List.of(J_AUTO, J_TEE, J_TOWER, J_NONE);
+        return collinear ? List.of(J_AUTO, J_TOWER, J_NONE) : List.of(J_AUTO, J_CORNER, J_INNER, J_TOWER, J_NONE);
+    }
 
     /** @return the key of a joint cell */
     public static long cell(int x, int z) {

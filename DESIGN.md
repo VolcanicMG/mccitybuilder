@@ -312,9 +312,11 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Drawing: before the first click, a ghost of the current straight lies across the screen under the cursor. While
   dragging, the live segment is laid out (with the plan, so its joints are real) into Structurize ghosts (`_live_<n>`
   cache keys) with an outline per piece (green, red outside the claims or into a building) and the amber gap, only
-  when the key (start, snapped end, plan layout version, options) changes (`LineSnap.relayout`). The live pieces
-  include the joint pieces at its ends that a planned segment owns in the layout (the joint between the last
-  dropped segment and the live one used to appear only after the next click). A label at the midpoint shows
+  when the key (start, snapped end, plan layout version, options) changes (`LineSnap.relayout`). The live layout is the
+  plan's layout with the live segment added, so the segments it attaches to (their joint, cap, shift and heights
+  change) are drawn from it too and the plan skips its own ghosts for them meanwhile (`LineView.liveTouches`);
+  before, only the joint piece came from the live layout and the old segment kept its cap and unshifted end beside
+  the new run (Ethan's "snap: joint" preview). A label at the midpoint shows
   "N blocks · M pieces" or "Too short: needs ≥ N"; the cursor shows the gap, the too-short hint or what snapped. A
   click on a segment shorter than its need (`PieceLayout.need`; `LineSnap.canDrop`) is refused with a hint.
 - Snapping (radius `LineSnap.radius`: 2.5 blocks, growing with the camera's height to 10). Start: a segment's end
@@ -343,8 +345,11 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Heights (`PieceLayout.levels`, per segment, saved): follow the ground (each piece at its centre's ground, as
   before), flat (every piece at the highest ground under any of its pieces), flat chain (the chain's shared level:
   `chainBase`, the highest ground of its segments so far; a higher segment lifts the earlier ones), smooth (raised so
-  neighbours differ by at most 1, never below their ground); plus `dy` blocks (PgUp / PgDn). Joint pieces stand as
-  high as their highest neighbouring piece (`jointLevel`). The panel reads "Y 72 (+3)" for flat modes. Air under a
+  neighbours differ by at most 1, never below their ground); plus `dy` blocks (PgUp / PgDn). One Y at every seam: a
+  joint piece stands as high as its own ground or the first piece of any run meeting it (`jointLevel`), and those
+  first pieces (follow / smooth runs) rise to it; a cap or gate and the pieces next to it take their highest level
+  (`shareSeams`); runs step only further from a joint (Ethan's sloped L: the horizontal run sat a block above the
+  vertical one at the corner). The panel reads "Y 72 (+3)" for flat modes. Air under a
   raised piece (2+ blocks over the lowest ground under it) is drawn as an amber box: builders and pastes don't fill
   it, the blueprint stays as it is (a "fill foundations" option could come later).
 - Flip (R, per segment): straights and gates turned 180° (a wall's other side out); joints re-score their turn
@@ -437,9 +442,12 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Closing a ring: the end snap onto the chain's own start (any free end) wins over the T snap when that end is
   within the snap radius of the T cell, so a ring never splits its first wall a cell from its start and leaves the
   corner without a joint; each corner then has two ends and gets the chain's joint (towers when drawn with towers).
-- Joint menu (edit mode, a click on a joint node; `LineView.openJointMenu`): the types that mean something for the
-  joint's shape (an L: auto, corner, inner corner, tower, none; a T: auto, T, tower, none; a cross: auto, cross,
-  tower, none; straight on: auto, tower, none), only those the family has a piece for, each with a 3D thumbnail
+- Joint menu (edit mode, a click on a joint node; `LineView.openJointMenu`, `Plan.menuTypes`): the types that mean
+  something for the node's shape (a free end: auto = its cap, end cap, tower standing at the wall's end, none; an L:
+  auto, corner, inner corner, tower, none; a T: auto, T, tower, none; a cross: auto, cross, tower, none; straight
+  on: auto, tower, none), the panel saying "This end" / "This joint"; an end's type is saved per cell like a joint's
+  (`J x z type`, pruned with the end) and laid out at the free end by the same fit rules (a tower there is a joint
+  with one run), only those the family has a piece for, each with a 3D thumbnail
   (`PieceView`), its name and "fits" / "won't fit: a wall lacks N blocks" (the same trial `setJointType` refuses
   with); hovering a row shows it in the world (the type is set without saving, `PlanView.relayout`, and put back),
   a click applies, Esc or any other press closes. C still cycles.

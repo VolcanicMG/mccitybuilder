@@ -2,6 +2,8 @@
 
 ## 1.0.0-SNAPSHOT
 
+- A wall's free end can be set (click its node in edit mode): auto, end cap, a tower at the end, or none; the menu no
+  longer offers corner types there, and the panel says "This end".
 - Joint alignment editor: line walls up with a style's corner / T / cross / tower / end cap by hand in a 3D view
   (sideways shift, depth, joint turn, match readout, destructive overlaps refused), saved per style and used before
   the automatic alignment; from the Pieces editor or "Adjust alignment…" on a joint in Edit mode.

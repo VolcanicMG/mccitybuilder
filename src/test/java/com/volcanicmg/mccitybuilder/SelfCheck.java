@@ -1027,7 +1027,12 @@ public final class SelfCheck {
         base = PieceLayout.chainBase(base, 66);
         int[] s1 = PieceLayout.levels(Plan.CHAIN, new int[]{60, 61}, new int[]{62, 63}, 1, base), s2 = PieceLayout.levels(Plan.CHAIN, new int[]{70}, new int[]{71}, 1, base);
         check(base == 74 && s1[0] == 75 && s1[1] == 75 && s2[0] == 75, "chain-flat shares one level: " + base);
-        check(PieceLayout.jointLevel(64, new int[]{66, 70}) == 70 && PieceLayout.jointLevel(64, new int[]{}) == 64, "joint = highest neighbour");
+        check(PieceLayout.jointLevel(64, new int[]{66, 70}) == 70 && PieceLayout.jointLevel(64, new int[]{}) == 64 && PieceLayout.jointLevel(72, new int[]{66, 70}) == 72,
+                "joint = highest of its ground and its neighbours (one Y at the seam)");
+        // Sloped ground under a run with a cap at its start: the cap and the first straight meet at one level.
+        check(java.util.Arrays.equals(PieceLayout.shareSeams(new int[]{64, 66, 67, 69}, new boolean[]{true, false, false, false}), new int[]{66, 66, 67, 69})
+                && java.util.Arrays.equals(PieceLayout.shareSeams(new int[]{64, 66, 70, 67}, new boolean[]{false, false, true, false}), new int[]{64, 70, 70, 70}),
+                "a cap / gate and its neighbours share a level");
         var l = new Plan.Line("wall", 0, 0, 20, 0, "medievaloak", "wall:walls/segment", 5, -1, true, false, true, Plan.CHAIN, -3, 74, true);
         String text = Plan.write(List.of(), List.of(l, new Plan.Line("road", 0, 0, 0, 9, "birch", "road:x", 1, -1, false, false)));
         var back = Plan.readLines(text);
@@ -1309,6 +1314,16 @@ public final class SelfCheck {
             check(PieceLayout.autoRole(2, false, a, (a + 1) % 4, false) == PieceLayout.CORNER && PieceLayout.autoRole(2, false, a, (a + 3) % 4, true) == PieceLayout.CORNER, "every L gets the corner");
         check(PieceLayout.autoRole(3, false, 0, 1, false) == PieceLayout.TEE && PieceLayout.autoRole(4, false, 0, 1, true) == PieceLayout.CROSS
                 && PieceLayout.autoRole(2, true, 0, 2, false) == PieceLayout.NONE, "T, cross, straight on");
+        // A free end's menu: auto / end cap / tower / none, never an L's corners; a tower there is laid out like a joint
+        // (its role first, the cap as the stand-in); its type survives pruning while the end exists.
+        check(Plan.menuTypes(1, false).equals(List.of(Plan.J_AUTO, Plan.J_CAP, Plan.J_TOWER, Plan.J_NONE)) && !Plan.menuTypes(1, false).contains(Plan.J_CORNER)
+                && Plan.menuTypes(2, false).contains(Plan.J_INNER) && !Plan.menuTypes(3, false).contains(Plan.J_CORNER), "menu types by degree");
+        check(PieceLayout.jointRoles(Plan.J_TOWER, 1, false, false).equals(List.of(PieceSets.Role.TOWER, PieceSets.Role.END))
+                && PieceLayout.jointRoles(Plan.J_AUTO, 1, false, true).equals(List.of(PieceSets.Role.END)) && PieceLayout.jointRoles(Plan.J_NONE, 1, false, false).isEmpty(),
+                "free end roles: tower when chosen, else the cap, none removes it");
+        java.util.Map<Long, Integer> endTypes = new java.util.HashMap<>(java.util.Map.of(Plan.cell(20, 0), Plan.J_TOWER, Plan.cell(50, 50), Plan.J_CAP));
+        Plan.pruneJoints(endTypes, List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, false)));
+        check(endTypes.containsKey(Plan.cell(20, 0)) && !endTypes.containsKey(Plan.cell(50, 50)), "end types kept while the end exists, dropped with it");
         // Stand-ins: an inner corner pick falls back to the corner, a T or cross to a tower, none / straight on = butt.
         check(PieceLayout.jointRoles(Plan.J_INNER, 2, false, false).equals(List.of(PieceSets.Role.INNER, PieceSets.Role.CORNER))
                 && PieceLayout.jointRoles(Plan.J_AUTO, 3, false, false).equals(List.of(PieceSets.Role.TEE, PieceSets.Role.TOWER))
