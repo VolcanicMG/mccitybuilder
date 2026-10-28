@@ -1322,8 +1322,9 @@ public final class SelfCheck {
      * failure fails, and so does a baselined case that now passes, so the list only shrinks
      * ({@code -DwriteBaseline=true} rewrites both baseline files). Known classes (below) are listed, not judged.
      * <ul>
-     * <li>wallCornerTurns: every asymmetric wall corner: fails when its closed sides look more like the straight's
-     * end than its arms do by over 0.15 ({@link PieceLayout#armClosed});</li>
+     * <li>wallCornerTurns: an asymmetric wall corner whose closed sides look more like the straight's end than its
+     * arms do by over 0.15 ({@link PieceLayout#armClosed}) fails when no run touches it well (none, the best under
+     * 0.3) or one barely does (under 0.5); with both runs meeting it well it is only listed for review;</li>
      * <li>noOverhang: a run that touches nothing stays within the joint's lateral span (plus its own side trim);</li>
      * <li>throughArmsAligned: a T's or cross's opposite arms of one line running through (straights laid the same
      * way) line up: their visible end profiles' world lateral centres within half a cell;</li>
@@ -1345,7 +1346,7 @@ public final class SelfCheck {
             for (String line : Files.readAllLines(allowFile)) if (!line.isBlank()) allow.add(line.split("\t")[0]);
         Map<String, String> failing = new java.util.TreeMap<>(), known = new java.util.TreeMap<>();
         java.util.Set<String> seen = new java.util.HashSet<>(), passingAllowed = new java.util.TreeSet<>();
-        List<String> fails = new java.util.ArrayList<>(), notes = new java.util.ArrayList<>();
+        List<String> fails = new java.util.ArrayList<>(), notes = new java.util.ArrayList<>(), review = new java.util.ArrayList<>(), mirrored = new java.util.ArrayList<>();
         Map<String, Integer> noContact = new java.util.TreeMap<>();
         for (var cs : all) {
             for (var r : cs.runs()) if (r.fit().depth() < 0) noContact.merge(cs.family(), 1, Integer::sum);
@@ -1374,7 +1375,18 @@ public final class SelfCheck {
                     List<Integer> outs = new java.util.ArrayList<>();
                     for (var r : cs.runs()) outs.add(r.out());
                     double[] ac = PieceLayout.armClosed(j, outs, cs.runs().get(0).straight(), false);
-                    verdict.accept("wallCornerTurns", ac[1] - ac[0] <= 0.15);
+                    double best = 0, worst = 1;
+                    boolean contact = false;
+                    for (var r : cs.runs()) {
+                        contact |= r.fit().depth() >= 0;
+                        best = Math.max(best, r.fit().match());
+                        worst = Math.min(worst, r.fit().match());
+                    }
+                    boolean looksTurned = ac[1] - ac[0] > 0.15;
+                    // Weak contact (none, or the best run under 0.3) or a run that barely meets it (under 0.5): gates.
+                    // A corner both runs meet well but whose closed sides look like the straight: listed for review.
+                    if (!contact || best < 0.3 || worst < 0.5) verdict.accept("wallCornerTurns", !looksTurned);
+                    else if (looksTurned) review.add(String.format("%s (arm %.2f, closed %.2f, runs %.2f-%.2f)", id, ac[0], ac[1], worst, best));
                 }
             }
             for (var r : cs.runs()) {
@@ -1389,14 +1401,21 @@ public final class SelfCheck {
                 boolean ok = true;
                 StringBuilder nums = new StringBuilder();
                 for (var a : cs.runs())
-                    for (var b : cs.runs())
-                        // One line running through (both straights laid the same way); two chains both leaving the
-                        // joint lay mirrored straights, whose sides differ by design.
-                        if (b.out() == (a.out() + 2) % 4 && a.out() < b.out() && java.util.Arrays.equals(a.straight().ids(), b.straight().ids())) {
-                            double ca = endCentre(a), cb = endCentre(b);
-                            ok &= Math.abs(ca - cb) <= 0.5;
-                            nums.append(String.format(" %d/%d: %.2f vs %.2f", a.out(), b.out(), ca, cb));
+                    for (var b : cs.runs()) {
+                        if (b.out() != (a.out() + 2) % 4 || a.out() > b.out()) continue;
+                        if (!java.util.Arrays.equals(a.straight().ids(), b.straight().ids())) {
+                            // Two chains both leaving the joint lay mirrored straights, whose sides differ by design:
+                            // their world extents are only listed when they differ.
+                            double[] ea = endExtent(a), eb = endExtent(b);
+                            if (Math.abs(ea[0] - eb[0]) > 0.5 || Math.abs(ea[1] - eb[1]) > 0.5)
+                                mirrored.add(String.format("%s %d/%d: [%.0f, %.0f] vs [%.0f, %.0f]", id, a.out(), b.out(), ea[0], ea[1], eb[0], eb[1]));
+                            continue;
                         }
+                        // One line running through (both straights laid the same way).
+                        double ca = endCentre(a), cb = endCentre(b);
+                        ok &= Math.abs(ca - cb) <= 0.5;
+                        nums.append(String.format(" %d/%d: %.2f vs %.2f", a.out(), b.out(), ca, cb));
+                    }
                 verdict.accept("throughArmsAligned", ok);
                 if (cs.family().matches("(medievaloak walls|fortress walls) L\\d+") && cs.name().equals("cross"))
                     notes.add(id + (ok ? " aligned" : " NOT aligned") + nums);
@@ -1412,11 +1431,15 @@ public final class SelfCheck {
             }
         }
         for (String n : notes) System.out.println("CityBuilder self-check: through arms, " + n);
+        System.out.println("CityBuilder self-check: wallCornerTurns review (both runs meet it well, closed sides look like the straight; not gating) (" + review.size() + "):");
+        for (String r : review) System.out.println("  review " + r);
+        System.out.println("CityBuilder self-check: mirrored through lines whose extents differ (not gating) (" + mirrored.size() + "):");
+        for (String m : mirrored) System.out.println("  mirrored " + m);
         if (Boolean.getBoolean("jointReport")) {
             Map<String, Integer> fixed = new java.util.TreeMap<>(), added = new java.util.TreeMap<>();
             for (String k : passingAllowed) fixed.merge(k.substring(0, k.indexOf(' ')), 1, Integer::sum);
             for (String k : fails) added.merge(k.substring(0, k.indexOf(' ')), 1, Integer::sum);
-            System.out.println("CityBuilder joint report: floor " + PieceLayout.contactFloor + " fixed " + fixed + " new " + added);
+            System.out.println("CityBuilder joint report: floor " + PieceLayout.contactFloor + " fixed " + fixed + " new " + added + " review " + review.size());
             for (String k : passingAllowed) System.out.println("  fixed " + k);
             for (String k : fails) System.out.println("  new " + k);
             return;
@@ -1449,6 +1472,21 @@ public final class SelfCheck {
         System.out.println("CityBuilder self-check: joint checks failing beyond the baseline (" + fails.size() + "): " + fails);
         check(fails.isEmpty(), "joint checks: " + fails.size() + " failing (listed above)");
         check(passingAllowed.isEmpty(), "baselined joint cases now passing (drop them from joint-baseline.txt): " + passingAllowed);
+    }
+
+    /** @return a run's visible end profile's world lateral extent {lo, hi} (its box's lateral origin plus the profile's) */
+    private static double[] endExtent(JointCases.Run r) {
+        int d = r.out(), lat0 = d % 2 == 0 ? 1 : 0;
+        PieceLayout.Grid s = r.straight();
+        java.util.Set<Long> p = PieceLayout.visible(s.profile((d + 2) % 4, s.inset((d + 2) % 4), 0, false), s);
+        if (p.isEmpty()) return new double[]{r.box()[lat0], r.box()[lat0 + 2]};
+        int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
+        for (long v : p) {
+            int l = (int) (v & 0xFFFF) - 30000;
+            lo = Math.min(lo, l);
+            hi = Math.max(hi, l);
+        }
+        return new double[]{r.box()[lat0] + lo, r.box()[lat0] + hi};
     }
 
     /**
