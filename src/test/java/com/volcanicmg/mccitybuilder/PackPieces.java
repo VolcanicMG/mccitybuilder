@@ -56,8 +56,8 @@ final class PackPieces {
 
     /**
      * @return the piece as a {@link PieceLayout.Grid} (air, substitution 0, blocks); ground as the game computes it:
-     * the primary offset y minus the ground anchor offset (the {@code groundlevel} tag's depth below the anchor, 1
-     * without one), so height 1 is the layer that replaces the ground surface
+     * the primary offset y minus the ground anchor offset ({@link PieceLayout#groundOffsets} over every piece in the
+     * jar), so height 1 is the layer that replaces the ground surface
      */
     static PieceLayout.Grid grid(String path) throws IOException {
         PieceLayout.Grid done = GRIDS.get(path);
@@ -86,12 +86,51 @@ final class PackPieces {
                 ids[i] = n.endsWith(":air") ? PieceLayout.Grid.AIR : n.endsWith(":blocksubstitution") ? 0 : id(n);
             }
             Map<?, ?> po = (Map<?, ?>) ((Map<?, ?>) ((Map<?, ?>) root.get("optional_data")).get("structurize")).get("primary_offset");
-            return new PieceLayout.Grid(sx, sy, sz, ids, ((Number) po.get("y")).intValue() - groundAnchorOffset(root));
+            int py = ((Number) po.get("y")).intValue();
+            if (OFFSETS == null) {
+                // First grid: every piece's vote, so groups move together as in the game.
+                OFFSETS = Map.of();
+                Map<String, Integer[]> votes = new HashMap<>();
+                java.util.Set<String> own = new java.util.HashSet<>();
+                for (String p : pieces()) {
+                    if (PieceLayout.ownGround(p.substring(p.indexOf('/') + 1))) own.add(p);
+                    Raw r = raw(p);
+                    votes.put(p, new Integer[]{r.tag == null ? 1 : r.tag, PieceLayout.groundVote(r.sx, r.sy, r.sz, r.ids, r.py, r.tag,
+                            "road".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.tool(p.substring(p.indexOf('/') + 1))))});
+                }
+                OFFSETS = PieceLayout.groundOffsets(votes, own);
+            }
+            Integer gao = OFFSETS.get(path);
+            return new PieceLayout.Grid(sx, sy, sz, ids, py - (gao != null ? gao : groundTag(root) != null ? groundTag(root) : 1));
         }
     }
 
-    /** Structurize's getGroundAnchorOffset: minus the y of the position tagged groundlevel (relative to the anchor), else 1. */
-    private static int groundAnchorOffset(Map<String, Object> root) {
+    private static Map<String, Integer> OFFSETS;
+
+    private record Raw(int sx, int sy, int sz, int[] ids, int py, Integer tag) {
+    }
+
+    /** @return what the ground offset needs of a piece (ids: air -1, substitution 0, any block 1) */
+    private static Raw raw(String path) throws IOException {
+        try (ZipFile z = new ZipFile(JAR); InputStream in = z.getInputStream(z.getEntry("blueprints/minecolonies/" + path))) {
+            DataInputStream d = new DataInputStream(new GZIPInputStream(in));
+            d.readByte();
+            d.readUTF();
+            @SuppressWarnings("unchecked") Map<String, Object> root = (Map<String, Object>) read(d, 10);
+            int sx = ((Number) root.get("size_x")).intValue(), sy = ((Number) root.get("size_y")).intValue(), sz = ((Number) root.get("size_z")).intValue();
+            List<?> palette = (List<?>) root.get("palette");
+            int[] packed = (int[]) root.get("blocks"), ids = new int[sx * sy * sz];
+            for (int i = 0; i < ids.length; i++) {
+                String n = (String) ((Map<?, ?>) palette.get(i % 2 == 0 ? packed[i / 2] >>> 16 : packed[i / 2] & 0xFFFF)).get("Name");
+                ids[i] = n.endsWith(":air") ? PieceLayout.Grid.AIR : n.endsWith(":blocksubstitution") ? 0 : 1;
+            }
+            Map<?, ?> po = (Map<?, ?>) ((Map<?, ?>) ((Map<?, ?>) root.get("optional_data")).get("structurize")).get("primary_offset");
+            return new Raw(sx, sy, sz, ids, ((Number) po.get("y")).intValue(), groundTag(root));
+        }
+    }
+
+    /** Structurize's getGroundAnchorOffset: minus the y of the position tagged groundlevel (relative to the anchor), else null. */
+    private static Integer groundTag(Map<String, Object> root) {
         for (Object te : (List<?>) root.get("tile_entities")) {
             Object bdp = ((Map<?, ?>) te).get("blueprintDataProvider");
             if (!(bdp instanceof Map<?, ?> m)) continue;
@@ -99,7 +138,7 @@ final class PackPieces {
                 for (Object t : (List<?>) ((Map<?, ?>) e).get("tagNameList"))
                     if ("groundlevel".equals(((Map<?, ?>) t).get("tagName"))) return -((Number) ((Map<?, ?>) ((Map<?, ?>) e).get("tagPos")).get("y")).intValue();
         }
-        return 1;
+        return null;
     }
 
     private static Object read(DataInputStream d, int t) throws IOException {

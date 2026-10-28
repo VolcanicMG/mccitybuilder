@@ -169,6 +169,76 @@ public final class PieceLayout {
     // ---- piece shapes: where a run meets a joint piece's real face ----
 
     /**
+     * What one road / wall piece's geometry says its ground anchor offset should be (its anchor goes {@code offset - 1}
+     * above the terrain's top block; the layer {@code py - offset} is the ground under it), or null when it has no say.
+     * Packs disagree on where the anchor sits (Structurize's default of 1 buries pieces anchored high up). A road's
+     * walking surface, its topmost full layer with blocks (nearly every cell a block or substitution), replaces the
+     * terrain's top block. A wall's foundation, its bottom run of full layers, ends just under the terrain's top, but
+     * only when the default buries it three layers or more (smaller depths are each pack's own foundation). A
+     * {@code groundlevel} tag is a road's surface, or a wall's ground as Structurize uses it.
+     *
+     * @param ids {@link Grid} ids (AIR, 0 substitution, blocks above 0); @param py the primary offset's y
+     * @param tag the {@code groundlevel} tag's offset ({@code -tagY}), or null without one
+     */
+    public static Integer groundVote(int sx, int sy, int sz, int[] ids, int py, Integer tag, boolean road) {
+        if (tag != null) return road ? tag + 1 : tag;
+        int area = sx * sz, run = -1, top = -1;
+        boolean bottom = true;
+        for (int y = 0; y < sy; y++) {
+            int filled = 0, solid = 0;
+            for (int i = y * area; i < (y + 1) * area; i++) {
+                if (ids[i] != Grid.AIR) filled++;
+                if (ids[i] > 0) solid++;
+            }
+            // Full: 95% of the footprint (a stray air cell at a corner doesn't count).
+            boolean full = filled * 20 >= area * 19;
+            if (bottom && full) run = y;
+            else bottom = false;
+            if (full && solid > 0) top = y;
+        }
+        if (road) return top < 0 ? null : py - top + 1;
+        if (run < 0) return null;
+        return py - run >= 3 ? py - run : 1;
+    }
+
+    /**
+     * Each piece's ground anchor offset. A piece in {@code own} takes its own vote; any other piece (walls, road
+     * slopes, pieces without a vote) moves with its group: its default (tag, else 1) plus the most common vote minus
+     * default among the group's pieces (ties: the smaller shift). A group is a folder and a level / variant number
+     * ({@link PieceSets#split}), so a set's authored heights relative to each other stay as they are.
+     *
+     * @param pieces path → {default offset, vote or null}
+     */
+    public static java.util.Map<String, Integer> groundOffsets(java.util.Map<String, Integer[]> pieces, java.util.Set<String> own) {
+        java.util.Map<String, java.util.Map<Integer, Integer>> votes = new java.util.HashMap<>();
+        java.util.function.Function<String, String> group = path -> path.substring(0, Math.max(0, path.lastIndexOf('/'))) + "#"
+                + PieceSets.split(path.substring(path.lastIndexOf('/') + 1))[1];
+        for (var e : pieces.entrySet())
+            if (e.getValue()[1] != null) votes.computeIfAbsent(group.apply(e.getKey()), k -> new java.util.HashMap<>()).merge(e.getValue()[1] - e.getValue()[0], 1, Integer::sum);
+        java.util.Map<String, Integer> out = new java.util.HashMap<>();
+        for (var e : pieces.entrySet()) {
+            if (own.contains(e.getKey()) && e.getValue()[1] != null) {
+                out.put(e.getKey(), e.getValue()[1]);
+                continue;
+            }
+            int shift = 0, best = 0;
+            for (var v : votes.getOrDefault(group.apply(e.getKey()), java.util.Map.of()).entrySet())
+                if (v.getValue() > best || v.getValue() == best && v.getKey() < shift) {
+                    best = v.getValue();
+                    shift = v.getKey();
+                }
+            out.put(e.getKey(), e.getValue()[0] + shift);
+        }
+        return out;
+    }
+
+    /** @return true for a piece that sits by its own vote ({@link #groundOffsets}): a flat road piece (not a slope, lamp or bridge part) */
+    public static boolean ownGround(String path) {
+        PieceSets.Role r = PieceSets.role(PieceSets.split(path.substring(path.lastIndexOf('/') + 1))[0]);
+        return "road".equals(PieceSets.tool(path)) && r != PieceSets.Role.SLOPE && r != PieceSets.Role.OTHER;
+    }
+
+    /**
      * A piece's blocks, as Structurize stores them: {@code ids[(y * sz + z) * sx + x]}: a block id above 0,
      * {@link #AIR} (pasting clears the world there) or 0 = substitution (pasting leaves the world as it is).
      *

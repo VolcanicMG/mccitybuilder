@@ -39,6 +39,7 @@ public final class SelfCheck {
         plans();
         roads();
         lines();
+        groundOffsets();
         hintsAndLang();
         System.out.println("CityBuilder self-check passed");
     }
@@ -1507,6 +1508,57 @@ public final class SelfCheck {
         Plan.Line touch = new Plan.Line("wall", 10, 8, 20, 8, "p", "f", 1, 0, false, false);
         check(Plan.restore(List.of(touch), List.of(builtB), locked, l -> false).contains(touch), "joint cell shared: kept");
         check(Plan.sharedCells(c, builtB) == 5 && Plan.sharedCells(touch, builtB) == 1, "shared cells");
+    }
+
+    private static void groundOffsets() throws Exception {
+        int A = PieceLayout.Grid.AIR;
+        // A road: substitution layer, then its surface, then a lamp cell: the surface replaces the terrain's top block.
+        int[] road = {0, 0, 0, 5, 5, 5, A, 7, A};
+        check(PieceLayout.groundVote(3, 3, 1, road, 0, null, true) == 0, "road surface flush: anchor 1 below the default");
+        check(PieceLayout.groundVote(3, 3, 1, road, 2, null, true) == 2, "road anchored on its lamp: offset 2");
+        check(PieceLayout.groundVote(3, 3, 1, road, 0, 1, true) == 2, "a road's tagged layer is its surface");
+        check(PieceLayout.groundVote(3, 2, 1, new int[]{A, 5, A, A, A, A}, 0, null, true) == null, "no full layer: no vote");
+        // A wall: four full foundation layers, anchored at its top (py 6): stands on them; anchored low, the default.
+        int[] wall = new int[3 * 8];
+        java.util.Arrays.fill(wall, A);
+        for (int i = 0; i < 12; i++) wall[i] = i % 2;
+        for (int y = 4; y < 8; y++) wall[y * 3 + 1] = 5;
+        check(PieceLayout.groundVote(3, 8, 1, wall, 6, null, false) == 3, "buried wall: foundation top just under the terrain");
+        check(PieceLayout.groundVote(3, 8, 1, wall, 5, null, false) == 1, "two layers deep: the pack's own foundation, default");
+        // Groups: road pieces sit by their own vote; walls and slopes move by their group's shift, ties to the smaller.
+        Map<String, Integer[]> votes = new java.util.HashMap<>(Map.of(
+                "p/walls/long1.blueprint", new Integer[]{1, 5}, "p/walls/corner1.blueprint", new Integer[]{1, 5}, "p/walls/gate1.blueprint", new Integer[]{1, 1},
+                "p/walls/slope1.blueprint", new Integer[]{1, null}, "p/walls/long2.blueprint", new Integer[]{1, 2},
+                "p/infrastructure/roads/straight1.blueprint", new Integer[]{1, 3}, "p/infrastructure/roads/corner1.blueprint", new Integer[]{1, 2},
+                "p/infrastructure/roads/stairs1.blueprint", new Integer[]{1, 9}));
+        java.util.Set<String> own = new java.util.HashSet<>();
+        for (String k : votes.keySet()) if (PieceLayout.ownGround(k)) own.add(k);
+        Map<String, Integer> o = PieceLayout.groundOffsets(votes, own);
+        check(o.get("p/walls/gate1.blueprint") == 5 && o.get("p/walls/slope1.blueprint") == 5 && o.get("p/walls/long2.blueprint") == 2, "walls move by their group: " + o);
+        check(o.get("p/infrastructure/roads/straight1.blueprint") == 3 && o.get("p/infrastructure/roads/corner1.blueprint") == 2
+                && o.get("p/infrastructure/roads/stairs1.blueprint") == 2, "roads by their own vote, stairs by the group (tie: smaller): " + o);
+        // The real packs: every flat road piece the line tool lays has its surface just above ground (replacing the
+        // terrain's top block); Medieval Oak walls (confirmed right in game) keep Structurize's default.
+        int roads = 0;
+        for (String full : PackPieces.pieces()) {
+            String in = full.substring(full.indexOf('/') + 1);
+            PieceLayout.Grid g = PackPieces.grid(full);
+            if (full.startsWith("medievaloak/walls/")) check(g.ground() == 6, "medieval oak wall ground: " + full + " " + g.ground());
+            if (!PieceLayout.ownGround(in)) continue;
+            int area = g.sx() * g.sz(), top = -1;
+            for (int y = 0; y < g.sy(); y++) {
+                int filled = 0, solid = 0;
+                for (int i = y * area; i < (y + 1) * area; i++) {
+                    if (g.ids()[i] != PieceLayout.Grid.AIR) filled++;
+                    if (g.ids()[i] > 0) solid++;
+                }
+                if (filled * 20 >= area * 19 && solid > 0) top = y;
+            }
+            if (top < 0 || full.startsWith("darkoak/")) continue;
+            check(top == g.ground() + 1, "road surface replaces the terrain's top block: " + full + " surface " + top + " ground " + g.ground());
+            roads++;
+        }
+        check(roads > 300, "flat road pieces checked: " + roads);
     }
 
     private static void hintsAndLang() throws Exception {

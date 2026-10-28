@@ -64,6 +64,7 @@ final class PieceCatalog {
         blockCounts.clear();
         grids.clear();
         gridOf.clear();
+        groundOffsets.clear();
         PieceLayout.clearCache();
         failed.clear();
         PieceView.clear();
@@ -132,6 +133,17 @@ final class PieceCatalog {
             }
         }
         if (loading) return null;
+        Map<String, Integer[]> votes = new HashMap<>();
+        java.util.Set<String> own = new java.util.HashSet<>();
+        for (PieceSets.Piece p : pieces) {
+            if (PieceLayout.ownGround(p.path())) own.add(p.path());
+            Blueprint bp = rotated(pack, p.path(), 0);
+            int tag = BlueprintTagUtils.getGroundAnchorOffset(bp, Integer.MIN_VALUE);
+            Integer t = tag == Integer.MIN_VALUE ? null : tag;
+            votes.put(p.path(), new Integer[]{t == null ? 1 : t, PieceLayout.groundVote(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids(bp),
+                    bp.getPrimaryBlockOffset().getY(), t, "road".equals(PieceSets.tool(p.path())))});
+        }
+        groundOffsets.put(pack, PieceLayout.groundOffsets(votes, own));
         Map<String, PieceSets.Family> out = PieceSets.classify(pieces);
         families.put(pack, out);
         return out;
@@ -272,21 +284,42 @@ final class PieceCatalog {
         PieceLayout.Grid done = grids.get(key);
         if (done != null) return done;
         Blueprint bp = rotated(pack, path, turns);
-        if (bp == null) return null;
+        Integer gao = bp == null ? null : groundOffset(pack, path);
+        if (gao == null) return null;
+        int[] ids = ids(bp);
+        // Ground: the local y at ground level, as the anchor math in place() puts it.
+        PieceLayout.Grid g = new PieceLayout.Grid(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids, bp.getPrimaryBlockOffset().getY() - gao);
+        grids.put(key, g);
+        gridOf.put(g, new Object[]{pack, path, Math.floorMod(turns, 4)});
+        return g;
+    }
+
+    /** @return a blueprint's blocks as {@link PieceLayout.Grid} ids (air clears the world when pasted; substitution, 0, leaves it) */
+    private static int[] ids(Blueprint bp) {
         int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
         int[] ids = new int[sx * sy * sz];
         for (int y = 0; y < sy; y++)
             for (int z = 0; z < sz; z++)
                 for (int x = 0; x < sx; x++) {
                     BlockState st = bp.getBlockState(new BlockPos(x, y, z));
-                    // Air clears the world when pasted; substitution (0) leaves it.
                     ids[(y * sz + z) * sx + x] = st.isAir() ? PieceLayout.Grid.AIR : solid(st) ? 1 + net.minecraft.core.registries.BuiltInRegistries.BLOCK.getId(st.getBlock()) : 0;
                 }
-        // Ground: the local y at ground level, as the anchor math in place() puts it.
-        PieceLayout.Grid g = new PieceLayout.Grid(sx, sy, sz, ids, bp.getPrimaryBlockOffset().getY() - BlueprintTagUtils.getGroundAnchorOffset(bp, 1));
-        grids.put(key, g);
-        gridOf.put(g, new Object[]{pack, path, Math.floorMod(turns, 4)});
-        return g;
+        return ids;
+    }
+
+    // Per pack: each piece's ground anchor offset (PieceLayout.groundOffsets), once all its pieces have loaded.
+    private static final Map<String, Map<String, Integer>> groundOffsets = new HashMap<>();
+
+    /** @return the piece's ground anchor offset, or null while the pack's pieces load */
+    static Integer groundOffset(String pack, String path) {
+        Map<String, Integer> m = groundOffsets.get(pack);
+        if (m == null && families(pack) != null) m = groundOffsets.get(pack);
+        if (m == null) return null;
+        Integer o = m.get(path);
+        if (o != null) return o;
+        // Not one of the pack's road / wall pieces (a built record of a removed file): its tag, else 1.
+        Blueprint bp = rotated(pack, path, 0);
+        return bp == null ? null : BlueprintTagUtils.getGroundAnchorOffset(bp, 1);
     }
 
     static int blocks(String pack, String path) {
@@ -326,7 +359,8 @@ final class PieceCatalog {
         Blueprint bp = rotated(pack, b.path(), b.turns());
         if (bp == null) return null;
         int[] box = {b.bx0(), b.bz0(), b.bx1(), b.bz1()};
-        int level = b.ay() - BlueprintTagUtils.getGroundAnchorOffset(bp, 1) + 2;
+        PieceLayout.Grid gr = grid(pack, b.path(), b.turns());
+        int level = b.ay() - (bp.getPrimaryBlockOffset().getY() - gr.ground()) + 2;
         PieceSets.Role role;
         try {
             role = PieceSets.Role.valueOf(b.role());
@@ -972,7 +1006,8 @@ final class PieceCatalog {
         Blueprint bp = rotated(pack, path, turns);
         if (bp == null) return null;
         BlockPos o = bp.getPrimaryBlockOffset();
-        int y = level - 1 + BlueprintTagUtils.getGroundAnchorOffset(bp, 1) - 1;
+        PieceLayout.Grid gr = grid(pack, path, turns);
+        int y = level - 1 + (o.getY() - gr.ground()) - 1;
         int[] g = under(box);
         return new Placed(path, turns, new BlockPos(box[0] + o.getX(), y, box[1] + o.getZ()), box, role, blocks(pack, path), y - o.getY(), bp.getSizeY(), level, g[0]);
     }
