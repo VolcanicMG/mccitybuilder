@@ -300,6 +300,12 @@ final class PlannerScreen extends Screen {
         return 1;
     }
 
+    private static String jointHint(LineView.JointOption o) {
+        int pct = (int) Math.round(o.match() * 100);
+        return o.type() == com.volcanicmg.mccitybuilder.planner.Plan.J_NONE ? "" : o.lacks() > 0 ? Component.translatable("mccitybuilder.edit.menu_no_fit", o.lacks()).getString()
+                : Component.translatable(o.flips() > 0 ? "mccitybuilder.edit.menu_fits_flip" : "mccitybuilder.edit.menu_fits_pct", pct, o.flips()).getString();
+    }
+
     /**
      * The joint menu beside the selected joint: one row per type that fits its shape (a 3D thumbnail of the piece,
      * the name, "fits" / "gap N" / "won't fit"); hovering a row shows it in the world, a click applies it, Esc or a
@@ -312,7 +318,9 @@ final class PlannerScreen extends Screen {
             LineView.closeJointMenu(false);
             return;
         }
+        // Wide enough for the longest row text.
         int rowH = 28, w = 160, h = LineView.jointOptions.size() * rowH + 2 * PAD;
+        for (LineView.JointOption o : LineView.jointOptions) w = Math.max(w, font.width(jointHint(o)) + 30 + 2 * PAD + 4);
         int x = Math.min(width - w - 2, (int) p[0] + 14), y = Math.max(2, Math.min(height - h - 2, (int) p[1] - h / 2));
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
@@ -331,10 +339,7 @@ final class PlannerScreen extends Screen {
             int ink = VanillaUi.ink(o.type() == current, o.lacks() > 0);
             g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.line.joint." + o.type()).getString(), rw - 32), rx + 30, ry + 4, ink, false);
             // "fits · 92%" green from 90% match, amber below; "flips 1 wall" when the walls turn to meet the piece.
-            int pct = (int) Math.round(o.match() * 100);
-            String hint = o.type() == com.volcanicmg.mccitybuilder.planner.Plan.J_NONE ? "" : o.lacks() > 0 ? Component.translatable("mccitybuilder.edit.menu_no_fit", o.lacks()).getString()
-                    : Component.translatable(o.flips() > 0 ? "mccitybuilder.edit.menu_fits_flip" : "mccitybuilder.edit.menu_fits_pct", pct, o.flips()).getString();
-            g.drawString(font, hint, rx + 30, ry + 15, o.lacks() > 0 ? 0xFFA02020 : o.match() >= 0.9 ? 0xFF206020 : 0xFFA06010, false);
+            g.drawString(font, jointHint(o), rx + 30, ry + 15, o.lacks() > 0 ? 0xFFA02020 : o.match() >= 0.9 ? 0xFF206020 : 0xFFA06010, false);
             int t = o.type();
             hits.add(new Hit(rx, ry, rw, rowH - 2, () -> {
                 click();
