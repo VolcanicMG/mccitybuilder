@@ -39,7 +39,7 @@ final class LineView {
     // Undo: the plan's lines, joint types, built pieces, chain and selection before each user change (newest first);
     // entries only from a plan clear (null otherwise: hut / decoration edits aren't undone).
     private record Snap(List<Plan.Line> lines, java.util.Map<Long, Integer> joints, java.util.Map<String, List<Plan.BuiltPiece>> built, List<Plan.Line> chain,
-                        int[] start, int[] prevDir, int chainBase, Plan.Line selected, int[] selectedJoint, List<Plan.Entry> entries) {
+                        int[] start, int[] prevDir, int chainBase, Plan.Line selected, int[] selectedJoint, List<Plan.Entry> entries, int builtMark) {
     }
 
     private static final java.util.ArrayDeque<Snap> undos = new java.util.ArrayDeque<>();
@@ -1106,7 +1106,7 @@ final class LineView {
     private static Snap snap(boolean entries) {
         return new Snap(new ArrayList<>(PlanView.lines), new java.util.HashMap<>(PlanView.jointTypes), new java.util.HashMap<>(PlanView.builtPieces), new ArrayList<>(chain),
                 start == null ? null : start.clone(), prevDir == null ? null : prevDir.clone(), chainBase, PlanView.selectedLine(),
-                selectedJoint == null ? null : selectedJoint.clone(), entries ? new ArrayList<>(PlanView.entries) : null);
+                selectedJoint == null ? null : selectedJoint.clone(), entries ? new ArrayList<>(PlanView.entries) : null, PlanView.builtMark());
     }
 
     private static boolean same(Snap a, Snap b) {
@@ -1133,9 +1133,10 @@ final class LineView {
         takenDown.clear();
     }
 
-    /** The server accepted (part of) a built segment's removal: an undo brings it back as a plan. */
+    /** The server accepted (part of) a built segment's removal: an undo brings it back as a plan (one already undone becomes one now). */
     static void tookDown(Plan.Line l) {
         takenDown.add(l);
+        if (PlanView.lines.contains(l)) PlanView.replaceLine(l, l.asPlanned());
     }
 
     /** The segment is built again: its blocks stand. */
@@ -1162,10 +1163,10 @@ final class LineView {
             List<Plan.Entry> es = null;
             if (s.entries() != null) {
                 es = new ArrayList<>(s.entries());
-                es.removeIf(PlanView::builtSince);
+                es.removeIf(e -> PlanView.builtSince(e, s.builtMark()));
                 for (Plan.Entry e : PlanView.entries) if (!es.contains(e)) es.add(e);
             }
-            Snap to = new Snap(ls, s.joints(), s.built(), ch, s.start(), s.prevDir(), s.chainBase(), s.selected(), s.selectedJoint(), es);
+            Snap to = new Snap(ls, s.joints(), s.built(), ch, s.start(), s.prevDir(), s.chainBase(), s.selected(), s.selectedJoint(), es, s.builtMark());
             if (same(to, now)) continue;
             closeJointMenu(false);
             PlanView.jointTypes.clear();
@@ -1175,6 +1176,7 @@ final class LineView {
                 String k = Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1());
                 if (l.built() && !PlanView.builtPieces.containsKey(k) && s.built().containsKey(k)) PlanView.builtPieces.put(k, s.built().get(k));
             }
+            // Assigned without a save: setLines below saves once, against the restored lines.
             if (es != null) PlanView.setEntries(es);
             chain.clear();
             chain.addAll(ch);

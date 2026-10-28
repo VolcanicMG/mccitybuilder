@@ -110,6 +110,8 @@ final class PlanView {
         }
         PieceCatalog.builtPieces = builtPieces;
         LineView.resetUndo();
+        builtEntries.clear();
+        removalLine.clear();
         selected = -1;
         selectedLine = -1;
         linesDirty = true;
@@ -656,16 +658,21 @@ final class PlanView {
     }
 
     /** Replaces the whole set of lines (an edit-mode move) and saves. */
-    /** Replaces the hut / decoration entries (an undo of a clear) and saves. */
+    /** Replaces the hut / decoration entries (an undo of a clear); the caller saves. */
     static void setEntries(List<Plan.Entry> es) {
         entries = new ArrayList<>(es);
         selected = -1;
-        save();
+        dirty = true;
     }
 
-    /** @return true for an entry the server built after it left the plan view's hands (never planned again by an undo) */
-    static boolean builtSince(Plan.Entry e) {
-        return builtEntries.contains(e);
+    /** @return how many entries the server has built so far (a mark for {@link #builtSince}) */
+    static int builtMark() {
+        return builtEntries.size();
+    }
+
+    /** @return true for an entry the server built after the mark (never planned again by an undo) */
+    static boolean builtSince(Plan.Entry e, int mark) {
+        return builtEntries.subList(Math.min(mark, builtEntries.size()), builtEntries.size()).contains(e);
     }
 
     static void setLines(List<Plan.Line> ls) {
@@ -790,7 +797,7 @@ final class PlanView {
     private static int nextBatchId = 1;
     // Removal batches of built segments, and plan entries the server built (undo never plans them again).
     private static final Map<Integer, Plan.Line> removalLine = new HashMap<>();
-    private static final java.util.Set<Plan.Entry> builtEntries = new java.util.HashSet<>();
+    private static final List<Plan.Entry> builtEntries = new ArrayList<>();
     private static final java.util.Set<Integer> decoIds = new java.util.HashSet<>();
 
     /** @return a request id for a selected decoration's action (its answer is told only when refused) */
