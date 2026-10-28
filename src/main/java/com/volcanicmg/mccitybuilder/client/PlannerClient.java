@@ -79,6 +79,7 @@ public final class PlannerClient {
             Planner.guard(() -> Planner.exit(null));
             Blueprints.clear();
             PieceCatalog.clear();
+            Planner.clearDecos();
         });
     }
 

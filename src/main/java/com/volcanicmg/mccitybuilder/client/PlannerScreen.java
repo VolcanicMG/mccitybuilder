@@ -1101,7 +1101,8 @@ final class PlannerScreen extends Screen {
             if (packs.isEmpty()) return;
             int i = Math.max(0, packs.indexOf(pack()));
             pickPack(packs.get(Math.floorMod(i + d, packs.size())));
-            if (Planner.placing != null) Planner.startPlacing(Planner.placing);
+            // A building move keeps going; the pack only changes what a new hut would be.
+            if (Planner.placing != null && Planner.moving == null) Planner.startPlacing(Planner.placing);
             else if (Planner.deco != null) Planner.stopPlacing();
             click();
         }, Component.translatable("mccitybuilder.pack"));

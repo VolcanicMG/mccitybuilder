@@ -250,6 +250,7 @@ final class Blueprints {
         maxLevels.clear();
         boxLoads.clear();
         boxes.clear();
+        decoLoads.clear();
         costLoads.clear();
         costs.clear();
     }

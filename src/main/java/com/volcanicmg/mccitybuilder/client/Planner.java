@@ -119,6 +119,11 @@ public final class Planner {
     static Deco selectedDeco, hoveredDeco, movingDeco;
     // The server's decoration records per colony id (kept across planner sessions; a reopen's query may be rate limited).
     private static final java.util.Map<Integer, java.util.List<Deco>> syncedDecos = new java.util.HashMap<>();
+
+    /** Logout: colony ids repeat across worlds and servers. */
+    static void clearDecos() {
+        syncedDecos.clear();
+    }
     private static java.util.List<Deco> controllerDecos = java.util.List.of();
     // The colony's claimed chunks (client claim data, refreshed each second), its border edges and pan bounds.
     private static java.util.Set<Long> claimed = java.util.Set.of();
