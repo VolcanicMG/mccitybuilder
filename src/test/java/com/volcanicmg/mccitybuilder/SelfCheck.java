@@ -1326,8 +1326,8 @@ public final class SelfCheck {
      * 0.3): fails when the corner's closed sides look more like the straight's end than its arms do by over 0.15
      * ({@link PieceLayout#armClosed});</li>
      * <li>noOverhang: a run that touches nothing stays within the joint's lateral span (plus its own side trim);</li>
-     * <li>throughArmsAligned: a T's or cross's opposite arms line up: their visible end profiles' world lateral
-     * centres within half a cell;</li>
+     * <li>throughArmsAligned: a T's or cross's opposite arms of one line running through (straights laid the same
+     * way) line up: their visible end profiles' world lateral centres within half a cell;</li>
      * <li>tShiftCentred: a tower T's third arm that touches nothing sits on the tower's centre line;</li>
      * <li>noContactDelta: runs that touch nothing, per family, never more than the checked-in baseline
      * ({@code src/test/resources/no-contact.tsv}).</li>
@@ -1393,13 +1393,15 @@ public final class SelfCheck {
                 StringBuilder nums = new StringBuilder();
                 for (var a : cs.runs())
                     for (var b : cs.runs())
-                        if (b.out() == (a.out() + 2) % 4 && a.out() < b.out()) {
+                        // One line running through (both straights laid the same way); two chains both leaving the
+                        // joint lay mirrored straights, whose sides differ by design.
+                        if (b.out() == (a.out() + 2) % 4 && a.out() < b.out() && java.util.Arrays.equals(a.straight().ids(), b.straight().ids())) {
                             double ca = endCentre(a), cb = endCentre(b);
                             ok &= Math.abs(ca - cb) <= 0.5;
                             nums.append(String.format(" %d/%d: %.2f vs %.2f", a.out(), b.out(), ca, cb));
                         }
                 verdict.accept("throughArmsAligned", ok);
-                if (cs.family().matches("(medievaloak walls L5|fortress walls L1)") && cs.name().equals("cross"))
+                if (cs.family().matches("(medievaloak walls|fortress walls) L\\d+") && cs.name().equals("cross"))
                     notes.add(id + (ok ? " aligned" : " NOT aligned") + nums);
                 if (cs.name().startsWith("T") && cs.jointPath().toLowerCase(java.util.Locale.ROOT).contains("tower"))
                     for (var r : cs.runs()) {
@@ -1443,15 +1445,23 @@ public final class SelfCheck {
         check(passingAllowed.isEmpty(), "baselined joint cases now passing (drop them from joint-baseline.txt): " + passingAllowed);
     }
 
-    /** @return a run's visible end profile's lateral centre in world cells (its box's lateral origin plus the profile's mean) */
+    /**
+     * @return a run's visible end profile's lateral centre in world cells: its box's lateral origin plus the middle of
+     * the profile's lateral extent (the extent's middle, not the mean, so a wall turned round for the other arm, its
+     * walkway on the other side, still has the same centre)
+     */
     private static double endCentre(JointCases.Run r) {
         int d = r.out(), lat0 = d % 2 == 0 ? 1 : 0;
         PieceLayout.Grid s = r.straight();
         java.util.Set<Long> p = PieceLayout.visible(s.profile((d + 2) % 4, s.inset((d + 2) % 4), 0, false), s);
         if (p.isEmpty()) return r.box()[lat0] + (r.box()[lat0 + 2] - r.box()[lat0]) / 2.0;
-        double sum = 0;
-        for (long v : p) sum += (v & 0xFFFF) - 30000;
-        return r.box()[lat0] + sum / p.size();
+        int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
+        for (long v : p) {
+            int l = (int) (v & 0xFFFF) - 30000;
+            lo = Math.min(lo, l);
+            hi = Math.max(hi, l);
+        }
+        return r.box()[lat0] + (lo + hi) / 2.0;
     }
 
     private static void continuity() throws Exception {
