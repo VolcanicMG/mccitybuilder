@@ -101,7 +101,8 @@ final class PackPieces {
                 OFFSETS = PieceLayout.groundOffsets(votes, own);
             }
             Integer gao = OFFSETS.get(path);
-            return new PieceLayout.Grid(sx, sy, sz, ids, py - (gao != null ? gao : groundTag(root) != null ? groundTag(root) : 1));
+            int base = groundTag(root) != null ? groundTag(root) : 1, off = gao != null ? gao : base;
+            return new PieceLayout.Grid(sx, sy, sz, ids, py - off, off - base);
         }
     }
 

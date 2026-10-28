@@ -172,7 +172,8 @@ public final class PieceLayout {
      * What one road / wall piece's geometry says its ground anchor offset should be (its anchor goes {@code offset - 1}
      * above the terrain's top block; the layer {@code py - offset} is the ground under it), or null when it has no say.
      * Packs disagree on where the anchor sits (Structurize's default of 1 buries pieces anchored high up). A road's
-     * walking surface, its topmost full layer with blocks (nearly every cell a block or substitution), replaces the
+     * walking surface, its topmost full layer (nearly every cell a block or substitution) that is at least a quarter
+     * blocks (not a layer of substitution with a few posts poking through), replaces the
      * terrain's top block. A wall's foundation, its bottom run of full layers, ends just under the terrain's top, but
      * only when the default buries it three layers or more (smaller depths are each pack's own foundation). A
      * {@code groundlevel} tag is a road's surface, or a wall's ground as Structurize uses it.
@@ -194,7 +195,7 @@ public final class PieceLayout {
             boolean full = filled * 20 >= area * 19;
             if (bottom && full) run = y;
             else bottom = false;
-            if (full && solid > 0) top = y;
+            if (full && solid * 4 >= area) top = y;
         }
         if (road) return top < 0 ? null : py - top + 1;
         if (run < 0) return null;
@@ -248,9 +249,15 @@ public final class PieceLayout {
      *
      * @param ground the local y level that sits at the ground (so pieces with different foundations compare by height
      *               above ground)
+     * @param hidden layers above ground the joint fit ignores ({@link #visible}): the piece's ground offset minus
+     *               Structurize's default, so the fit compares the same cross-sections however high the piece stands
      */
-    public record Grid(int sx, int sy, int sz, int[] ids, int ground) {
+    public record Grid(int sx, int sy, int sz, int[] ids, int ground, int hidden) {
         public static final int AIR = -1;
+
+        public Grid(int sx, int sy, int sz, int[] ids, int ground) {
+            this(sx, sy, sz, ids, ground, 0);
+        }
 
         public int id(int x, int y, int z) {
             return ids[(y * sz + z) * sx + x];
@@ -265,7 +272,7 @@ public final class PieceLayout {
                 for (int y = 0; y < g.sy; y++)
                     for (int z = 0; z < g.sz; z++)
                         for (int x = 0; x < g.sx; x++) o[(y * nsz + x) * nsx + (g.sz - 1 - z)] = g.id(x, y, z);
-                g = new Grid(nsx, g.sy, nsz, o, g.ground);
+                g = new Grid(nsx, g.sy, nsz, o, g.ground, g.hidden);
             }
             return g;
         }
@@ -331,10 +338,13 @@ public final class PieceLayout {
     public record Fit(int off, int shift, double match, int depth) {
     }
 
-    /** Cells of a profile from the ground layer up (height 0: a road's surface sits there): what shows once the piece stands. */
-    public static Set<Long> visible(Set<Long> profile) {
+    /**
+     * Cells of a profile from the piece's default ground layer up ({@link Grid#hidden} above its ground): the part the
+     * joint fit compares (foundations never decide).
+     */
+    public static Set<Long> visible(Set<Long> profile, Grid g) {
         Set<Long> out = new java.util.HashSet<>();
-        for (long v : profile) if (((v >> 16) & 0xFFFF) - 1000 >= 0) out.add(v);
+        for (long v : profile) if (((v >> 16) & 0xFFFF) - 1000 >= g.hidden()) out.add(v);
         return out;
     }
 
@@ -388,9 +398,9 @@ public final class PieceLayout {
         if (depth < 0) return new Fit(edge, shift, 0, -1);
         int[] sbox0 = boxes(c, d, edge, List.of(run), width, 0).get(0);
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox0[1] : sbox0[0]) - ref;
-        Set<Long> S = visible(straight.profile((d + 2) % 4, si, sa, false));
+        Set<Long> S = visible(straight.profile((d + 2) % 4, si, sa, false), straight);
         int layers = d % 2 == 0 ? joint.sx() : joint.sz();
-        double m = depth < layers ? jaccard(visible(joint.profile(d, depth, ja, false)), S, shift) : 0;
+        double m = depth < layers ? jaccard(visible(joint.profile(d, depth, ja, false), joint), S, shift) : 0;
         return new Fit(edge - depth - si, shift, m, depth);
     }
 
@@ -426,12 +436,12 @@ public final class PieceLayout {
         int si = straight.inset((d + 2) % 4), edge = reach(c, d, jb), ref = d % 2 == 0 ? c[1] : c[0];
         int[] sbox0 = boxes(c, d, edge, List.of(run), width, 0).get(0);
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox0[1] : sbox0[0]) - ref;
-        Set<Long> S = visible(straight.profile((d + 2) % 4, si, sa, false));
+        Set<Long> S = visible(straight.profile((d + 2) % 4, si, sa, false), straight);
         int layers = d % 2 == 0 ? joint.sx() : joint.sz();
         List<Set<Long>> J = new ArrayList<>();
         Set<Long> fullest = Set.of();
         for (int i = 0; i < layers; i++) {
-            J.add(visible(joint.profile(d, i, ja, false)));
+            J.add(visible(joint.profile(d, i, ja, false), joint));
             if (J.get(i).size() > fullest.size()) fullest = J.get(i);
         }
         double cj = centre(fullest), cs = S.isEmpty() ? cj : centre(S);
@@ -556,7 +566,7 @@ public final class PieceLayout {
         int si = straight.inset((d + 2) % 4), ref = d % 2 == 0 ? c[1] : c[0];
         int[] sbox = boxes(c, d, f.off(), List.of(run), width, 0).get(0);
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox[1] : sbox[0]) - ref;
-        return f.match() + jaccard(visible(joint.profile(d, f.depth(), ja, true)), visible(straight.profile((d + 2) % 4, si, sa, true)), f.shift());
+        return f.match() + jaccard(visible(joint.profile(d, f.depth(), ja, true), joint), visible(straight.profile((d + 2) % 4, si, sa, true), straight), f.shift());
     }
 
     // ---- heights ----

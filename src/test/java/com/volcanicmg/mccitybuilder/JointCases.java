@@ -243,7 +243,7 @@ final class JointCases {
         Set<Integer> out = new HashSet<>();
         for (int y = 0; y < g.sy(); y++) {
             int h = y - g.ground();
-            if (h < 0) continue;
+            if (h < g.hidden()) continue;
             for (int x = 0; x < g.sx(); x++)
                 for (int z = 0; z < g.sz(); z++) {
                     int wx = ox + x, wz = oz + z;

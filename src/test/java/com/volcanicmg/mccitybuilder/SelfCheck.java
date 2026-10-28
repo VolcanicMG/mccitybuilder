@@ -1552,7 +1552,7 @@ public final class SelfCheck {
                     if (g.ids()[i] != PieceLayout.Grid.AIR) filled++;
                     if (g.ids()[i] > 0) solid++;
                 }
-                if (filled * 20 >= area * 19 && solid > 0) top = y;
+                if (filled * 20 >= area * 19 && solid * 4 >= area) top = y;
             }
             if (top < 0 || full.startsWith("darkoak/")) continue;
             check(top == g.ground() + 1, "road surface replaces the terrain's top block: " + full + " surface " + top + " ground " + g.ground());

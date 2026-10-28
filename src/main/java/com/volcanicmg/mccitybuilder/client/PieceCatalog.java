@@ -288,7 +288,8 @@ final class PieceCatalog {
         if (gao == null) return null;
         int[] ids = ids(bp);
         // Ground: the local y at ground level, as the anchor math in place() puts it.
-        PieceLayout.Grid g = new PieceLayout.Grid(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids, bp.getPrimaryBlockOffset().getY() - gao);
+        PieceLayout.Grid g = new PieceLayout.Grid(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids, bp.getPrimaryBlockOffset().getY() - gao,
+                gao - BlueprintTagUtils.getGroundAnchorOffset(bp, 1));
         grids.put(key, g);
         gridOf.put(g, new Object[]{pack, path, Math.floorMod(turns, 4)});
         return g;
