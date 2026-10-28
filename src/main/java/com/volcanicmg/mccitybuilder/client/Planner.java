@@ -109,6 +109,15 @@ public final class Planner {
     static PlacementState place = new PlacementState();
     static String invalidReason;
     static IBuildingView selected, hovered;
+    /** A placed decoration: from City Builder's records (server) or a MineColonies decoration controller in view. */
+    record Deco(String pack, String path, BlockPos pos, int rot) {
+        String name() {
+            return path.substring(path.lastIndexOf('/') + 1).replace(".blueprint", "");
+        }
+    }
+
+    static Deco selectedDeco, hoveredDeco, movingDeco;
+    private static java.util.List<Deco> syncedDecos = java.util.List.of(), controllerDecos = java.util.List.of();
     // The colony's claimed chunks (client claim data, refreshed each second), its border edges and pan bounds.
     private static java.util.Set<Long> claimed = java.util.Set.of();
     private static java.util.List<int[]> border = java.util.List.of();
@@ -211,6 +220,11 @@ public final class Planner {
         }
         colony = c;
         refreshClaims();
+        syncedDecos = java.util.List.of();
+        refreshDecos();
+        var conn = mc.getConnection();
+        if (conn != null && conn.hasChannel(com.volcanicmg.mccitybuilder.server.DecoSync.Query.TYPE))
+            PacketDistributor.sendToServer(new com.volcanicmg.mccitybuilder.server.DecoSync.Query(c.getID()));
         camera = new Marker(EntityType.MARKER, mc.level);
         // Start above the land at the player (the same baseline the limits use), looking 60° down the way the player
         // faces; the height is the last session's, clamped to today's range, or 30 blocks the first time.
@@ -245,6 +259,7 @@ public final class Planner {
         stopPlacing();
         PlanView.hide();
         selected = null;
+        selectedDeco = hoveredDeco = null;
         // Measured like the scroll clamp (from the centre ground), so a full zoom-out restores as 160, not more.
         if (drone != null && !Double.isNaN(baseline())) savedAbove = drone.altitudeTarget + rig.pendingFollow() - baseline();
         if (mc.player != null) mc.setCameraEntity(mc.player);
@@ -279,6 +294,7 @@ public final class Planner {
         if (System.currentTimeMillis() - lastClaimsMs > 1000) {
             lastClaimsMs = System.currentTimeMillis();
             refreshClaims();
+            refreshDecos();
         }
         PlanView.tick();
         for (var it = pendingBuilds.entrySet().iterator(); it.hasNext(); ) {
@@ -304,6 +320,48 @@ public final class Planner {
         claimed = out;
         border = ColonyGeometry.borderEdges(out);
         bounds = ColonyGeometry.bounds(out, 32);
+    }
+
+    /** The server's decoration records for the colony being viewed. */
+    static void onDecos(com.volcanicmg.mccitybuilder.server.DecoSync.Decos d) {
+        if (!active || colony == null || d.colony() != colony.getID()) return;
+        java.util.List<Deco> out = new java.util.ArrayList<>();
+        for (var r : d.recs()) out.add(new Deco(r.pack(), r.path(), new BlockPos(r.x(), r.y(), r.z()), r.rot()));
+        syncedDecos = out;
+        refreshDecos();
+    }
+
+    /** Re-reads the decoration controllers in the colony's loaded chunks; a selection that is gone is dropped. */
+    private static void refreshDecos() {
+        Minecraft mc = Minecraft.getInstance();
+        java.util.List<Deco> out = new java.util.ArrayList<>();
+        for (long c : claimed) {
+            var chunk = mc.level.getChunkSource().getChunk(ColonyGeometry.chunkX(c), ColonyGeometry.chunkZ(c), false);
+            if (chunk == null) continue;
+            for (var be : chunk.getBlockEntities().values())
+                if (be instanceof com.minecolonies.core.tileentities.TileEntityDecorationController d && d.getPackName() != null && !d.getPackName().isEmpty()
+                        && d.getBlueprintPath() != null && d.getRotationMirror() != null) {
+                    String path = com.volcanicmg.mccitybuilder.planner.PasteRules.cleanPath(d.getBlueprintPath());
+                    if (path.endsWith(".blueprint") && com.volcanicmg.mccitybuilder.planner.PieceSets.tool(path) == null)
+                        out.add(new Deco(d.getPackName(), path, be.getBlockPos().immutable(), d.getRotationMirror().ordinal()));
+                }
+        }
+        controllerDecos = out;
+        if (selectedDeco != null && !decos().contains(selectedDeco)) selectedDeco = null;
+    }
+
+    /** @return the colony's known decorations, one per anchor (a server record wins over a controller) */
+    static java.util.Collection<Deco> decos() {
+        java.util.Map<BlockPos, Deco> by = new java.util.LinkedHashMap<>();
+        for (Deco d : controllerDecos) by.put(d.pos(), d);
+        for (Deco d : syncedDecos) by.put(d.pos(), d);
+        return by.values();
+    }
+
+    /** @return the decoration's block box at its anchor, or null while its blueprint loads */
+    static int[] box(Deco d) {
+        int[] r = Blueprints.bounds(d.pack(), d.path(), RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)]);
+        return r == null ? null : ColonyGeometry.placed(r, d.pos().getX(), d.pos().getY(), d.pos().getZ());
     }
 
     private static void refreshColony() {
@@ -494,6 +552,7 @@ public final class Planner {
         rotation = RotationMirror.NONE;
         place = new PlacementState();
         selected = null;
+        selectedDeco = null;
     }
 
     /** Creative: switches the ghost to another level of the same hut, keeping its spot. */
@@ -523,6 +582,7 @@ public final class Planner {
 
     static void stopPlacing() {
         moving = null;
+        movingDeco = null;
         placing = null;
         deco = null;
         placingHut = null;
@@ -679,6 +739,14 @@ public final class Planner {
      */
     static boolean confirm() {
         BlockPos at = anchor();
+        // A decoration being moved: pasted at the ghost, its containers copied over, the old one deleted (server part).
+        if (movingDeco != null && deco != null && at != null) {
+            if (validate() != null || !creative() || !serverInstant()) return false;
+            PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.DECO_MOVE, at, 0, deco.pack(), deco.path(), rotation, PlanView.decoRequest(),
+                    movingDeco.pos(), RotationMirror.values()[Math.floorMod(movingDeco.rot(), RotationMirror.values().length)]));
+            stopPlacing();
+            return true;
+        }
         // Plan mode: the ghost goes into the plan instead (the plan's own checks show conflicts).
         if (PlanView.on && isPlacing() && placingHut != null && at != null) {
             PlanView.add(placing, placingHut, deco != null ? 0 : creative() ? placingLevel : 1, at, rotation);
@@ -797,6 +865,25 @@ public final class Planner {
         return i < 0 ? null : all.get(i);
     }
 
+    /** @return the building or decoration ({@link Deco}) whose box contains {@code pos}, the smallest one, or null */
+    static Object pickAt(BlockPos pos) {
+        if (colony == null || pos == null) return null;
+        java.util.List<Object> all = new java.util.ArrayList<>();
+        java.util.List<int[]> boxes = new java.util.ArrayList<>();
+        for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) {
+            all.add(b);
+            boxes.add(box(b));
+        }
+        for (Deco d : decos()) {
+            int[] r = box(d);
+            if (r == null) continue;
+            all.add(d);
+            boxes.add(r);
+        }
+        int i = ColonyGeometry.smallestContaining(boxes, pos.getX(), pos.getY(), pos.getZ());
+        return i < 0 ? null : all.get(i);
+    }
+
     /** @return the building's block box {minX, minY, minZ, maxX, maxY, maxZ} from its blueprint; its hut block while that loads */
     static int[] box(IBuildingView b) {
         BlockPos p = b.getPosition();
@@ -814,6 +901,32 @@ public final class Planner {
 
     static void select(IBuildingView b) {
         selected = b;
+        selectedDeco = null;
+    }
+
+    /** Selects a decoration (its blueprint starts loading, for a move). */
+    static void selectDeco(Deco d) {
+        selected = null;
+        selectedDeco = d;
+        if (d != null) Blueprints.deco(d.pack(), d.path());
+    }
+
+    /** Move a decoration: its ghost at its turn; confirming sends DECO_MOVE. @return false without the server part or while it loads */
+    static boolean startMoveDeco(Deco d) {
+        Blueprints.Hut h = serverInstant() && creative() ? Blueprints.deco(d.pack(), d.path()) : null;
+        if (h == null) return false;
+        startPlacingDeco(h);
+        rotation = RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)];
+        movingDeco = d;
+        return true;
+    }
+
+    /** Creative DECO_DELETE or survival DECO_REMOVE_ORDER of a decoration through the server part. @return false without it */
+    static boolean sendDeco(int mode, Deco d) {
+        if (!serverInstant()) return false;
+        PacketDistributor.sendToServer(new InstantBuild.Request(mode, d.pos(), 0, d.pack(), d.path(),
+                RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)], PlanView.decoRequest()));
+        return true;
     }
 
     static void requestBuild(IBuildingView b, BuildRequestMessage.Mode mode) {
@@ -920,6 +1033,9 @@ public final class Planner {
             // The whole building's box: subtle on hover, full white when selected.
             if (hovered != null && hovered != selected) LevelRenderer.renderLineBox(pose, lines, aabb(hovered), 0.8f, 0.8f, 0.8f, 0.8f);
             if (selected != null) LevelRenderer.renderLineBox(pose, lines, aabb(selected), 1, 1, 1, 1);
+            int[] hd = hoveredDeco != null && !hoveredDeco.equals(selectedDeco) ? box(hoveredDeco) : null, sd = selectedDeco != null ? box(selectedDeco) : null;
+            if (hd != null) LevelRenderer.renderLineBox(pose, lines, new AABB(hd[0], hd[1], hd[2], hd[3] + 1, hd[4] + 1, hd[5] + 1).inflate(0.02), 0.8f, 0.8f, 0.8f, 0.8f);
+            if (sd != null) LevelRenderer.renderLineBox(pose, lines, new AABB(sd[0], sd[1], sd[2], sd[3] + 1, sd[4] + 1, sd[5] + 1).inflate(0.02), 1, 1, 1, 1);
             OverlayView.renderWorld(pose, lines);
             PlanView.renderWorld(pose, lines);
             LineView.renderWorld(pose, lines);

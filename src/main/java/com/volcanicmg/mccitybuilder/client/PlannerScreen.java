@@ -192,11 +192,13 @@ final class PlannerScreen extends Screen {
             LineView.hoverPiece = LineView.hoverLine >= 0 ? PlanView.pieceAt(LineView.hoverLine, hit.getBlockPos()) : null;
         }
         // Re-picked every frame from the current camera; a miss only clears it after a few frames, so it holds steady.
-        IBuildingView now = !overUi && !Planner.isPlacing() && hit != null ? Planner.buildingAt(hit.getBlockPos()) : null;
+        Object now = !overUi && !Planner.isPlacing() && hit != null ? Planner.pickAt(hit.getBlockPos()) : null;
         if (now != null || overUi || Planner.isPlacing() || ++hoverMisses > HOVER_HOLD) {
-            Planner.hovered = now;
+            Planner.hovered = now instanceof IBuildingView b ? b : null;
+            Planner.hoveredDeco = now instanceof Planner.Deco d ? d : null;
             hoverMisses = 0;
         }
+        decoPreview(g);
         for (Hit h : hits)
             if (h.in(mouseX, mouseY) && h.tip() != null) {
                 g.renderTooltip(font, font.split(h.tip(), 220), mouseX, mouseY);
@@ -210,6 +212,7 @@ final class PlannerScreen extends Screen {
         }
         if (Planner.hovered != null)
             g.renderTooltip(font, Component.literal(name(Planner.hovered) + " " + levelText(Planner.hovered)), mouseX, mouseY);
+        else if (Planner.hoveredDeco != null) g.renderTooltip(font, Component.literal(Planner.hoveredDeco.name()), mouseX, mouseY);
         else if (Planner.isPlacing() && Planner.invalidReason != null && !Planner.invalidReason.equals("loading")) {
             // Why it cannot go here, right at the cursor.
             Component r = Component.translatable("mccitybuilder.invalid." + Planner.invalidReason);
@@ -882,7 +885,7 @@ final class PlannerScreen extends Screen {
     private void planPanel(GuiGraphics g, int mx, int my) {
         if (!PlanView.on) return;
         int w = 200, h = 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
-        if (Planner.selected != null) y -= 62;
+        if (Planner.selected != null || Planner.selectedDeco != null) y -= 62;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         long bad = PlanView.conflicts.stream().filter(c -> c != com.volcanicmg.mccitybuilder.planner.Plan.Conflict.NONE).count();
@@ -1124,25 +1127,30 @@ final class PlannerScreen extends Screen {
                 Blueprints.Hut d = decos.get(decoScroll + i);
                 int ry = yy + i * DECO_ROW_H;
                 boolean sel = Planner.deco != null && Planner.deco.path().equals(d.path()), over = mx >= ix && mx < ix + iw && my >= ry && my < ry + DECO_ROW_H;
+                if (over) {
+                    previewDeco = d;
+                    previewY = ry;
+                }
                 if (sel || over) g.fill(ix, ry, ix + iw, ry + DECO_ROW_H, sel ? 0x60FFFFFF : 0x30FFFFFF);
                 g.drawString(font, font.plainSubstrByWidth(d.blueprint().getFileName(), iw - 4), ix + 2, ry + 2, VanillaUi.LABEL, false);
                 hits.add(new Hit(ix, ry, iw, DECO_ROW_H, () -> {
                     click();
                     if (sel) Planner.stopPlacing();
                     else Planner.startPlacingDeco(d);
-                }, Component.literal(d.path())));
+                }, null));
             }
-            if (decos.size() > DECO_ROWS)
-                g.drawString(font, (decoScroll + 1) + "-" + Math.min(decos.size(), decoScroll + DECO_ROWS) + "/" + decos.size(), ix + iw - 40, yy - 9, 0xFF606060, false);
         } else for (int i = 0; i < huts.size(); i++) hutSlot(g, huts.get(i), ix + i % COLS * SLOT, yy + i / COLS * SLOT, mx, my);
         if (decoMode ? decos.isEmpty() : huts.isEmpty()) g.drawString(font, Component.translatable(decoMode ? "mccitybuilder.no_match_deco" : "mccitybuilder.no_match"), ix + 1, yy + 2, 0xFF606060, false);
         yy += gridH + 6;
+        String counter = decoMode && decos.size() > DECO_ROWS ? (decoScroll + 1) + "-" + Math.min(decos.size(), decoScroll + DECO_ROWS) + "/" + decos.size() : "";
+        int cw = counter.isEmpty() ? 0 : font.width(counter) + 4;
+        if (cw > 0) g.drawString(font, counter, ix + iw - cw + 4, yy, 0xFF606060, false);
         if (!Planner.isPlacing()) {
-            g.drawString(font, Component.translatable(decoMode ? "mccitybuilder.pick_deco" : "mccitybuilder.pick_hut"), ix + 1, yy, VanillaUi.LABEL, false);
+            g.drawString(font, font.plainSubstrByWidth(Component.translatable(decoMode ? "mccitybuilder.pick_deco" : "mccitybuilder.pick_hut").getString(), iw - cw), ix + 1, yy, VanillaUi.LABEL, false);
             return;
         }
         // What is being placed, its state, and its materials.
-        g.drawString(font, font.plainSubstrByWidth(Planner.placingName(), iw), ix + 1, yy, VanillaUi.LABEL, false);
+        g.drawString(font, font.plainSubstrByWidth(Planner.placingName(), iw - cw), ix + 1, yy, VanillaUi.LABEL, false);
         String reason = Planner.invalidReason;
         Component line = reason != null ? Component.translatable("mccitybuilder.invalid." + reason)
                 : Component.translatable(Planner.adjusting() ? "mccitybuilder.adjust_then_place" : "mccitybuilder.click_to_drop");
@@ -1187,6 +1195,23 @@ final class PlannerScreen extends Screen {
             yy += 10;
         }
         if (cost.more() > 0) g.drawString(font, Component.translatable("mccitybuilder.more_items", cost.more()), ix + 1, yy, 0xFF606060, false);
+    }
+
+    // The decoration name under the cursor in the palette this frame, and its row.
+    private Blueprints.Hut previewDeco;
+    private int previewY;
+
+    /** A turning 3D preview of the hovered palette decoration beside the palette, with its name and size. */
+    private void decoPreview(GuiGraphics g) {
+        Blueprints.Hut d = previewDeco;
+        previewDeco = null;
+        if (d == null) return;
+        var bp = d.blueprint();
+        int w = 128, h = 128 + 24, x = 4 + PALETTE_W + 4, y = Math.max(4, Math.min(previewY - 20, height - h - 4));
+        VanillaUi.panel(g, x, y, w, h);
+        PieceView.render(g, "deco|" + d.pack() + "|" + d.path(), bp, x + PAD, y + PAD, w - 2 * PAD, w - 2 * PAD);
+        g.drawString(font, font.plainSubstrByWidth(bp.getFileName(), w - 2 * PAD), x + PAD + 1, y + w - PAD + 3, VanillaUi.LABEL, false);
+        g.drawString(font, bp.getSizeX() + " \u00d7 " + bp.getSizeY() + " \u00d7 " + bp.getSizeZ(), x + PAD + 1, y + w - PAD + 13, 0xFF555555, false);
     }
 
     /** @return item id → count in the player's inventory */
@@ -1433,6 +1458,10 @@ final class PlannerScreen extends Screen {
     // ---- selection ----
 
     private void selection(GuiGraphics g, int mx, int my) {
+        if (Planner.selectedDeco != null) {
+            decoSelection(g, mx, my, Planner.selectedDeco);
+            return;
+        }
         IBuildingView b = Planner.selected;
         if (b == null) return;
         // Bottom, right of the palette (which can run tall).
@@ -1459,6 +1488,34 @@ final class PlannerScreen extends Screen {
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : townHall ? "mccitybuilder.move.townhall" : family ? "mccitybuilder.move.family" : null};
+        buttonRow(g, x, y, w, n, keys, run, why, mx, my);
+    }
+
+    /** A placed decoration: Move and Delete in creative, Remove (a builder order) in survival; all through the server part. */
+    private void decoSelection(GuiGraphics g, int mx, int my, Planner.Deco d) {
+        boolean creative = Planner.creative(), server = Planner.serverInstant();
+        int w = PALETTE_W, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
+        panels.add(new int[]{x, y, w, h});
+        VanillaUi.panel(g, x, y, w, h);
+        g.drawString(font, font.plainSubstrByWidth(d.name(), w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
+        g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.deco.info", d.pack()).getString(), w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
+        String off = server ? null : "mccitybuilder.deco.no_server";
+        String[] keys = creative ? new String[]{"deco_move", "deco_delete"} : new String[]{"deco_remove"};
+        Runnable[] run = creative ? new Runnable[]{() -> {
+            if (Planner.startMoveDeco(d)) toast(Component.translatable("mccitybuilder.deco_move_started"));
+            else toast(Component.translatable("mccitybuilder.invalid.loading"));
+        }, () -> {
+            if (Planner.sendDeco(com.volcanicmg.mccitybuilder.server.InstantBuild.DECO_DELETE, d)) toast(Component.translatable("mccitybuilder.deco_delete_sent"));
+            Planner.select(null);
+        }} : new Runnable[]{() -> {
+            if (Planner.sendDeco(com.volcanicmg.mccitybuilder.server.InstantBuild.DECO_REMOVE_ORDER, d)) toast(Component.translatable("mccitybuilder.deco_remove_sent"));
+            Planner.select(null);
+        }};
+        buttonRow(g, x, y, w, keys.length, keys, run, creative ? new String[]{off, off} : new String[]{off}, mx, my);
+    }
+
+    /** The selection panel's buttons: label {@code mccitybuilder.<key>}, tip {@code .tip}, or {@code why[i]} when off. */
+    private void buttonRow(GuiGraphics g, int x, int y, int w, int n, String[] keys, Runnable[] run, String[] why, int mx, int my) {
         int bw = (w - 2 * PAD - 2 * (n - 1)) / n;
         for (int i = 0; i < n; i++) {
             int bx = x + PAD + i * (bw + 2), by = y + PAD + 24;
@@ -1637,7 +1694,9 @@ final class PlannerScreen extends Screen {
             Planner.select(null);
             return true;
         }
-        Planner.select(pe >= 0 || hit == null ? null : Planner.buildingAt(hit.getBlockPos()));
+        Object picked = pe >= 0 || hit == null ? null : Planner.pickAt(hit.getBlockPos());
+        if (picked instanceof Planner.Deco d) Planner.selectDeco(d);
+        else Planner.select((IBuildingView) picked);
         return true;
     }
 
@@ -1768,7 +1827,7 @@ final class PlannerScreen extends Screen {
             else if (LineView.active()) useTool(LineView.tool);
             else if (PlanView.selectedLine() != null) PlanView.selectedLine = -1;
             else if (PlanView.hasSelection()) PlanView.selected = -1;
-            else if (Planner.selected != null) Planner.select(null);
+            else if (Planner.selected != null || Planner.selectedDeco != null) Planner.select(null);
             else Planner.exit(null);
             return true;
         }

@@ -29,6 +29,7 @@ public final class PlannerClient {
 
     public static void init(IEventBus modBus, ModContainer container) {
         com.volcanicmg.mccitybuilder.server.BatchResults.handler(PlanView::onBatchResult);
+        com.volcanicmg.mccitybuilder.server.DecoSync.handler(Planner::onDecos);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(RegisterKeyMappingsEvent.class, e -> e.register(TOGGLE));
         // Baked piece previews hold the block atlas's UVs: rebake after a resource reload (F3+T, a pack change).

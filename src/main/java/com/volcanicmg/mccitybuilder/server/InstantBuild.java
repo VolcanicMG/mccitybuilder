@@ -119,11 +119,12 @@ public final class InstantBuild {
 
     /** Registers the payload as optional, so clients and servers without the mod still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
-        // Protocol 4: requests carry a source position and rotation (moves), batches a mode (delete / remove orders);
-        // mismatched builds refuse the channel cleanly.
-        e.registrar("4").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
+        // Protocol 5: decoration records synced to the planner (DecoSync); mismatched builds refuse the channel cleanly.
+        e.registrar("5").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
                 .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch)
-                .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r));
+                .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r))
+                .playToServer(DecoSync.Query.TYPE, DecoSync.Query.CODEC, DecoSync::handleQuery)
+                .playToClient(DecoSync.Decos.TYPE, DecoSync.Decos.CODEC, (d, ctx) -> DecoSync.accept(d));
     }
 
     /** Prunes per-player state on logout. */
@@ -134,6 +135,7 @@ public final class InstantBuild {
             batches.remove(e.getEntity().getUUID());
             batchStats.remove(e.getEntity().getUUID());
             refused.remove(e.getEntity().getUUID());
+            DecoSync.forget(e.getEntity().getUUID());
         });
     }
 
@@ -507,12 +509,13 @@ public final class InstantBuild {
             reject(p, r, "the building to move changed while loading");
             return false;
         }
-        // Removing / moving: only what City Builder itself placed or ordered here, as recorded (exact pack, path, anchor, turn).
+        // Removing / moving: only what City Builder itself placed or ordered here, as recorded (exact pack, path, anchor,
+        // turn), or a decoration whose live controller at the anchor says exactly that (builders, the build tool).
         BuiltRecords records = BuiltRecords.of(level);
         boolean removes = r.mode == DECO_DELETE || r.mode == DECO_MOVE || r.mode == DECO_REMOVE_ORDER;
         BlockPos recAt = r.mode == DECO_MOVE ? r.from : r.pos;
         int recRot = r.mode == DECO_MOVE ? r.fromRot.ordinal() : rot.ordinal();
-        if (removes && !records.has(colonyId, pack, path, recAt, recRot)) {
+        if (removes && !records.has(colonyId, pack, path, recAt, recRot) && !liveController(level, recAt, pack, path, recRot)) {
             reject(p, r, "not something City Builder built: " + pack + " " + path + " at " + recAt.toShortString());
             return false;
         }
@@ -840,6 +843,13 @@ public final class InstantBuild {
             if (h != null) for (int i = 0; i < h.getSlots(); i++) if (!h.getStackInSlot(i).isEmpty()) return true;
         }
         return false;
+    }
+
+    /** @return true when a MineColonies decoration controller at {@code at} names this pack, blueprint and rotation */
+    private static boolean liveController(ServerLevel level, BlockPos at, String pack, String path, int rot) {
+        return level.getBlockEntity(at) instanceof com.minecolonies.core.tileentities.TileEntityDecorationController c && pack.equals(c.getPackName())
+                && c.getBlueprintPath() != null && PasteRules.cleanPath(path).equals(PasteRules.cleanPath(c.getBlueprintPath()))
+                && c.getRotationMirror() != null && c.getRotationMirror().ordinal() == rot;
     }
 
     /** @return true when at least half the blueprint's solid positions hold its block (the decoration stands there) */

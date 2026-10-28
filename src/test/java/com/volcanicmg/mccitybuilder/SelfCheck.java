@@ -604,6 +604,19 @@ public final class SelfCheck {
         check(ColonyGeometry.smallestContaining(boxes, 15, 61, 15) == 0, "inside only the big box");
         check(ColonyGeometry.smallestContaining(boxes, 20, 80, 20) == 0, "max corner is inclusive");
         check(ColonyGeometry.smallestContaining(boxes, 25, 65, 25) == -1, "between buildings");
+        // A decoration's box at its anchor from blueprint offsets; a click inside it beats the building around it.
+        int[] deco = ColonyGeometry.placed(new int[]{-1, 0, -2, 1, 3, 0}, 10, 64, 10);
+        check(java.util.Arrays.equals(deco, new int[]{9, 64, 8, 11, 67, 10}), "decoration box placed: " + java.util.Arrays.toString(deco));
+        List<int[]> withDeco = List.of(boxes.get(0), deco);
+        check(ColonyGeometry.smallestContaining(withDeco, 10, 65, 9) == 1, "decoration inside a building wins");
+        check(ColonyGeometry.smallestContaining(withDeco, 12, 65, 9) == 0, "beside the decoration: the building");
+        // Built records: keys parse back; paths normalise one way.
+        var rec = com.volcanicmg.mccitybuilder.planner.PasteRules.parseKey(com.volcanicmg.mccitybuilder.planner.PasteRules.recordKey(7, "Medieval", "decorations\\well.blueprint", -3, 70, 12, 5));
+        check(rec != null && rec.colony() == 7 && rec.pack().equals("Medieval") && rec.path().equals("decorations/well.blueprint") && rec.x() == -3 && rec.y() == 70
+                && rec.z() == 12 && rec.rot() == 5, "record key round trip");
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.parseKey("1|p|a.blueprint|1,2|0") == null && com.volcanicmg.mccitybuilder.planner.PasteRules.parseKey("x|p|a|1,2,3|0") == null,
+                "bad record keys");
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.cleanPath("/decorations\\well.blueprint").equals("decorations/well.blueprint"), "path cleaned");
     }
 
     private static void costs() {

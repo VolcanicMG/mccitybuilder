@@ -36,6 +36,30 @@ public final class PasteRules {
         return colony + "|" + pack + "|" + (path == null ? "" : path.replace('\\', '/')) + "|" + x + "," + y + "," + z + "|" + rot;
     }
 
+    /** A parsed {@link #recordKey}. */
+    public record Rec(int colony, String pack, String path, int x, int y, int z, int rot) {
+    }
+
+    /** @return the record a key stands for, or null when it doesn't parse */
+    public static Rec parseKey(String key) {
+        String[] f = key.split("\\|", -1);
+        if (f.length != 5) return null;
+        String[] xyz = f[3].split(",");
+        if (xyz.length != 3) return null;
+        try {
+            return new Rec(Integer.parseInt(f[0]), f[1], f[2], Integer.parseInt(xyz[0]), Integer.parseInt(xyz[1]), Integer.parseInt(xyz[2]), Integer.parseInt(f[4]));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** @return a blueprint path in the one form records and requests use: forward slashes, no leading slash */
+    public static String cleanPath(String path) {
+        String p = path == null ? "" : path.replace('\\', '/');
+        while (p.startsWith("/")) p = p.substring(1);
+        return p;
+    }
+
     /** @return true when two footprint boxes {x0, y0, z0, x1, y1, z1} (inclusive) share any block: a move's source and target may not */
     public static boolean overlap(int[] a, int[] b) {
         return a[0] <= b[3] && b[0] <= a[3] && a[1] <= b[4] && b[1] <= a[4] && a[2] <= b[5] && b[2] <= a[5];

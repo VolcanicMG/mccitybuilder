@@ -65,6 +65,11 @@ public final class ColonyGeometry {
         return new double[]{(x0 << 4) - margin, (z0 << 4) - margin, ((x1 + 1) << 4) + margin, ((z1 + 1) << 4) + margin};
     }
 
+    /** @return the block box {x0, y0, z0, x1, y1, z1} of blueprint offsets {@code r} (from its anchor) placed at an anchor */
+    public static int[] placed(int[] r, int x, int y, int z) {
+        return new int[]{x + r[0], y + r[1], z + r[2], x + r[3], y + r[4], z + r[5]};
+    }
+
     /**
      * @param boxes inclusive block boxes {minX, minY, minZ, maxX, maxY, maxZ}
      * @return the index of the smallest box containing the block (x, y, z), or -1

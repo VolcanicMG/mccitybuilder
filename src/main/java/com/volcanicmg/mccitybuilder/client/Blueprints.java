@@ -169,6 +169,18 @@ final class Blueprints {
         return f.isDone() ? f.getNow(List.of()) : null;
     }
 
+    private static final Map<String, CompletableFuture<Hut>> decoLoads = new HashMap<>();
+
+    /** @return one decoration's blueprint by pack and path when loaded, else null (and starts loading it) */
+    static Hut deco(String pack, String path) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return null;
+        CompletableFuture<Hut> f = decoLoads.computeIfAbsent(pack + "|" + path, k -> StructurePacks.getStructurePack(pack) == null ? CompletableFuture.completedFuture(null)
+                : StructurePacks.getBlueprintFuture(pack, path, true, mc.level.registryAccess()).thenApply(bp -> bp == null ? null : new Hut(bp, pack, path))
+                .exceptionally(t -> null));
+        return f.isDone() ? f.getNow(null) : null;
+    }
+
     /** @return true while a lookup is still running */
     static boolean loading(String pack, Block hut) {
         CompletableFuture<Hut> f = cache.get(pack + "|" + hut.builtInRegistryHolder().key().location());

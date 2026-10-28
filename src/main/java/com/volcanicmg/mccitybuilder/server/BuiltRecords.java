@@ -1,6 +1,7 @@
 package com.volcanicmg.mccitybuilder.server;
 
 import com.volcanicmg.mccitybuilder.planner.PasteRules;
+import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
@@ -13,18 +14,22 @@ import net.minecraft.world.level.saveddata.SavedData;
 
 /**
  * What City Builder itself placed or ordered in a dimension: decorations and road / wall pieces (pack, path, anchor,
- * rotation ordinal, colony). Only an exact record may be deleted, moved or ordered removed, so a survival player can't
- * have a builder demolish an arbitrary shape; a record goes when its blocks are removed or the order is placed.
+ * rotation ordinal, colony). Only an exact record (or, for decorations, a live decoration controller) may be deleted,
+ * moved or ordered removed, so a survival player can't have a builder demolish an arbitrary shape; a record goes when
+ * its blocks are removed or the order is placed. Decoration changes are pushed to planners watching the colony.
  */
 public final class BuiltRecords extends SavedData {
     private static final String NAME = "mccitybuilder_built";
     private final List<String> keys = new ArrayList<>();
+    private ServerLevel level;
 
     private BuiltRecords() {
     }
 
     public static BuiltRecords of(ServerLevel level) {
-        return level.getDataStorage().computeIfAbsent(new Factory<>(BuiltRecords::new, BuiltRecords::load, null), NAME);
+        BuiltRecords r = level.getDataStorage().computeIfAbsent(new Factory<>(BuiltRecords::new, BuiltRecords::load, null), NAME);
+        r.level = level;
+        return r;
     }
 
     private static BuiltRecords load(CompoundTag tag, HolderLookup.Provider regs) {
@@ -47,6 +52,7 @@ public final class BuiltRecords extends SavedData {
         if (!keys.contains(k)) {
             keys.add(k);
             setDirty();
+            changed(colony, path);
         }
     }
 
@@ -55,6 +61,23 @@ public final class BuiltRecords extends SavedData {
     }
 
     public void remove(int colony, String pack, String path, BlockPos pos, int rot) {
-        if (keys.remove(PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot))) setDirty();
+        if (keys.remove(PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot))) {
+            setDirty();
+            changed(colony, path);
+        }
+    }
+
+    /** @return the colony's decoration records (road / wall pieces left out: the line tools own those) */
+    public List<PasteRules.Rec> decorations(int colony) {
+        List<PasteRules.Rec> out = new ArrayList<>();
+        for (String k : keys) {
+            PasteRules.Rec r = PasteRules.parseKey(k);
+            if (r != null && r.colony() == colony && PieceSets.tool(r.path()) == null) out.add(r);
+        }
+        return out;
+    }
+
+    private void changed(int colony, String path) {
+        if (level != null && PieceSets.tool(path == null ? "" : path) == null) DecoSync.changed(level, colony);
     }
 }

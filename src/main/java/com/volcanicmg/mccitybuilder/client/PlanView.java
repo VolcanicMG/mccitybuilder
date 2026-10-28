@@ -770,6 +770,13 @@ final class PlanView {
     private static final Map<Integer, List<PieceCatalog.Placed>> batchSent = new HashMap<>();
     private static final Map<Plan.Line, List<PieceCatalog.Placed>> acceptedPieces = new HashMap<>();
     private static int nextBatchId = 1;
+    private static final java.util.Set<Integer> decoIds = new java.util.HashSet<>();
+
+    /** @return a request id for a selected decoration's action (its answer is told only when refused) */
+    static int decoRequest() {
+        decoIds.add(nextBatchId);
+        return nextBatchId++;
+    }
 
     private static void queueBatch(Plan.Line l, List<InstantBuild.Piece> pieces, List<PieceCatalog.Placed> sent) {
         int id = nextBatchId++;
@@ -783,6 +790,12 @@ final class PlanView {
      * Refused: the segment stays, its remaining batches are dropped, and the player is told why.
      */
     static void onBatchResult(InstantBuild.BatchResult r) {
+        // A selected decoration's delete / move / remove: only a refusal is told (success has the server's own message).
+        if (decoIds.remove(r.id())) {
+            Minecraft mc = Minecraft.getInstance();
+            if (!r.accepted() && mc.player != null) mc.player.displayClientMessage(Component.translatable(r.reason().equals("busy") ? "mccitybuilder.deco.busy" : "mccitybuilder.deco.refused"), false);
+            return;
+        }
         // A plan entry's answer: built (leaves the plan), busy (sent again shortly) or refused (stays).
         Plan.Entry done = entryQueue.answer(r.id(), r.accepted(), r.reason(), System.currentTimeMillis());
         if (done != null) {
