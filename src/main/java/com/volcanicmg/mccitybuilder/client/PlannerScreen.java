@@ -1015,6 +1015,21 @@ final class PlannerScreen extends Screen {
         return q.isEmpty() ? all : all.stream().filter(h -> h.blueprint().getFileName().toLowerCase(java.util.Locale.ROOT).contains(q)).toList();
     }
 
+    /** @return the list's rows: on "all", each folder's name (a String header) then its matching decorations */
+    private static List<Object> decoRows() {
+        String folder = decoFolder();
+        if (folder == null) return List.of();
+        String q = search.trim().toLowerCase(java.util.Locale.ROOT);
+        List<Object> out = new ArrayList<>();
+        for (String f : folder.isEmpty() ? Blueprints.decoFolders(pack()) : List.of(folder)) {
+            List<Blueprints.Hut> in = decorations(f).stream().filter(h -> q.isEmpty() || h.blueprint().getFileName().toLowerCase(java.util.Locale.ROOT).contains(q)).toList();
+            if (in.isEmpty()) continue;
+            if (folder.isEmpty()) out.add(f);
+            out.addAll(in);
+        }
+        return out;
+    }
+
     private static final int DECO_ROWS = 12, DECO_ROW_H = 11;
     private static int decoScroll;
     private int[] paletteRect = new int[4];
@@ -1056,8 +1071,9 @@ final class PlannerScreen extends Screen {
         List<Blueprints.Hut> decos = decoMode ? decos() : List.of();
         List<Block> recent = Planner.recent;
         int rows = Math.max(1, (huts.size() + COLS - 1) / COLS);
-        decoScroll = Math.max(0, Math.min(decoScroll, decos.size() - DECO_ROWS));
-        int gridH = decoMode ? Math.max(1, Math.min(decos.size(), DECO_ROWS)) * DECO_ROW_H : rows * SLOT;
+        List<Object> drows = decoMode ? decoRows() : List.of();
+        decoScroll = Math.max(0, Math.min(decoScroll, drows.size() - DECO_ROWS));
+        int gridH = decoMode ? Math.max(1, Math.min(drows.size(), DECO_ROWS)) * DECO_ROW_H : rows * SLOT;
         Map<String, Integer> need = Planner.placingHut != null ? Blueprints.cost(Planner.placingHut) : null;
         // The placing block; creative adds a level picker row.
         int placingH = !Planner.isPlacing() ? 12 : 62 + (Planner.creative() && Planner.placing != null ? 20 : 0);
@@ -1128,10 +1144,15 @@ final class PlannerScreen extends Screen {
             yy += SLOT + 4;
         }
         if (decoMode) {
-            // Decorations: a scrollable list of names (wheel over the palette).
-            for (int i = 0; i < Math.min(DECO_ROWS, decos.size() - decoScroll); i++) {
-                Blueprints.Hut d = decos.get(decoScroll + i);
+            // Decorations: a scrollable list of names under folder headers (wheel over the palette).
+            for (int i = 0; i < Math.min(DECO_ROWS, drows.size() - decoScroll); i++) {
                 int ry = yy + i * DECO_ROW_H;
+                if (drows.get(decoScroll + i) instanceof String header) {
+                    g.drawString(font, font.plainSubstrByWidth(header, iw - 4), ix + 1, ry + 2, 0xFF404040, false);
+                    g.fill(ix, ry + DECO_ROW_H - 1, ix + iw, ry + DECO_ROW_H, VanillaUi.SLOT);
+                    continue;
+                }
+                Blueprints.Hut d = (Blueprints.Hut) drows.get(decoScroll + i);
                 boolean sel = Planner.deco != null && Planner.deco.path().equals(d.path()), over = mx >= ix && mx < ix + iw && my >= ry && my < ry + DECO_ROW_H;
                 if (over) {
                     previewDeco = d;
@@ -1148,7 +1169,7 @@ final class PlannerScreen extends Screen {
         } else for (int i = 0; i < huts.size(); i++) hutSlot(g, huts.get(i), ix + i % COLS * SLOT, yy + i / COLS * SLOT, mx, my);
         if (decoMode ? decos.isEmpty() : huts.isEmpty()) g.drawString(font, Component.translatable(decoMode ? "mccitybuilder.no_match_deco" : "mccitybuilder.no_match"), ix + 1, yy + 2, 0xFF606060, false);
         yy += gridH + 6;
-        String counter = decoMode && decos.size() > DECO_ROWS ? (decoScroll + 1) + "-" + Math.min(decos.size(), decoScroll + DECO_ROWS) + "/" + decos.size() : "";
+        String counter = decoMode && drows.size() > DECO_ROWS ? (decoScroll + 1) + "-" + Math.min(drows.size(), decoScroll + DECO_ROWS) + "/" + drows.size() : "";
         int cw = counter.isEmpty() ? 0 : font.width(counter) + 4;
         if (cw > 0) g.drawString(font, counter, ix + iw - cw + 4, yy, 0xFF606060, false);
         if (!Planner.isPlacing()) {
