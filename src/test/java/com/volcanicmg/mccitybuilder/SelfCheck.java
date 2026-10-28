@@ -1559,6 +1559,8 @@ public final class SelfCheck {
             roads++;
         }
         check(roads > 300, "flat road pieces checked: " + roads);
+        check(!PieceLayout.ownGround("infrastructure/roads/nice/nice_bridge_segment.blueprint") && PieceLayout.ownGround("infrastructure/roads/nice/nice_straight.blueprint"),
+                "a bridge's deck isn't its road surface");
     }
 
     private static void hintsAndLang() throws Exception {

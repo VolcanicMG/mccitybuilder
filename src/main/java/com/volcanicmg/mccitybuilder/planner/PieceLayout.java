@@ -232,10 +232,14 @@ public final class PieceLayout {
         return out;
     }
 
-    /** @return true for a piece that sits by its own vote ({@link #groundOffsets}): a flat road piece (not a slope, lamp or bridge part) */
+    /**
+     * @return true for a piece that sits by its own vote ({@link #groundOffsets}): a flat road piece. Slopes, lamps
+     * and bridges (whose top full layer is a deck above the road) move with their set instead.
+     */
     public static boolean ownGround(String path) {
-        PieceSets.Role r = PieceSets.role(PieceSets.split(path.substring(path.lastIndexOf('/') + 1))[0]);
-        return "road".equals(PieceSets.tool(path)) && r != PieceSets.Role.SLOPE && r != PieceSets.Role.OTHER;
+        String base = PieceSets.split(path.substring(path.lastIndexOf('/') + 1))[0];
+        PieceSets.Role r = PieceSets.role(base);
+        return "road".equals(PieceSets.tool(path)) && r != PieceSets.Role.SLOPE && r != PieceSets.Role.OTHER && !base.toLowerCase(java.util.Locale.ROOT).contains("bridge");
     }
 
     /**

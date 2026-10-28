@@ -360,6 +360,7 @@ final class PieceCatalog {
         if (bp == null) return null;
         int[] box = {b.bx0(), b.bz0(), b.bx1(), b.bz1()};
         PieceLayout.Grid gr = grid(pack, b.path(), b.turns());
+        if (gr == null) return null;
         int level = b.ay() - (bp.getPrimaryBlockOffset().getY() - gr.ground()) + 2;
         PieceSets.Role role;
         try {
@@ -1007,6 +1008,7 @@ final class PieceCatalog {
         if (bp == null) return null;
         BlockPos o = bp.getPrimaryBlockOffset();
         PieceLayout.Grid gr = grid(pack, path, turns);
+        if (gr == null) return null;
         int y = level - 1 + (o.getY() - gr.ground()) - 1;
         int[] g = under(box);
         return new Placed(path, turns, new BlockPos(box[0] + o.getX(), y, box[1] + o.getZ()), box, role, blocks(pack, path), y - o.getY(), bp.getSizeY(), level, g[0]);
