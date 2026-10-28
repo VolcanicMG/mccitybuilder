@@ -707,7 +707,8 @@ final class PieceCatalog {
                 }
                 for (int s0 : new int[]{off[0] - ov[0], off[0]}) {
                     int e = s0 == off[0] ? ps.size() - 1 : 0, je = s0 == off[0] ? 1 : 0;
-                    if (noReach.contains(i * 2 + je)) continue;
+                    // Never into a built joint (it is re-levelled later and can't be re-checked): that end keeps its gap.
+                    if (noReach.contains(i * 2 + je) || fixed.contains(je == 1 ? key(b[0], b[1]) : key(a[0], a[1]))) continue;
                     Placed probe = place(l.pack(), ps.get(e).path(), sturn(ps.get(e), dir, l.flip()), PieceLayout.boxes(a, dir, s0, rl, width, shift).get(e), PieceSets.Role.STRAIGHT);
                     if (probe == null || clashOrUnknown(jointPack(lines, je == 1 ? b : a, l.pack()), je == 1 ? jz : ja, l.pack(), probe)) continue;
                     reachEnd = je;
