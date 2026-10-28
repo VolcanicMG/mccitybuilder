@@ -1313,22 +1313,25 @@ final class PlannerScreen extends Screen {
         }, tip));
     }
 
-    /** ADJUST: a floating bar of vanilla buttons under the dropped ghost: place, rotate, mirror, raise, lower, cancel. */
+    /** ADJUST: a floating bar of vanilla buttons under the dropped ghost: place, rotate, mirror, move (camera-relative), raise, lower, cancel. */
     private void actionBar(GuiGraphics g, int mx, int my) {
         BlockPos at = Planner.anchor();
         if (!Planner.adjusting() || at == null) return;
         double[] ndc = Planner.project(at.getX() + 0.5, at.getY() + 0.5, at.getZ() + 0.5);
-        int n = 6, w = n * 22 + 6, h = 28;
+        int n = 10, w = n * 22 + 6, h = 28;
         int x = ndc == null ? (width - w) / 2 : (int) Math.round((ndc[0] + 1) / 2 * width) - w / 2;
         int y = ndc == null ? height - 80 : (int) Math.round((1 - ndc[1]) / 2 * height) + 16;
         x = Math.max(4, Math.min(width - w - 4, x));
         y = Math.max(24, Math.min(height - h - 4, y));
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
-        String[] icons = {"place", "rotate", "mirror", "up", "down", "cancel"};
-        String[] tips = {"mccitybuilder.action.place", "mccitybuilder.action.rotate", "mccitybuilder.action.mirror", "mccitybuilder.raise",
-                "mccitybuilder.lower", "mccitybuilder.action.cancel"};
-        Runnable[] run = {this::place, Planner::rotatePlacing, Planner::mirrorPlacing, () -> Planner.raise(1), () -> Planner.raise(-1), Planner::back};
+        String[] icons = {"place", "rotate", "mirror", "left", "forward", "back", "right", "up", "down", "cancel"};
+        String[] tips = {"mccitybuilder.action.place", "mccitybuilder.action.rotate", "mccitybuilder.action.mirror", "mccitybuilder.action.left",
+                "mccitybuilder.action.forward", "mccitybuilder.action.back", "mccitybuilder.action.right", "mccitybuilder.raise", "mccitybuilder.lower",
+                "mccitybuilder.action.cancel"};
+        Runnable[] run = {this::place, Planner::rotatePlacing, Planner::mirrorPlacing, () -> Planner.nudge(com.volcanicmg.mccitybuilder.planner.PlacementState.Dir.LEFT, hasShiftDown()),
+                () -> Planner.nudge(com.volcanicmg.mccitybuilder.planner.PlacementState.Dir.FORWARD, hasShiftDown()), () -> Planner.nudge(com.volcanicmg.mccitybuilder.planner.PlacementState.Dir.BACK, hasShiftDown()),
+                () -> Planner.nudge(com.volcanicmg.mccitybuilder.planner.PlacementState.Dir.RIGHT, hasShiftDown()), () -> Planner.raise(1), () -> Planner.raise(-1), Planner::back};
         for (int i = 0; i < n; i++) iconButton(g, icons[i], x + 4 + i * 22, y + 4, mx, my, run[i], Component.translatable(tips[i]));
     }
 
