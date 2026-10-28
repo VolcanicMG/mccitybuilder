@@ -36,9 +36,10 @@ final class LineView {
     static int hoverLine = -1;
     // The planned piece under the cursor (the preview card shows it).
     static PieceCatalog.Placed hoverPiece;
-    // Undo: the plan's lines, joint types, chain and selection before each user change (newest first).
-    private record Snap(List<Plan.Line> lines, java.util.Map<Long, Integer> joints, List<Plan.Line> chain, int[] start, int[] prevDir, int chainBase,
-                        int selectedLine, int[] selectedJoint) {
+    // Undo: the plan's lines, joint types, built pieces, chain and selection before each user change (newest first);
+    // entries only from a plan clear (null otherwise: hut / decoration edits aren't undone).
+    private record Snap(List<Plan.Line> lines, java.util.Map<Long, Integer> joints, java.util.Map<String, List<Plan.BuiltPiece>> built, List<Plan.Line> chain,
+                        int[] start, int[] prevDir, int chainBase, Plan.Line selected, int[] selectedJoint, List<Plan.Entry> entries) {
     }
 
     private static final java.util.ArrayDeque<Snap> undos = new java.util.ArrayDeque<>();
@@ -1102,19 +1103,25 @@ final class LineView {
         endChain();
     }
 
-    private static Snap snap() {
-        return new Snap(new ArrayList<>(PlanView.lines), new java.util.HashMap<>(PlanView.jointTypes), new ArrayList<>(chain), start == null ? null : start.clone(),
-                prevDir == null ? null : prevDir.clone(), chainBase, PlanView.selectedLine, selectedJoint == null ? null : selectedJoint.clone());
+    private static Snap snap(boolean entries) {
+        return new Snap(new ArrayList<>(PlanView.lines), new java.util.HashMap<>(PlanView.jointTypes), new java.util.HashMap<>(PlanView.builtPieces), new ArrayList<>(chain),
+                start == null ? null : start.clone(), prevDir == null ? null : prevDir.clone(), chainBase, PlanView.selectedLine(),
+                selectedJoint == null ? null : selectedJoint.clone(), entries ? new ArrayList<>(PlanView.entries) : null);
     }
 
     private static boolean same(Snap a, Snap b) {
         return a.lines().equals(b.lines()) && a.joints().equals(b.joints()) && a.chain().equals(b.chain()) && java.util.Arrays.equals(a.start(), b.start())
-                && java.util.Arrays.equals(a.prevDir(), b.prevDir()) && a.chainBase() == b.chainBase();
+                && java.util.Arrays.equals(a.prevDir(), b.prevDir()) && a.chainBase() == b.chainBase() && java.util.Objects.equals(a.entries(), b.entries());
     }
 
     /** Remembers the plan's lines before a user change, for Undo (a state equal to the last one isn't kept twice). */
     static void checkpoint() {
-        Snap s = snap();
+        checkpoint(false);
+    }
+
+    /** @param entries also the hut / decoration entries (a plan clear) */
+    static void checkpoint(boolean entries) {
+        Snap s = snap(entries);
         if (!undos.isEmpty() && same(undos.peek(), s)) return;
         undos.push(s);
         while (undos.size() > 64) undos.removeLast();
@@ -1126,6 +1133,16 @@ final class LineView {
         takenDown.clear();
     }
 
+    /** The server accepted (part of) a built segment's removal: an undo brings it back as a plan. */
+    static void tookDown(Plan.Line l) {
+        takenDown.add(l);
+    }
+
+    /** The segment is built again: its blocks stand. */
+    static void builtAgain(Plan.Line l) {
+        takenDown.remove(l);
+    }
+
     static boolean canUndo() {
         return !undos.isEmpty();
     }
@@ -1135,24 +1152,38 @@ final class LineView {
      * stay as they are now ({@link Plan#restore}); right after a click the chain goes on from the previous end.
      */
     static void undo() {
-        Snap now = snap();
         while (!undos.isEmpty()) {
             Snap s = undos.pop();
+            Snap now = snap(s.entries() != null);
             List<Plan.Line> ls = Plan.restore(s.lines(), PlanView.lines, PlanView::locked, takenDown::contains);
             List<Plan.Line> ch = new ArrayList<>(s.chain());
             ch.retainAll(ls);
-            Snap to = new Snap(ls, s.joints(), ch, s.start(), s.prevDir(), s.chainBase(), s.selectedLine(), s.selectedJoint());
+            // Entries back from a clear, but none built since (their answer came after the clear).
+            List<Plan.Entry> es = null;
+            if (s.entries() != null) {
+                es = new ArrayList<>(s.entries());
+                es.removeIf(PlanView::builtSince);
+                for (Plan.Entry e : PlanView.entries) if (!es.contains(e)) es.add(e);
+            }
+            Snap to = new Snap(ls, s.joints(), s.built(), ch, s.start(), s.prevDir(), s.chainBase(), s.selected(), s.selectedJoint(), es);
             if (same(to, now)) continue;
             closeJointMenu(false);
             PlanView.jointTypes.clear();
             PlanView.jointTypes.putAll(s.joints());
+            // Restored built records keep the pieces they were frozen with (save prunes the rest).
+            for (Plan.Line l : ls) {
+                String k = Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1());
+                if (l.built() && !PlanView.builtPieces.containsKey(k) && s.built().containsKey(k)) PlanView.builtPieces.put(k, s.built().get(k));
+            }
+            if (es != null) PlanView.setEntries(es);
             chain.clear();
             chain.addAll(ch);
             start = s.start();
             prevDir = s.prevDir();
             chainBase = s.chainBase();
             end = null;
-            select(s.selectedLine() >= 0 && s.selectedLine() < ls.size() ? List.of(s.selectedLine()) : List.of(), false);
+            int at = s.selected() == null ? -1 : ls.indexOf(s.selected());
+            select(at >= 0 ? List.of(at) : List.of(), false);
             selectedJoint = s.selectedJoint();
             PlanView.setLines(ls);
             clearLive();
@@ -1209,7 +1240,8 @@ final class LineView {
 
     /** An option change on the selected segment (undoable; none when it changes nothing). */
     private static void setSelected(Plan.Line n) {
-        if (n.equals(PlanView.selectedLine())) return;
+        Plan.Line s = PlanView.selectedLine();
+        if (s == null || n.equals(s) || PlanView.locked(s)) return;
         checkpoint();
         PlanView.setLine(n);
     }
@@ -1247,11 +1279,7 @@ final class LineView {
         // once; survival: a builder's REMOVE order per piece, which clears whatever stands where its blocks are).
         checkpoint();
         int sent = 0;
-        for (Plan.Line l : gone)
-            if (l.built() && PlanView.sendRemoval(l)) {
-                sent++;
-                takenDown.add(l);
-            }
+        for (Plan.Line l : gone) if (l.built() && PlanView.sendRemoval(l)) sent++;
         if (sent > 0) {
             flash = Planner.creative() ? "mccitybuilder.line.built_deleted" : "mccitybuilder.line.built_remove_ordered";
             flashArg = sent;

@@ -195,7 +195,7 @@ final class PlanView {
     }
 
     static void clear() {
-        LineView.checkpoint();
+        LineView.checkpoint(true);
         entries.clear();
         selected = -1;
         // Segments already on their way to the server stay until it answers.
@@ -656,6 +656,18 @@ final class PlanView {
     }
 
     /** Replaces the whole set of lines (an edit-mode move) and saves. */
+    /** Replaces the hut / decoration entries (an undo of a clear) and saves. */
+    static void setEntries(List<Plan.Entry> es) {
+        entries = new ArrayList<>(es);
+        selected = -1;
+        save();
+    }
+
+    /** @return true for an entry the server built after it left the plan view's hands (never planned again by an undo) */
+    static boolean builtSince(Plan.Entry e) {
+        return builtEntries.contains(e);
+    }
+
     static void setLines(List<Plan.Line> ls) {
         lines = new ArrayList<>(ls);
         save();
@@ -682,11 +694,15 @@ final class PlanView {
         for (Plan.BuiltPiece b : ps) {
             batch.add(new InstantBuild.Piece(b.path(), new BlockPos(b.ax(), b.ay(), b.az()), PieceCatalog.rotation(b.turns()).ordinal()));
             if (batch.size() == InstantBuild.MAX_BATCH) {
+                removalLine.put(nextBatchId, l);
                 queue.add(new InstantBuild.PieceBatch(nextBatchId++, l.pack(), Planner.creative() ? InstantBuild.DECO_DELETE : InstantBuild.DECO_REMOVE_ORDER, batch));
                 batch = new ArrayList<>();
             }
         }
-        if (!batch.isEmpty()) queue.add(new InstantBuild.PieceBatch(nextBatchId++, l.pack(), Planner.creative() ? InstantBuild.DECO_DELETE : InstantBuild.DECO_REMOVE_ORDER, batch));
+        if (!batch.isEmpty()) {
+            removalLine.put(nextBatchId, l);
+            queue.add(new InstantBuild.PieceBatch(nextBatchId++, l.pack(), Planner.creative() ? InstantBuild.DECO_DELETE : InstantBuild.DECO_REMOVE_ORDER, batch));
+        }
         return true;
     }
 
@@ -700,7 +716,7 @@ final class PlanView {
     }
 
     static void setLine(Plan.Line l) {
-        if (selectedLine() == null) return;
+        if (selectedLine() == null || locked(selectedLine())) return;
         lines.set(selectedLine, l);
         save();
         linesDirty = true;
@@ -772,6 +788,9 @@ final class PlanView {
     private static final Map<Integer, List<PieceCatalog.Placed>> batchSent = new HashMap<>();
     private static final Map<Plan.Line, List<PieceCatalog.Placed>> acceptedPieces = new HashMap<>();
     private static int nextBatchId = 1;
+    // Removal batches of built segments, and plan entries the server built (undo never plans them again).
+    private static final Map<Integer, Plan.Line> removalLine = new HashMap<>();
+    private static final java.util.Set<Plan.Entry> builtEntries = new java.util.HashSet<>();
     private static final java.util.Set<Integer> decoIds = new java.util.HashSet<>();
 
     /** @return a request id for a selected decoration's action (its answer is told only when refused) */
@@ -801,6 +820,7 @@ final class PlanView {
         // A plan entry's answer: built (leaves the plan), busy (sent again shortly) or refused (stays).
         Plan.Entry done = entryQueue.answer(r.id(), r.accepted(), r.reason(), System.currentTimeMillis());
         if (done != null) {
+            builtEntries.add(done);
             int i = entries.indexOf(done);
             if (i >= 0) {
                 entries.remove(i);
@@ -818,6 +838,9 @@ final class PlanView {
             waitUntil = System.currentTimeMillis() + 1_100;
             waitingFor = new Object();
         }
+        // A built segment's removal: taken down once the server accepted any of its batches.
+        Plan.Line rm = removalLine.remove(r.id());
+        if (rm != null && r.accepted()) LineView.tookDown(rm);
         if (l == null) return;
         if (r.accepted()) {
             if (sentNow != null) acceptedPieces.computeIfAbsent(l, k -> new ArrayList<>()).addAll(sentNow);
@@ -832,6 +855,7 @@ final class PlanView {
                     // Its pieces as sent and accepted: fixed from now on (the world has them), whatever a later layout says.
                     if (sentAll != null && !sentAll.isEmpty()) builtPieces.put(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1()), PieceCatalog.freeze(l, sentAll));
                     lines.set(at, l.asBuilt());
+                    LineView.builtAgain(l.asBuilt());
                 }
                 if (selectedLine >= lines.size()) selectedLine = -1;
                 save();
