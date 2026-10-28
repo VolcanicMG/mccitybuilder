@@ -86,6 +86,18 @@ public final class PieceLayout {
         return out;
     }
 
+    /**
+     * @param widths each line's straight width at a joint (-1 while it loads); @param levels each line's level
+     * @return the line whose level the joint piece takes: the widest, then the highest level, then the first (so the
+     * drawing order never decides)
+     */
+    public static int jointLevelLine(int[] widths, int[] levels) {
+        int best = 0;
+        for (int q = 1; q < widths.length; q++)
+            if (widths[q] > widths[best] || widths[q] == widths[best] && levels[q] > levels[best]) best = q;
+        return best;
+    }
+
     /** @return the box of a joint piece (sx by sz after turning) centred on cell {@code c} */
     public static int[] centred(int[] c, int sx, int sz) {
         return new int[]{c[0] - (sx - 1) / 2, c[1] - (sz - 1) / 2, c[0] + sx / 2, c[1] + sz / 2};
@@ -155,6 +167,24 @@ public final class PieceLayout {
         int min = Integer.MAX_VALUE;
         for (int l : lens) if (l > 0) min = Math.min(min, l);
         return min == Integer.MAX_VALUE ? min : Math.max(1, off0 + off1 + min);
+    }
+
+    /**
+     * A run between two joints the straights can't cover exactly: lengths covering it exactly with one or two cells
+     * more (the run reaching that much into a joint).
+     *
+     * @return {extra cells, lengths longest first...}, or null when no extra up to {@code maxOver} covers exactly
+     */
+    public static int[] overlapFill(int n, int[] lens, int maxOver) {
+        for (int e = 1; e <= maxOver; e++) {
+            List<Integer> f = fill(n + e, lens);
+            if (f.stream().mapToInt(Integer::intValue).sum() != n + e) continue;
+            int[] out = new int[f.size() + 1];
+            out[0] = e;
+            for (int k = 0; k < f.size(); k++) out[k + 1] = f.get(k);
+            return out;
+        }
+        return null;
     }
 
     /**

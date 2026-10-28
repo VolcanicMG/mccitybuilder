@@ -685,10 +685,35 @@ final class PieceCatalog {
                         used += p.run();
                     }
             }
-            int left = Math.max(0, n - used);
+            int left = Math.max(0, n - used), start0 = Integer.MIN_VALUE;
+            // Between two joints a 1-2 cell gap closes when straights one or two cells longer fit, reaching that much
+            // into a joint without breaking it (tried at the start's joint, then the end's).
+            Placed ja = joints.get(key(a[0], a[1])), jz = joints.get(key(b[0], b[1]));
+            int[] ov = left > 0 && left <= 2 && gates.isEmpty() && ja != null && jz != null ? PieceLayout.overlapFill(n, lens, 2) : null;
+            if (ov != null) {
+                List<PieceSets.Piece> ps = new ArrayList<>();
+                List<Integer> rl = new ArrayList<>();
+                for (int k = 1; k < ov.length; k++) {
+                    ps.add(straightOf(straights, width, ov[k], l, i * 1000 + k));
+                    rl.add(ov[k]);
+                }
+                for (int s0 : new int[]{off[0] - ov[0], off[0]}) {
+                    int e = s0 == off[0] ? ps.size() - 1 : 0;
+                    Placed probe = place(l.pack(), ps.get(e).path(), sturn(ps.get(e), dir, l.flip()), PieceLayout.boxes(a, dir, s0, rl, width, shift).get(e), PieceSets.Role.STRAIGHT);
+                    if (probe == null || clash(l.pack(), s0 == off[0] ? jz : ja, l.pack(), probe)) continue;
+                    tiles.clear();
+                    tiles.addAll(rl);
+                    tilePieces.clear();
+                    tilePieces.addAll(ps);
+                    used = n + ov[0];
+                    left = 0;
+                    start0 = s0;
+                    break;
+                }
+            }
             shortened.add(left);
             // What can't be covered goes to a free end, so runs always meet their joints.
-            int start = PieceLayout.runStart(off[0], left, free[0], free[1]);
+            int start = start0 != Integer.MIN_VALUE ? start0 : PieceLayout.runStart(off[0], left, free[0], free[1]);
             gaps.add(left == 0 ? null : PieceLayout.boxes(a, dir, start == off[0] ? off[0] + used : off[0], List.of(left), width, shift).get(0));
             List<Integer> runs = new ArrayList<>();
             for (PieceSets.Piece p : tilePieces) runs.add(p.run());
@@ -946,13 +971,21 @@ final class PieceCatalog {
         if (primary.isEmpty()) return null;
         // A tower, for the hint only ("try Tower: 0 gap"), never picked here.
         if (!primary.contains(PieceSets.Role.TOWER)) fallback.add(PieceSets.Role.TOWER);
+        // The joint's level from the widest line meeting it, whichever line reaches the cell first.
+        int[] ws = new int[at.size()], lvs = new int[at.size()];
+        for (int o = 0; o < at.size(); o++) {
+            PieceSets.Piece st = primary(at.get(o), 0);
+            ws[o] = st == null ? -1 : st.across();
+            lvs[o] = at.get(o).level();
+        }
+        int level = lvs[PieceLayout.jointLevelLine(ws, lvs)];
         List<PieceSets.Piece> cands = new ArrayList<>();
         List<PieceSets.Role> roles = new ArrayList<>();
         int primaries = 0;
         for (List<PieceSets.Role> rs : List.of(primary, fallback)) {
             for (PieceSets.Role r : rs)
                 for (PieceSets.Group g : groups(l.pack(), f, r)) {
-                    cands.add(g.pick(l.level(), i));
+                    cands.add(g.pick(level, i));
                     roles.add(r);
                 }
             if (rs == primary) primaries = cands.size();

@@ -91,6 +91,10 @@ final class JointCases {
 
     // The level / variant number the cases pick from each group (0: the highest).
     static int level;
+    // Quarter turns the shapes are drawn turned (0: the first line arrives heading east); the T split stays as drawn.
+    static int rot;
+    /** Per case laid out by the search (no built-in), its layout as a built-in line: "pack name TAB key TAB value". */
+    static final Map<Case, String> PINS = new java.util.IdentityHashMap<>();
 
     /** @return {@link #all} at every level / variant number any group has, each family name suffixed " L<n>" */
     static List<Case> allLevels() throws Exception {
@@ -120,7 +124,8 @@ final class JointCases {
         PieceLayout.Grid sg = PackPieces.grid(pack + "/" + st.path());
         for (boolean flip : new boolean[]{false, true}) {
             for (var en : SHAPES.entrySet()) {
-                int[] outs = en.getValue();
+                int[] outs = en.getValue().clone();
+                for (int q = 0; q < outs.length; q++) outs[q] = (outs[q] + rot) % 4;
                 String name = en.getKey() + (flip ? "-flipped" : "");
                 if (outs.length == 1) {
                     add(out, pack, famKey, name, fam, PieceLayout.jointRoles(Plan.J_AUTO, 1, false, false), sg, st, outs, dirsOf(outs), flip);
@@ -264,7 +269,31 @@ final class JointCases {
             PieceLayout.Fit f = PieceLayout.fit(c, o, jb, t, s, width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
             runs.add(new Run(o, s, f, PieceLayout.boxes(c, o, f.off(), List.of(run), width, f.shift()).get(0)));
         }
-        out.add(new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name, jp.path(), t, jb, runs, false, fix != null));
+        Case cs = new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name, jp.path(), t, jb, runs, false, fix != null);
+        if (fix == null && role != PieceSets.Role.END) PINS.put(cs, pin(pack, jp.path(), t, best, jb, runs, sg, st, dirs, flip));
+        out.add(cs);
+    }
+
+    /** @return a case's layout as a built-in line ({@link PieceLayout#jointFix}) */
+    private static String pin(String pack, String jointPath, PieceLayout.Grid t, int turn, int[] jb, List<Run> runs, PieceLayout.Grid sg, PieceSets.Piece st, int[] dirs,
+                              boolean flip) {
+        int n = runs.size();
+        int[] outs = new int[n], sts = new int[n];
+        String[] sps = new String[n];
+        boolean[] sym = new boolean[n];
+        PieceLayout.Grid s2 = sg.turned(2);
+        for (int q = 0; q < n; q++) {
+            outs[q] = runs.get(q).out();
+            sts[q] = Math.floorMod(PieceLayout.turns(sg.sx(), sg.sz(), dirs[q]) + (flip ? 2 : 0), 4);
+            sps[q] = st.path();
+            sym[q] = s2.sx() == sg.sx() && java.util.Arrays.equals(s2.ids(), sg.ids());
+        }
+        var k = PieceLayout.jointKey(jointPath, outs, sps, sts, sym);
+        StringBuilder v = new StringBuilder("" + Math.floorMod(turn - k.rot(), 4));
+        for (int q = 0; q < n; q++)
+            v.append(' ').append(Math.floorMod(outs[q] - k.rot(), 4)).append(':')
+                    .append(PieceLayout.alignShift(new int[]{0, 0}, outs[q], jb, st.across(), runs.get(q).fit().shift())).append(',').append(runs.get(q).fit().depth());
+        return PackPieces.packName(pack) + "\t" + k.key() + "\t" + v;
     }
 
     /** @return the joint's box: centred on the joint cell; a cap lies along the line from the free end (shift 0) */

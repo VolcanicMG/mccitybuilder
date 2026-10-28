@@ -737,6 +737,7 @@ public final class SelfCheck {
         joining();
         editing();
         continuity();
+        jointGaps();
         jointChecks();
         cornerTurns();
         editRules();
@@ -1333,6 +1334,68 @@ public final class SelfCheck {
      * ({@code src/test/resources/no-contact.tsv}).</li>
      * </ul>
      */
+    /**
+     * A shape drawn turned lays out the same, turned: the joint's piece and each run against the joint's box. The
+     * search isn't symmetric (the boxes' centring, ties kept in order), so the drawing direction could change a corner
+     * (Ethan's "moving to the left creates a weird offset"); a built-in setting pins one layout for every direction.
+     * Prints the differing cases and, with {@code -DpinLines=true}, the base layouts as built-in lines.
+     *
+     * @return "family|case" of every case that lays out differently drawn another way
+     */
+    static java.util.Set<String> rotationCheck(List<JointCases.Case> base) throws Exception {
+        Map<String, JointCases.Case> byId = new java.util.HashMap<>();
+        for (var cs : base) byId.put(cs.family() + "|" + cs.name(), cs);
+        java.util.Set<String> bad = new java.util.TreeSet<>();
+        Map<String, String> pins = new java.util.TreeMap<>();
+        try {
+            for (int r = 1; r < 4; r++) {
+                JointCases.rot = r;
+                for (var cs : JointCases.allLevels()) {
+                    var b = byId.get(cs.family() + "|" + cs.name());
+                    if (b == null || cs.butt() || cs.name().startsWith("T-split") || cs.name().startsWith("end")) continue;
+                    if (!sameTurned(b, cs, r)) {
+                        bad.add(cs.family() + "|" + cs.name());
+                        String pin = JointCases.PINS.get(b);
+                        if (pin != null) pins.put(pin.substring(0, pin.lastIndexOf('\t')), pin);
+                    }
+                }
+            }
+        } finally {
+            JointCases.rot = 0;
+        }
+        if (Boolean.getBoolean("pinLines")) for (String p : pins.values()) System.out.println("PIN " + p);
+        return bad;
+    }
+
+    /** @return true when {@code c} is {@code b} turned {@code r} quarter turns (joint piece, run boxes against the joint box) */
+    private static boolean sameTurned(JointCases.Case b, JointCases.Case c, int r) {
+        PieceLayout.Grid t = b.joint().turned(r);
+        if (t.sx() != c.joint().sx() || !java.util.Arrays.equals(t.ids(), c.joint().ids()) || b.runs().size() != c.runs().size()) return false;
+        int[] jb = b.jointBox();
+        for (var rb : b.runs()) {
+            int[] x = rb.box().clone();
+            int w = jb[2] - jb[0] + 1, h = jb[3] - jb[1] + 1;
+            int x0 = x[0] - jb[0], z0 = x[1] - jb[1], x1 = x[2] - jb[0], z1 = x[3] - jb[1];
+            for (int i = 0; i < r; i++) {
+                int nx0 = h - 1 - z1, nx1 = h - 1 - z0;
+                z0 = x0;
+                z1 = x1;
+                x0 = nx0;
+                x1 = nx1;
+                int tmp = w;
+                w = h;
+                h = tmp;
+            }
+            int out = (rb.out() + r) % 4;
+            boolean found = false;
+            for (var rc : c.runs())
+                if (rc.out() == out) found = rc.box()[0] - c.jointBox()[0] == x0 && rc.box()[1] - c.jointBox()[1] == z0 && rc.box()[2] - c.jointBox()[0] == x1
+                        && rc.box()[3] - c.jointBox()[1] == z1;
+            if (!found) return false;
+        }
+        return true;
+    }
+
     private static void jointChecks() throws Exception {
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
         if (System.getProperty("contactFloor") != null) {
@@ -1340,6 +1403,9 @@ public final class SelfCheck {
             PieceLayout.clearCache();
         }
         List<JointCases.Case> all = JointCases.allLevels();
+        var turnedDiffer = rotationCheck(all);
+        System.out.println("CityBuilder self-check: cases laid out differently when drawn turned (" + turnedDiffer.size() + "):");
+        for (String r : turnedDiffer) System.out.println("  turned " + r);
         Path allowFile = Path.of("src/test/resources/joint-baseline.txt");
         java.util.Set<String> allow = new java.util.HashSet<>();
         if (Files.exists(allowFile))
@@ -1668,6 +1734,34 @@ public final class SelfCheck {
                 new Plan.Line("wall", 0, 9, 9, 9, "p", "f", 1, -1, false, false).asBuilt());
         var kept = Plan.clearTool(mixed, "wall", Plan.Line::built);
         check(kept.size() == 2 && kept.get(0).tool().equals("road") && kept.get(1).built(), "clearing walls leaves roads and built walls");
+    }
+
+    /**
+     * Ethan's "1 blocks left uncovered" at a colonial L: a run between two joints that the straights can't cover
+     * exactly closes a 1-2 cell gap by reaching that far into a joint; a joint between lines of different levels takes
+     * the widest line's level whichever line is laid out first.
+     */
+    private static void jointGaps() throws Exception {
+        check(PieceLayout.jointLevelLine(new int[]{5, 9}, new int[]{1, 3}) == 1 && PieceLayout.jointLevelLine(new int[]{9, 5}, new int[]{3, 1}) == 0
+                && PieceLayout.jointLevelLine(new int[]{5, 5}, new int[]{1, 2}) == 1 && PieceLayout.jointLevelLine(new int[]{-1, 5}, new int[]{3, 1}) == 1, "joint level from the widest line, any order");
+        int[] ov = PieceLayout.overlapFill(17, new int[]{18, 9, 6}, 2);
+        check(ov != null && ov[0] == 1 && java.util.Arrays.stream(ov).skip(1).sum() == 18, "17 cells: one piece of 18 reaching 1 into a joint");
+        check(PieceLayout.overlapFill(18, new int[]{18}, 2) == null || PieceLayout.overlapFill(18, new int[]{18}, 2)[0] > 0, "exact fills never need it");
+        check(PieceLayout.overlapFill(15, new int[]{18}, 2) == null, "no closing beyond two cells");
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        // Colonial level 1 walls: every run length between two joints is covered exactly or within two cells of reach.
+        java.util.Set<Integer> lens = new java.util.TreeSet<>();
+        for (String n : List.of("long1", "medium1", "short1")) {
+            PieceLayout.Grid g = PackPieces.grid("colonial/walls/" + n + ".blueprint");
+            lens.add(Math.max(g.sx(), g.sz()));
+        }
+        int[] ls = lens.stream().mapToInt(Integer::intValue).toArray();
+        List<Integer> open = new java.util.ArrayList<>();
+        for (int n = 20; n <= 80; n++) {
+            int cov = PieceLayout.fill(n, ls).stream().mapToInt(Integer::intValue).sum();
+            if (cov != n && PieceLayout.overlapFill(n, ls, 2) == null) open.add(n);
+        }
+        check(open.isEmpty(), "colonial L1 walls " + lens + ": runs left open " + open);
     }
 
     /** Player joint alignments: file round trip, used exactly as set, destructive ones refused, reset back to auto. */
