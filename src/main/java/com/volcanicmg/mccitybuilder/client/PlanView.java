@@ -646,6 +646,24 @@ final class PlanView {
         linesDirty = true;
     }
 
+    /**
+     * Intersections: the dropped segment {@code l} and every unlocked segment it passes through are split at their
+     * crossings ({@link Plan#splitThrough}); the cross joints form there.
+     *
+     * @return the crossing cells split
+     */
+    static List<int[]> splitThrough(Plan.Line l) {
+        List<int[]> cs = new ArrayList<>();
+        for (int[] c : Plan.crossings(lines, l, PlanView::locked)) if (c[2] == 0) cs.add(c);
+        if (cs.isEmpty()) return cs;
+        Plan.splitThrough(lines, l, PlanView::locked);
+        // Draw mode keeps no selection; indices moved.
+        selectedLine = -1;
+        save();
+        linesDirty = true;
+        return cs;
+    }
+
     /** Lays the lines out again next frame (a joint type previewed, nothing saved). */
     static void relayout() {
         linesDirty = true;

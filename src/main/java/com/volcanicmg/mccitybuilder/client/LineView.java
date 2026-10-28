@@ -120,6 +120,7 @@ final class LineView {
         if (liveA != null) PlanView.relayout();
         liveA = liveB = null;
         live = List.of();
+        liveCross = List.of();
         liveBad = List.of();
         liveGap = null;
         liveShort = liveLen = 0;
@@ -252,13 +253,21 @@ final class LineView {
                 nl = prev.between(prev.x0(), prev.z0(), b[0], b[1]);
             }
             all.add(nl);
+            // Passing through a segment: both split there (an intersection), as the click will.
+            List<int[]> cs = new ArrayList<>();
+            for (int[] c : Plan.crossings(all, nl, PlanView::locked)) if (c[2] == 0) cs.add(c);
+            liveCross = cs;
+            List<Plan.Line> parts = Plan.splitThrough(all, nl, PlanView::locked);
+            all.remove(parts.get(parts.size() - 1));
+            all.add(parts.get(parts.size() - 1));
             PieceCatalog.Layout lay = PieceCatalog.layout(all, previewTypes());
             int last = all.size() - 1;
             List<PieceCatalog.Placed> ps = new ArrayList<>(lay.lines().get(last));
+            for (Plan.Line part : parts) if (part != parts.get(parts.size() - 1)) ps.addAll(lay.lines().get(all.indexOf(part)));
             // The segments the live one attaches to are laid out with it (their joint, cap, shift, heights change):
             // their pieces come from this layout, and the plan stops drawing its own for them (PlanView.liveTouched).
             for (int k = 0; k < last; k++)
-                if (onLine(all.get(k), a) || onLine(all.get(k), b))
+                if (onLine(all.get(k), a) || onLine(all.get(k), b) || crossed(all.get(k)))
                     for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
             boolean wasEmpty = live.isEmpty();
             live = ps;
@@ -284,7 +293,7 @@ final class LineView {
             for (int k = 0; !red && k < PlanView.linePieces.size() && k < PlanView.lines.size(); k++) {
                 // Segments the live one attaches to are laid out again once it is dropped (their caps, joints and end
                 // pieces move): their current pieces don't count.
-                if (start != null && (onLine(PlanView.lines.get(k), a) || onLine(PlanView.lines.get(k), b))) continue;
+                if (start != null && (onLine(PlanView.lines.get(k), a) || onLine(PlanView.lines.get(k), b) || crossed(PlanView.lines.get(k)))) continue;
                 for (PieceCatalog.Placed q : PlanView.linePieces.get(k)) red |= PieceCatalog.clash(pk, p, PlanView.lines.get(k).pack(), q);
             }
             for (PieceCatalog.Placed q : live) red |= q != p && PieceCatalog.clash(pk, p, pk, q);
@@ -303,7 +312,16 @@ final class LineView {
 
     /** @return true when the live layout draws this planned segment's pieces instead of the plan */
     static boolean liveTouches(Plan.Line l) {
-        return !live.isEmpty() && liveA != null && (onLine(l, liveA) || onLine(l, liveB));
+        return !live.isEmpty() && liveA != null && (onLine(l, liveA) || onLine(l, liveB) || crossed(l));
+    }
+
+    // Unlocked segments the live one passes through (they split into an intersection), as their crossing cells.
+    static List<int[]> liveCross = List.of();
+
+    /** @return true when the live segment passes through {@code l} (an intersection forms there) */
+    private static boolean crossed(Plan.Line l) {
+        for (int[] c : liveCross) if (onLine(l, c)) return true;
+        return false;
     }
 
     /** @return true when cell c is on the segment (ends included) */
@@ -1037,8 +1055,24 @@ final class LineView {
             chain.add(l);
         }
         if (splitAt != null) PlanView.splitAt(splitAt);
+        // Passing through segments: intersections (both split; the chain goes on from the last part).
+        List<int[]> crosses = PlanView.splitThrough(l);
+        if (!crosses.isEmpty()) {
+            // The segment's parts, in order, take its place in the chain.
+            chain.remove(chain.size() - 1);
+            int[] from = {l.x0(), l.z0()};
+            for (int k = 0; k <= crosses.size(); k++) {
+                int[] to = k < crosses.size() ? crosses.get(k) : end;
+                for (Plan.Line x : PlanView.lines)
+                    if (x.x0() == from[0] && x.z0() == from[1] && x.x1() == to[0] && x.z1() == to[1] && x.tool().equals(l.tool())) chain.add(x);
+                from = to;
+            }
+        }
+        List<int[]> made = new ArrayList<>(List.of(start, end));
+        if (splitAt != null) made.add(splitAt);
+        made.addAll(crosses);
         // The joint default for the joints this segment makes.
-        for (int[] c : splitAt == null ? new int[][]{start, end} : new int[][]{start, end, splitAt})
+        for (int[] c : made)
             if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         refitAround(new int[][]{start, end}, l);
         prevDir = new int[]{end[0] - start[0], end[1] - start[1]};

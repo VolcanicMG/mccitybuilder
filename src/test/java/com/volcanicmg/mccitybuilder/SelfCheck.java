@@ -738,6 +738,7 @@ public final class SelfCheck {
         editing();
         continuity();
         jointGaps();
+        intersections();
         jointChecks();
         cornerTurns();
         editRules();
@@ -1741,6 +1742,29 @@ public final class SelfCheck {
      * exactly closes a 1-2 cell gap by reaching that far into a joint; a joint between lines of different levels takes
      * the widest line's level whichever line is laid out first.
      */
+    private static void intersections() {
+        Plan.Line h = new Plan.Line("wall", -10, 0, 10, 0, "p", "f", 1, -1, false, false), run = new Plan.Line("wall", 0, -10, 0, 10, "p", "f", 1, -1, false, true);
+        List<Plan.Line> ls = new java.util.ArrayList<>(List.of(h, run));
+        var cs = Plan.crossings(ls, run, l -> false);
+        check(cs.size() == 1 && cs.get(0)[0] == 0 && cs.get(0)[1] == 0 && cs.get(0)[2] == 0, "a run through a segment crosses it once: " + cs.size());
+        var parts = Plan.splitThrough(ls, run, l -> false);
+        int atCross = 0;
+        for (Plan.Line l : ls) for (int[] e : l.ends()) if (e[0] == 0 && e[1] == 0) atCross++;
+        check(ls.size() == 4 && parts.size() == 2 && atCross == 4 && parts.get(0).z0() == -10 && parts.get(1).z1() == 10 && !parts.get(1).gate(),
+                "an intersection: both split, four ends at the cross, one gate kept");
+        // A built segment stays whole (the crossing is reported, the drop refused as before); an end on it is a T, not a cross.
+        List<Plan.Line> lk = new java.util.ArrayList<>(List.of(h, run));
+        check(Plan.crossings(lk, run, l -> l == h).get(0)[2] == 1 && Plan.splitThrough(lk, run, l -> l == h).size() == 1 && lk.size() == 2, "a locked segment isn't split");
+        Plan.Line toT = new Plan.Line("wall", 0, -10, 0, 0, "p", "f", 1, -1, false, false);
+        check(Plan.crossings(List.of(h, toT), toT, l -> false).isEmpty(), "ending on a segment isn't a crossing");
+        Plan.Line road = new Plan.Line("road", 0, -10, 0, 10, "p", "f", 1, -1, false, false), par = new Plan.Line("wall", -10, 2, 10, 2, "p", "f", 1, -1, false, false);
+        check(Plan.crossings(List.of(h, road), road, l -> false).isEmpty() && Plan.crossings(List.of(h, par), par, l -> false).isEmpty(), "other tools and parallel segments don't cross");
+        Plan.Line h2 = new Plan.Line("wall", -10, 6, 10, 6, "p", "f", 1, -1, false, false);
+        List<Plan.Line> two = new java.util.ArrayList<>(List.of(h2, h, run));
+        var p2 = Plan.splitThrough(two, run, l -> false);
+        check(p2.size() == 3 && p2.get(0).z1() == 0 && p2.get(1).z1() == 6 && two.size() == 7, "two crossings in order along the run");
+    }
+
     private static void jointGaps() throws Exception {
         check(PieceLayout.jointLevelLine(new int[]{5, 9}, new int[]{1, 3}) == 1 && PieceLayout.jointLevelLine(new int[]{9, 5}, new int[]{3, 1}) == 0
                 && PieceLayout.jointLevelLine(new int[]{5, 5}, new int[]{1, 2}) == 1 && PieceLayout.jointLevelLine(new int[]{-1, 5}, new int[]{3, 1}) == 1, "joint level from the widest line, any order");

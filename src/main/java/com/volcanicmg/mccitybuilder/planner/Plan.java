@@ -349,6 +349,50 @@ public final class Plan {
     }
 
     /**
+     * Intersections: the cells where {@code run} passes through a perpendicular segment of the same tool, inside both
+     * (neither's end), in order along the run.
+     *
+     * @param locked segments that can't be split (built, sending): crossing one isn't an intersection
+     * @return {x, z, 1 when the crossed segment is locked} per crossing
+     */
+    public static List<int[]> crossings(List<Line> lines, Line run, java.util.function.Predicate<Line> locked) {
+        List<int[]> out = new java.util.ArrayList<>();
+        boolean runX = run.z0() == run.z1();
+        for (Line l : lines) {
+            if (l == run || !l.tool().equals(run.tool()) || (l.z0() == l.z1()) == runX || l.x0() != l.x1() && l.z0() != l.z1()) continue;
+            Line h = runX ? run : l, v = runX ? l : run;
+            int x = v.x0(), z = h.z0();
+            boolean inH = x > Math.min(h.x0(), h.x1()) && x < Math.max(h.x0(), h.x1()), inV = z > Math.min(v.z0(), v.z1()) && z < Math.max(v.z0(), v.z1());
+            if (inH && inV) out.add(new int[]{x, z, locked.test(l) ? 1 : 0});
+        }
+        out.sort(java.util.Comparator.comparingInt(c -> Math.abs(c[0] - run.x0()) + Math.abs(c[1] - run.z0())));
+        return out;
+    }
+
+    /**
+     * Splits {@code run} (in {@code lines}) and every unlocked segment it passes through at their crossings
+     * ({@link #crossings}), so each crossing is a four-way joint.
+     *
+     * @return the run's parts in order (the run itself when it crosses nothing)
+     */
+    public static List<Line> splitThrough(List<Line> lines, Line run, java.util.function.Predicate<Line> locked) {
+        List<Line> parts = new java.util.ArrayList<>(List.of(run));
+        for (int[] c : crossings(lines, run, locked)) {
+            if (c[2] == 1) continue;
+            split(lines, c, l -> locked.test(l) || parts.contains(l));
+            Line last = parts.get(parts.size() - 1);
+            int i = lines.indexOf(last);
+            Line a = last.between(last.x0(), last.z0(), c[0], c[1]), b = last.between(c[0], c[1], last.x1(), last.z1());
+            b = b.with(b.family(), b.level(), b.variant(), b.towers(), false);
+            lines.set(i, a);
+            lines.add(i + 1, b);
+            parts.set(parts.size() - 1, a);
+            parts.add(b);
+        }
+        return parts;
+    }
+
+    /**
      * Edit mode: moves the given points (segment ends, a joint) by (dx, dz). Every segment ending at a moved point
      * follows: along its own axis it just gets longer or shorter; across it, the whole segment shifts, which needs its
      * other end free (no other segment there), else that component of the move is dropped. Segments keep their
