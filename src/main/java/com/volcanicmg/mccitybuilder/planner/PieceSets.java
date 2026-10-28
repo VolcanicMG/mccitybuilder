@@ -69,14 +69,20 @@ public final class PieceSets {
     }
 
     /**
-     * The pieces a run may be tiled with: those of the run's number only (a level-1 road never takes a level-3 piece
-     * that happens to share its width; Ethan's wide cobble pieces in a gravel road), of its width.
+     * The pieces a run may be tiled with: those of the run's number (a level-1 road never takes a level-3 piece that
+     * happens to share its width; Ethan's wide cobble pieces in a gravel road), unnumbered ones, and every piece of a
+     * group whose numbers are sizes; all of the run's width.
      *
      * @param number the run's straight number, or -1 for mixed variants (any number of the width)
      */
     public static List<Piece> runPieces(List<Group> groups, int number, int width) {
         List<Piece> out = new ArrayList<>();
-        for (Group g : groups) for (Piece p : g.pieces()) if (p.across() == width && (number < 0 || p.number() == number)) out.add(p);
+        for (Group g : groups) {
+            // Numbers that are sizes (the group's pieces differ in length: acacia's straight4 / straight8) all count.
+            boolean sizes = g.pieces().stream().mapToInt(Piece::run).distinct().count() > 1;
+            for (Piece p : g.pieces())
+                if (p.across() == width && (number < 0 || sizes || p.number() == 0 || p.number() == number)) out.add(p);
+        }
         return out;
     }
 
@@ -183,18 +189,26 @@ public final class PieceSets {
             }
             // A family's straights all run along its longest straight's axis: a short piece may be shorter than the
             // road is wide (colonial roads: 8x5 and 4x5), so its longer side isn't its run.
+            // All square: each piece keeps its own sides. Gates and end pieces that are square or the road's width along
+            // that axis run the same way (a 7x7 gate is turned like its 7-wide wall).
             List<Group> sts = roles.get(Role.STRAIGHT);
-            if (sts != null) {
-                Piece longest = null;
-                for (Group g : sts) for (Piece p : g.pieces()) if (longest == null || Math.max(p.sx(), p.sz()) > Math.max(longest.sx(), longest.sz())) longest = p;
-                int ax = longest.sx() >= longest.sz() ? 0 : 1;
-                List<Group> fixed = new ArrayList<>();
-                for (Group g : sts) {
-                    List<Piece> ps = new ArrayList<>();
-                    for (Piece p : g.pieces()) ps.add(new Piece(p.path(), p.base(), p.number(), p.sx(), p.sy(), p.sz(), ax));
-                    fixed.add(new Group(g.base(), g.role(), ps, g.levels()));
+            Piece longest = null;
+            if (sts != null) for (Group g : sts) for (Piece p : g.pieces()) if (p.sx() != p.sz() && (longest == null || Math.max(p.sx(), p.sz()) > Math.max(longest.sx(), longest.sz()))) longest = p;
+            if (longest != null) {
+                int ax = longest.sx() >= longest.sz() ? 0 : 1, wide = longest.across();
+                for (Role r : List.of(Role.STRAIGHT, Role.GATE, Role.END)) {
+                    if (!roles.containsKey(r)) continue;
+                    List<Group> fixed = new ArrayList<>();
+                    for (Group g : roles.get(r)) {
+                        List<Piece> ps = new ArrayList<>();
+                        for (Piece p : g.pieces()) {
+                            boolean along = r == Role.STRAIGHT || p.sx() == p.sz() || (ax == 0 ? p.sz() : p.sx()) == wide;
+                            ps.add(along ? new Piece(p.path(), p.base(), p.number(), p.sx(), p.sy(), p.sz(), ax) : p);
+                        }
+                        fixed.add(new Group(g.base(), g.role(), ps, g.levels()));
+                    }
+                    roles.put(r, fixed);
                 }
-                roles.put(Role.STRAIGHT, fixed);
             }
             out.put(en.getKey(), new Family(tool, en.getKey().substring(tool.length() + 1), roles));
         }

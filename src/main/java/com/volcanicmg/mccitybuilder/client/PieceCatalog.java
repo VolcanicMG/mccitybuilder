@@ -544,7 +544,7 @@ final class PieceCatalog {
                         PieceSets.Piece cap = capGroups.get(0).pickAs(primary(l, 0), l.level(), i);
                         int[] cb = PieceLayout.boxes(c, d, 0, List.of(cap.run()), cap.across(), 0).get(0);
                         PieceLayout.Grid sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
-                        int turns = PieceLayout.turns(cap.sx(), cap.sz(), (d + 2) % 4), rel = 0;
+                        int turns = Math.floorMod((d + 2) % 4 - cap.nativeDir(), 4), rel = 0;
                         double bestScore = -1;
                         for (int k2 = turns; k2 < turns + 4; k2 += 2) {
                             PieceLayout.Grid cg = grid(l.pack(), cap.path(), k2);

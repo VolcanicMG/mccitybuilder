@@ -1865,8 +1865,11 @@ public final class SelfCheck {
                 PieceSets.Group g0 = fam.straights().get(0);
                 for (PieceSets.Piece main : g0.pieces()) {
                     int n = main.number();
-                    for (PieceSets.Piece p : PieceSets.runPieces(fam.straights(), n, main.across()))
-                        check(p.number() == n, "run piece of number " + n + ": " + pk.getKey() + " " + p.path());
+                    for (PieceSets.Piece p : PieceSets.runPieces(fam.straights(), n, main.across())) {
+                        // Another number only when unnumbered or when the numbers are sizes.
+                        boolean sizes = fam.straights().stream().filter(g -> g.pieces().contains(p)).anyMatch(g -> g.pieces().stream().mapToInt(PieceSets.Piece::run).distinct().count() > 1);
+                        check(p.number() == n || p.number() == 0 || sizes, "run piece of number " + n + ": " + pk.getKey() + " " + p.path());
+                    }
                     // The old pick: each straight group at the line's level.
                     for (PieceSets.Group g : fam.straights())
                         if (g.levels() && g.pick(n, 0).number() != n && g.pick(n, 0).across() == main.across()) leaked.add(pk.getKey() + " " + fam.key() + " L" + n + " " + g.pick(n, 0).path());
@@ -1882,6 +1885,14 @@ public final class SelfCheck {
         var lv1 = PieceSets.runPieces(road.straights(), 1, 5);
         check(lv1.stream().mapToInt(PieceSets.Piece::run).distinct().sorted().boxed().toList().equals(List.of(4, 8))
                 && lv1.stream().allMatch(p -> p.nativeDir() == 0 && p.number() == 1), "colonial road level 1 tiles with 8 and 4 of its own number: " + lv1);
+        // Unnumbered fillers and numbers that are sizes stay: fortress roads' footpath (6) and acacia's straight4 / 8.
+        for (String[] t : new String[][]{{"fortress", "road:infrastructure/roads", "26", "longpath"}, {"acacia", "road:infrastructure/roads", "15", "roadsimplestraight"}}) {
+            var fam = PieceSets.classify(JointCases.packs().get(t[0])).get(t[1]);
+            PieceSets.Piece main = fam.straights().stream().filter(g -> g.base().equals(t[3])).findFirst().orElseThrow().pick(1, 0);
+            int[] lens = PieceSets.runPieces(fam.straights(), main.number(), main.across()).stream().mapToInt(PieceSets.Piece::run).distinct().toArray();
+            int n = Integer.parseInt(t[2]);
+            check(PieceLayout.fill(n, lens).stream().mapToInt(Integer::intValue).sum() == n, t[0] + " roads tile " + n + " cells with " + java.util.Arrays.toString(lens));
+        }
     }
 
     private static void jointGaps() throws Exception {

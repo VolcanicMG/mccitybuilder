@@ -287,7 +287,7 @@ final class JointCases {
             // The turn whose faces best continue the straights, as the planner picks it: any for a joint, along the line for a cap.
             int from = 0, step = 1;
             if (role == PieceSets.Role.END) {
-                from = PieceLayout.turns(jp.sx(), jp.sz(), (outs[0] + 2) % 4);
+                from = Math.floorMod((outs[0] + 2) % 4 - jp.nativeDir(), 4);
                 step = 2;
             }
             List<Integer> ks = new ArrayList<>(), outList = new ArrayList<>();
