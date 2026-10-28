@@ -900,7 +900,8 @@ public final class InstantBuild {
                     IItemHandler h = handlerAt(level, world);
                     boolean empty = true;
                     if (h != null) for (int i = 0; i < h.getSlots() && empty; i++) empty = h.getStackInSlot(i).isEmpty();
-                    if (!PasteRules.remove(have.equals(want), isProtected(level, world, have), empty, have.getBlock() instanceof AbstractBlockHut<?>, entityKept.contains(world))) continue;
+                    // Same block, any state: walls, bars and vines change shape with their neighbours.
+                    if (!PasteRules.remove(have.getBlock() == want.getBlock(), isProtected(level, world, have), empty, have.getBlock() instanceof AbstractBlockHut<?>, entityKept.contains(world))) continue;
                     if (NeoForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level, world, have, p)).isCanceled()) {
                         if (report) reject(p, r, "a claim or protection refused breaking " + world.toShortString());
                         else reject(p, "a claim or protection refused breaking " + world.toShortString() + " after a move");
@@ -908,14 +909,32 @@ public final class InstantBuild {
                     }
                     gone.add(world);
                 }
-        // Top down, so nothing falls or pops before its support goes.
+        // Top down, so nothing falls or pops before its support goes; up to the terrain around it comes back as ground.
         gone.sort((a, b) -> b.getY() - a.getY());
-        for (BlockPos w : gone) level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
+        int top = groundAround(level, origin, far);
+        for (BlockPos w : gone)
+            level.setBlock(w, (w.getY() < top ? net.minecraft.world.level.block.Blocks.DIRT : w.getY() == top ? net.minecraft.world.level.block.Blocks.GRASS_BLOCK
+                    : net.minecraft.world.level.block.Blocks.AIR).defaultBlockState(), 3);
         if (report) {
             done(p);
             p.displayClientMessage(Component.translatable("mccitybuilder.deleted", gone.size()), false);
         }
         return gone.size();
+    }
+
+    /** @return the top block y of the terrain just outside the footprint (its most common height) */
+    private static int groundAround(ServerLevel level, BlockPos origin, BlockPos far) {
+        List<Integer> hs = new ArrayList<>();
+        var type = net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES;
+        for (int x = origin.getX() - 1; x <= far.getX() + 1; x++) {
+            hs.add(level.getHeight(type, x, origin.getZ() - 1) - 1);
+            hs.add(level.getHeight(type, x, far.getZ() + 1) - 1);
+        }
+        for (int z = origin.getZ(); z <= far.getZ(); z++) {
+            hs.add(level.getHeight(type, origin.getX() - 1, z) - 1);
+            hs.add(level.getHeight(type, far.getX() + 1, z) - 1);
+        }
+        return PasteRules.mode(hs);
     }
 
     /**

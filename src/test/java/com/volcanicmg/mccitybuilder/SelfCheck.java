@@ -1051,6 +1051,8 @@ public final class SelfCheck {
                 && !com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, true, false, false, false) && com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, true, true, false, false)
                 && !com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, false, true, true, false) && !com.volcanicmg.mccitybuilder.planner.PasteRules.remove(true, false, true, false, true),
                 "matching-only removal decisions");
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.mode(List.of(64, 63, 64, 70, 64, 63)) == 64 && com.volcanicmg.mccitybuilder.planner.PasteRules.mode(List.of(5, 3)) == 3
+                && com.volcanicmg.mccitybuilder.planner.PasteRules.mode(List.of()) == Integer.MIN_VALUE, "ground around = most common height");
         // A move's footprints may not share a block; records match exactly (pack, normalised path, anchor, turn).
         check(com.volcanicmg.mccitybuilder.planner.PasteRules.overlap(new int[]{0, 60, 0, 9, 70, 9}, new int[]{9, 70, 9, 20, 80, 20})
                 && !com.volcanicmg.mccitybuilder.planner.PasteRules.overlap(new int[]{0, 60, 0, 9, 70, 9}, new int[]{10, 60, 0, 20, 70, 9}), "footprint overlap");

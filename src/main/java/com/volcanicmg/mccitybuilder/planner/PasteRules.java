@@ -26,6 +26,18 @@ public final class PasteRules {
      * @param emptied     the storage holds nothing (a moved building's chest, just copied); @param hut a hut block
      * @param entityKept  an entity with items stands on or hangs from it
      */
+    /** @return the most common value (the lowest on a tie), or Integer.MIN_VALUE for none */
+    public static int mode(java.util.List<Integer> values) {
+        java.util.Map<Integer, Integer> n = new java.util.HashMap<>();
+        for (int v : values) n.merge(v, 1, Integer::sum);
+        int best = Integer.MIN_VALUE, bc = 0;
+        for (var e : n.entrySet()) if (e.getValue() > bc || e.getValue() == bc && e.getKey() < best) {
+            best = e.getKey();
+            bc = e.getValue();
+        }
+        return best;
+    }
+
     public static boolean remove(boolean sameState, boolean protectedBl, boolean emptied, boolean hut, boolean entityKept) {
         if (!sameState || hut || entityKept) return false;
         return !protectedBl || emptied;
