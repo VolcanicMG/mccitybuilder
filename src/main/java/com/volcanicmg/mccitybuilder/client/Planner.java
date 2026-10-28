@@ -117,7 +117,9 @@ public final class Planner {
     }
 
     static Deco selectedDeco, hoveredDeco, movingDeco;
-    private static java.util.List<Deco> syncedDecos = java.util.List.of(), controllerDecos = java.util.List.of();
+    // The server's decoration records per colony id (kept across planner sessions; a reopen's query may be rate limited).
+    private static final java.util.Map<Integer, java.util.List<Deco>> syncedDecos = new java.util.HashMap<>();
+    private static java.util.List<Deco> controllerDecos = java.util.List.of();
     // The colony's claimed chunks (client claim data, refreshed each second), its border edges and pan bounds.
     private static java.util.Set<Long> claimed = java.util.Set.of();
     private static java.util.List<int[]> border = java.util.List.of();
@@ -220,7 +222,6 @@ public final class Planner {
         }
         colony = c;
         refreshClaims();
-        syncedDecos = java.util.List.of();
         refreshDecos();
         var conn = mc.getConnection();
         if (conn != null && conn.hasChannel(com.volcanicmg.mccitybuilder.server.DecoSync.Query.TYPE))
@@ -322,13 +323,12 @@ public final class Planner {
         bounds = ColonyGeometry.bounds(out, 32);
     }
 
-    /** The server's decoration records for the colony being viewed. */
+    /** The server's decoration records for a colony (stored even while the planner is closed). */
     static void onDecos(com.volcanicmg.mccitybuilder.server.DecoSync.Decos d) {
-        if (!active || colony == null || d.colony() != colony.getID()) return;
         java.util.List<Deco> out = new java.util.ArrayList<>();
         for (var r : d.recs()) out.add(new Deco(r.pack(), r.path(), new BlockPos(r.x(), r.y(), r.z()), r.rot()));
-        syncedDecos = out;
-        refreshDecos();
+        syncedDecos.put(d.colony(), out);
+        if (active && colony != null && d.colony() == colony.getID()) refreshDecos();
     }
 
     /** Re-reads the decoration controllers in the colony's loaded chunks; a selection that is gone is dropped. */
@@ -354,7 +354,7 @@ public final class Planner {
     static java.util.Collection<Deco> decos() {
         java.util.Map<BlockPos, Deco> by = new java.util.LinkedHashMap<>();
         for (Deco d : controllerDecos) by.put(d.pos(), d);
-        for (Deco d : syncedDecos) by.put(d.pos(), d);
+        if (colony != null) for (Deco d : syncedDecos.getOrDefault(colony.getID(), java.util.List.of())) by.put(d.pos(), d);
         return by.values();
     }
 
@@ -545,6 +545,9 @@ public final class Planner {
     // ---- placing ----
 
     static void startPlacing(Block hut) {
+        // A move in progress ends with any new placement (startMove / startMoveDeco set theirs again after).
+        moving = null;
+        movingDeco = null;
         placing = hut;
         deco = null;
         placingHut = null;

@@ -178,7 +178,10 @@ final class Blueprints {
         CompletableFuture<Hut> f = decoLoads.computeIfAbsent(pack + "|" + path, k -> StructurePacks.getStructurePack(pack) == null ? CompletableFuture.completedFuture(null)
                 : StructurePacks.getBlueprintFuture(pack, path, true, mc.level.registryAccess()).thenApply(bp -> bp == null ? null : new Hut(bp, pack, path))
                 .exceptionally(t -> null));
-        return f.isDone() ? f.getNow(null) : null;
+        Hut h = f.isDone() ? f.getNow(null) : null;
+        // Nothing found (pack not synced yet, a failed load): the next call tries again.
+        if (f.isDone() && h == null) decoLoads.remove(pack + "|" + path);
+        return h;
     }
 
     /** @return true while a lookup is still running */

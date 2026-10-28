@@ -1200,16 +1200,21 @@ final class PlannerScreen extends Screen {
     // The decoration name under the cursor in the palette this frame, and its row.
     private Blueprints.Hut previewDeco;
     private int previewY;
+    // The one decoration preview kept baked; freed when the hover moves on.
+    private String previewKey;
 
     /** A turning 3D preview of the hovered palette decoration beside the palette, with its name and size. */
     private void decoPreview(GuiGraphics g) {
         Blueprints.Hut d = previewDeco;
         previewDeco = null;
+        String key = d == null ? null : "deco|" + d.pack() + "|" + d.path();
+        if (previewKey != null && !previewKey.equals(key)) PieceView.forget(previewKey);
+        previewKey = key;
         if (d == null) return;
         var bp = d.blueprint();
         int w = 128, h = 128 + 24, x = 4 + PALETTE_W + 4, y = Math.max(4, Math.min(previewY - 20, height - h - 4));
         VanillaUi.panel(g, x, y, w, h);
-        PieceView.render(g, "deco|" + d.pack() + "|" + d.path(), bp, x + PAD, y + PAD, w - 2 * PAD, w - 2 * PAD);
+        PieceView.render(g, key, bp, x + PAD, y + PAD, w - 2 * PAD, w - 2 * PAD);
         g.drawString(font, font.plainSubstrByWidth(bp.getFileName(), w - 2 * PAD), x + PAD + 1, y + w - PAD + 3, VanillaUi.LABEL, false);
         g.drawString(font, bp.getSizeX() + " \u00d7 " + bp.getSizeY() + " \u00d7 " + bp.getSizeZ(), x + PAD + 1, y + w - PAD + 13, 0xFF555555, false);
     }

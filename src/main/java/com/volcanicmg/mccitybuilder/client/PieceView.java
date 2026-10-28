@@ -51,6 +51,12 @@ final class PieceView {
         baked.clear();
     }
 
+    /** Frees one baked piece, if it is baked. */
+    static void forget(String key) {
+        Map<RenderType, VertexBuffer> m = baked.remove(key);
+        if (m != null) m.values().forEach(VertexBuffer::close);
+    }
+
     /** Bakes the piece's blocks around its own origin, in blueprint coordinates. */
     private static Map<RenderType, VertexBuffer> bake(Blueprint bp) {
         Minecraft mc = Minecraft.getInstance();
