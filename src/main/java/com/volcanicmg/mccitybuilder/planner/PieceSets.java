@@ -18,15 +18,25 @@ public final class PieceSets {
     public enum Role { STRAIGHT, CORNER, INNER, TEE, CROSS, END, GATE, TOWER, SLOPE, OTHER }
 
     /** One blueprint: pack sub-path, its base name (no digits), its number (0 = none) and its unrotated size. */
-    public record Piece(String path, String base, int number, int sx, int sy, int sz) {
-        /** @return the length along the run: the longer horizontal side */
+    /** @param axis the run's axis in the blueprint (0 along x, 1 along z), -1: the longer side */
+    public record Piece(String path, String base, int number, int sx, int sy, int sz, int axis) {
+        public Piece(String path, String base, int number, int sx, int sy, int sz) {
+            this(path, base, number, sx, sy, sz, -1);
+        }
+
+        /** @return the length along the run */
         public int run() {
-            return Math.max(sx, sz);
+            return axis == 0 ? sx : axis == 1 ? sz : Math.max(sx, sz);
         }
 
         /** @return the width across the run */
         public int across() {
-            return Math.min(sx, sz);
+            return axis == 0 ? sz : axis == 1 ? sx : Math.min(sx, sz);
+        }
+
+        /** @return the direction the blueprint runs in unturned (0 east along x, 1 south along z) */
+        public int nativeDir() {
+            return axis >= 0 ? axis : sx >= sz ? 0 : 1;
         }
     }
 
@@ -56,6 +66,18 @@ public final class PieceSets {
             int i = levelOrVariant < 0 ? Math.floorMod(seed * 31 + 7, pieces.size()) : Math.min(levelOrVariant, pieces.size() - 1);
             return pieces.get(i);
         }
+    }
+
+    /**
+     * The pieces a run may be tiled with: those of the run's number only (a level-1 road never takes a level-3 piece
+     * that happens to share its width; Ethan's wide cobble pieces in a gravel road), of its width.
+     *
+     * @param number the run's straight number, or -1 for mixed variants (any number of the width)
+     */
+    public static List<Piece> runPieces(List<Group> groups, int number, int width) {
+        List<Piece> out = new ArrayList<>();
+        for (Group g : groups) for (Piece p : g.pieces()) if (p.across() == width && (number < 0 || p.number() == number)) out.add(p);
+        return out;
     }
 
     /** A family: tool ("wall" / "road"), key (folder, or folder + prefix) and its groups per role. */
@@ -158,6 +180,21 @@ public final class PieceSets {
                 for (Piece p : ps) levels |= p.sx() != ps.get(0).sx() || p.sy() != ps.get(0).sy() || p.sz() != ps.get(0).sz();
                 Role r = role(g.getKey());
                 roles.computeIfAbsent(r, k -> new ArrayList<>()).add(new Group(g.getKey(), r, ps, levels));
+            }
+            // A family's straights all run along its longest straight's axis: a short piece may be shorter than the
+            // road is wide (colonial roads: 8x5 and 4x5), so its longer side isn't its run.
+            List<Group> sts = roles.get(Role.STRAIGHT);
+            if (sts != null) {
+                Piece longest = null;
+                for (Group g : sts) for (Piece p : g.pieces()) if (longest == null || Math.max(p.sx(), p.sz()) > Math.max(longest.sx(), longest.sz())) longest = p;
+                int ax = longest.sx() >= longest.sz() ? 0 : 1;
+                List<Group> fixed = new ArrayList<>();
+                for (Group g : sts) {
+                    List<Piece> ps = new ArrayList<>();
+                    for (Piece p : g.pieces()) ps.add(new Piece(p.path(), p.base(), p.number(), p.sx(), p.sy(), p.sz(), ax));
+                    fixed.add(new Group(g.base(), g.role(), ps, g.levels()));
+                }
+                roles.put(Role.STRAIGHT, fixed);
             }
             out.put(en.getKey(), new Family(tool, en.getKey().substring(tool.length() + 1), roles));
         }

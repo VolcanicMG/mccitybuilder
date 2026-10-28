@@ -661,8 +661,7 @@ final class PieceCatalog {
             int n = len - off[0] - off[1];
             List<PieceSets.Group> gates = l.gate() ? groups(l.pack(), f, PieceSets.Role.GATE) : List.of();
             // Lengths of the straights as picked for this line (levels can change a piece's size), same width only.
-            int[] lens = straights.stream().map(g -> g.pick(g.levels() ? l.level() : l.variant(), 0)).filter(p -> p.across() == width)
-                    .mapToInt(PieceSets.Piece::run).distinct().toArray();
+            int[] lens = runLengths(l);
             need.add(PieceLayout.need(off[0], off[1], lens));
             offs.add(off.clone());
             List<Integer> tiles = new ArrayList<>();
@@ -687,8 +686,7 @@ final class PieceCatalog {
             if (n - used > 0) {
                 List<PieceSets.Piece> fillers = new ArrayList<>();
                 for (PieceSets.Role r : List.of(PieceSets.Role.STRAIGHT, PieceSets.Role.END))
-                    for (PieceSets.Group g : groups(l.pack(), f, r))
-                        for (PieceSets.Piece p : g.pieces()) if (p.across() == width) fillers.add(p);
+                    fillers.addAll(PieceSets.runPieces(groups(l.pack(), f, r), runNumber(l), width));
                 fillers.sort((x, y) -> y.run() - x.run());
                 // Never next to a joint (their faces weren't matched against it): between two main pieces, or at a free
                 // end; with neither, the gap stays.
@@ -891,8 +889,17 @@ final class PieceCatalog {
         Map<String, PieceSets.Family> fs = families(l.pack());
         PieceSets.Family f = fs == null ? null : fs.get(l.family());
         if (p == null || f == null) return new int[0];
-        return groups(l.pack(), f, PieceSets.Role.STRAIGHT).stream().map(g -> g.pick(g.levels() ? l.level() : l.variant(), 0))
-                .filter(q -> q.across() == p.across()).mapToInt(PieceSets.Piece::run).distinct().toArray();
+        return PieceSets.runPieces(groups(l.pack(), f, PieceSets.Role.STRAIGHT), runNumber(l), p.across()).stream().mapToInt(PieceSets.Piece::run).distinct().toArray();
+    }
+
+    /** @return the number every piece of the line's runs shares: its straight's (level or variant), or -1 for mixed variants */
+    static int runNumber(Plan.Line l) {
+        Map<String, PieceSets.Family> fs = families(l.pack());
+        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        List<PieceSets.Group> st = f == null ? List.of() : groups(l.pack(), f, PieceSets.Role.STRAIGHT);
+        if (st.isEmpty() || !st.get(0).levels() && l.variant() < 0) return -1;
+        PieceSets.Piece p = primary(l, 0);
+        return p == null ? -1 : p.number();
     }
 
     /**
@@ -940,12 +947,12 @@ final class PieceCatalog {
         return place(l.pack(), p.path(), sturn(p, dir, l.flip()), PieceLayout.boxes(a, dir, 0, List.of(p.run()), p.across(), 0).get(0), PieceSets.Role.STRAIGHT);
     }
 
-    /** @return a straight of run length {@code run} and the line's width, at the line's level / variant */
+    /** @return a straight of run length {@code run} and the line's width, of the run's number ({@link #runNumber}) */
     private static PieceSets.Piece straightOf(List<PieceSets.Group> straights, int width, int run, Plan.Line l, int seed) {
-        for (PieceSets.Group g : straights) {
-            PieceSets.Piece p = g.pick(g.levels() ? l.level() : l.variant(), seed);
-            if (p.run() == run && p.across() == width) return p;
-        }
+        // Only the run's number (mixed variants: any of this length, picked by the seed).
+        List<PieceSets.Piece> ps = PieceSets.runPieces(straights, runNumber(l), width);
+        ps.removeIf(p -> p.run() != run);
+        if (!ps.isEmpty()) return ps.get(Math.floorMod(seed * 31 + 7, ps.size()));
         return straights.get(0).pick(straights.get(0).levels() ? l.level() : l.variant(), seed);
     }
 
@@ -1241,7 +1248,7 @@ final class PieceCatalog {
 
     /** @return the quarter turns of a straight or gate running along {@code dir} (+2 when the segment is flipped) */
     static int sturn(PieceSets.Piece p, int dir, boolean flip) {
-        return PieceLayout.turns(p.sx(), p.sz(), dir) + (flip ? 2 : 0);
+        return Math.floorMod(dir - p.nativeDir(), 4) + (flip ? 2 : 0);
     }
 
     /** @return the piece with its anchor on the ground at the box's centre (stepped per piece), or null while it loads */

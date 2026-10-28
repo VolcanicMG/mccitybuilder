@@ -738,6 +738,7 @@ public final class SelfCheck {
         editing();
         continuity();
         jointGaps();
+        runNumbers();
         jointVariants();
         intersections();
         jointChecks();
@@ -1744,6 +1745,15 @@ public final class SelfCheck {
      * the widest line's level whichever line is laid out first.
      */
     private static void intersections() {
+        // A chain started on a segment's body splits it; ending the chain with nothing drawn merges it back.
+        Plan.Line whole = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, true);
+        List<Plan.Line> sp = new java.util.ArrayList<>(List.of(whole));
+        Plan.split(sp, new int[]{8, 0}, l -> false);
+        var back = Plan.unsplit(sp, new int[]{8, 0});
+        check(back.size() == 1 && back.get(0).x0() == 0 && back.get(0).x1() == 20 && back.get(0).gate(), "an unused branch start merges the split back");
+        List<Plan.Line> tj = new java.util.ArrayList<>(sp);
+        tj.add(new Plan.Line("wall", 8, 0, 8, 9, "p", "f", 1, -1, false, false));
+        check(Plan.unsplit(tj, new int[]{8, 0}) == tj, "a real joint stays");
         Plan.Line h = new Plan.Line("wall", -10, 0, 10, 0, "p", "f", 1, -1, false, false), run = new Plan.Line("wall", 0, -10, 0, 10, "p", "f", 1, -1, false, true);
         List<Plan.Line> ls = new java.util.ArrayList<>(List.of(h, run));
         var cs = Plan.crossings(ls, run, l -> false);
@@ -1839,6 +1849,39 @@ public final class SelfCheck {
         PieceSets.Piece outer = fam.of(PieceSets.Role.CORNER).get(0).pickAs(v2, 1, 0), inner = fam.of(PieceSets.Role.INNER).get(0).pickAs(v2, 1, 0);
         check(!st.levels() && v2.number() == 2 && outer.path().equals("walls/outer_corner2.blueprint") && inner.path().equals("walls/inner_corner2.blueprint"),
                 "a variant-2 colonial wall takes the variant-2 corners: " + outer.path() + " " + inner.path());
+    }
+
+    /**
+     * Ethan's level-1 colonial road with wide cobble pieces in it: a straight group without the run's number used to
+     * give another number's piece of the same width (its lowest), and fillers came from every number. A run's pieces
+     * (main and fillers) and its joint now share the run's number, for every road and wall family at every number.
+     */
+    private static void runNumbers() throws Exception {
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        java.util.Set<String> leaked = new java.util.TreeSet<>();
+        for (var pk : JointCases.packs().entrySet())
+            for (var fam : PieceSets.classify(pk.getValue()).values()) {
+                if (fam.straights().isEmpty()) continue;
+                PieceSets.Group g0 = fam.straights().get(0);
+                for (PieceSets.Piece main : g0.pieces()) {
+                    int n = main.number();
+                    for (PieceSets.Piece p : PieceSets.runPieces(fam.straights(), n, main.across()))
+                        check(p.number() == n, "run piece of number " + n + ": " + pk.getKey() + " " + p.path());
+                    // The old pick: each straight group at the line's level.
+                    for (PieceSets.Group g : fam.straights())
+                        if (g.levels() && g.pick(n, 0).number() != n && g.pick(n, 0).across() == main.across()) leaked.add(pk.getKey() + " " + fam.key() + " L" + n + " " + g.pick(n, 0).path());
+                    for (PieceSets.Role r : List.of(PieceSets.Role.CORNER, PieceSets.Role.INNER, PieceSets.Role.TEE, PieceSets.Role.CROSS))
+                        for (PieceSets.Group jg : fam.of(r))
+                            if (jg.pieces().stream().anyMatch(q -> q.number() == n)) check(jg.pickAs(main, n, 0).number() == n, "joint shares the run's number: " + pk.getKey() + " " + jg.base() + " " + n);
+                }
+            }
+        System.out.println("CityBuilder self-check: straights another number's piece used to fill (" + leaked.size() + "): " + leaked);
+        // Colonial roads: the short straight (4x5) runs along x like the long one (8x5), so it is the road's width, not
+        // 4 wide; it used to be dropped as "another width" and runs left 1-7 cells open ("Corner · gap 7").
+        var road = PieceSets.classify(JointCases.packs().get("colonial")).get("road:infrastructure/roads");
+        var lv1 = PieceSets.runPieces(road.straights(), 1, 5);
+        check(lv1.stream().mapToInt(PieceSets.Piece::run).distinct().sorted().boxed().toList().equals(List.of(4, 8))
+                && lv1.stream().allMatch(p -> p.nativeDir() == 0 && p.number() == 1), "colonial road level 1 tiles with 8 and 4 of its own number: " + lv1);
     }
 
     private static void jointGaps() throws Exception {

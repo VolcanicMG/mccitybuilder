@@ -447,6 +447,31 @@ public final class Plan {
         return parts;
     }
 
+    /**
+     * Undoes a split at cell c: the two collinear segments of one kind meeting there (and nothing else) become one again.
+     * A chain started on a segment's body splits it at once (the branch's T shows live); if no segment is dropped the
+     * split must go, or the plan keeps short pieceless segments (Ethan's rows of joint markers off any wall).
+     *
+     * @return the lines with the two halves merged, or the same list when c isn't such a split
+     */
+    public static List<Line> unsplit(List<Line> lines, int[] c) {
+        List<Integer> at = new java.util.ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) for (int[] e : lines.get(i).ends()) if (e[0] == c[0] && e[1] == c[1]) at.add(i);
+        if (at.size() != 2) return lines;
+        Line a = lines.get(at.get(0)), b = lines.get(at.get(1));
+        boolean ax = a.z0() == a.z1(), bx = b.z0() == b.z1();
+        if (ax != bx || a.built() || b.built() || !a.with(a.family(), a.level(), a.variant(), a.towers(), false).between(0, 0, 0, 0)
+                .equals(b.with(b.family(), b.level(), b.variant(), b.towers(), false).between(0, 0, 0, 0))) return lines;
+        int[] fa = a.x0() == c[0] && a.z0() == c[1] ? new int[]{a.x1(), a.z1()} : new int[]{a.x0(), a.z0()};
+        int[] fb = b.x0() == c[0] && b.z0() == c[1] ? new int[]{b.x1(), b.z1()} : new int[]{b.x0(), b.z0()};
+        Line m = a.between(fa[0], fa[1], fb[0], fb[1]);
+        m = m.with(m.family(), m.level(), m.variant(), m.towers(), a.gate() || b.gate());
+        List<Line> out = new java.util.ArrayList<>(lines);
+        out.set(at.get(0), m);
+        out.remove((int) at.get(1));
+        return out;
+    }
+
     /** @return the segment split at cell c (inside it): the gate stays with the half holding the segment's middle */
     private static Line[] halves(Line l, int[] c) {
         Line a = l.between(l.x0(), l.z0(), c[0], c[1]), b = l.between(c[0], c[1], l.x1(), l.z1());

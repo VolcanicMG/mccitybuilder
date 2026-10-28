@@ -109,7 +109,16 @@ final class LineView {
         endChain();
     }
 
+    // Where the chain's start split a segment (a branch), until its first segment is dropped.
+    private static int[] startSplit;
+
     static void endChain() {
+        // Nothing drawn from a branch start: the segment it split is whole again.
+        if (chain.isEmpty() && startSplit != null) {
+            List<Plan.Line> m = Plan.unsplit(PlanView.lines, startSplit);
+            if (m != PlanView.lines) PlanView.setLines(m);
+        }
+        startSplit = null;
         start = prevDir = end = null;
         chainBase = Plan.NO_BASE;
         liveOffs = null;
@@ -1004,7 +1013,9 @@ final class LineView {
         if (start == null) {
             checkpoint();
             start = hover != null ? hover : LineSnap.snapStart(hit.getLocation().x, hit.getLocation().z, segments());
+            int before = PlanView.lines.size();
             PlanView.splitAt(start);
+            startSplit = PlanView.lines.size() > before ? start.clone() : null;
             start = extendForJoint(start);
             liveKey = null;
             return true;
@@ -1046,6 +1057,8 @@ final class LineView {
             return false;
         }
         checkpoint();
+        // A segment is dropped: the branch's split stays.
+        startSplit = null;
         // The chain's last segment grows for the corner; this segment starts at the grown end.
         if (grow != null && !chain.isEmpty()) {
             Plan.Line prev = chain.get(chain.size() - 1), g2 = grown(prev, grow);
@@ -1247,6 +1260,7 @@ final class LineView {
             if (es != null) PlanView.setEntries(es);
             chain.clear();
             chain.addAll(ch);
+            startSplit = null;
             start = s.start();
             prevDir = s.prevDir();
             chainBase = s.chainBase();

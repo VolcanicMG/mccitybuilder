@@ -288,7 +288,7 @@ final class JointEditorScreen extends Screen {
     /** @return the straight's turns on line q (the first arrives at the joint, the rest leave; +2 when flipped) */
     private int sturn(PieceSets.Piece sp, int[] outs, int q) {
         int dir = q == 0 ? (outs[0] + 2) % 4 : outs[q];
-        return Math.floorMod(PieceLayout.turns(sp.sx(), sp.sz(), dir) + (flipped ? 2 : 0), 4);
+        return Math.floorMod(dir - sp.nativeDir() + (flipped ? 2 : 0), 4);
     }
 
     /** Shift / depth of the selected run, starting from what it has now; non-destructive drafts show in the world too. */
