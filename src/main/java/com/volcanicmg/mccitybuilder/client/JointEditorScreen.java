@@ -231,7 +231,7 @@ final class JointEditorScreen extends Screen {
         List<PieceSets.Group> st = PieceCatalog.groups(pack, f, PieceSets.Role.STRAIGHT), js = PieceCatalog.groups(pack, f, ROLES[role]);
         if (st.isEmpty() || js.isEmpty()) return null;
         int level = Math.max(1, LineView.level);
-        PieceSets.Piece sp = st.get(0).pick(st.get(0).levels() ? level : 0, 0), jp = js.get(0).pick(level, 0);
+        PieceSets.Piece sp = st.get(0).pick(st.get(0).levels() ? level : 0, 0), jp = js.get(0).pickAs(sp, level, 0);
         int[] outs = OUTS[kase], c = {0, 0};
         int width = sp.across(), run = sp.run();
         // The joint's turn: chosen, or the planner's pick (best face score over the runs).

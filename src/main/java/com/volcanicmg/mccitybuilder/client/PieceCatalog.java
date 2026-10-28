@@ -540,7 +540,7 @@ final class PieceCatalog {
                     }
                     List<PieceSets.Group> capGroups = endRole == PieceSets.Role.END ? groups(l.pack(), f, PieceSets.Role.END) : List.of();
                     if (!capGroups.isEmpty()) {
-                        PieceSets.Piece cap = capGroups.get(0).pick(l.level(), i);
+                        PieceSets.Piece cap = capGroups.get(0).pickAs(primary(l, 0), l.level(), i);
                         int[] cb = PieceLayout.boxes(c, d, 0, List.of(cap.run()), cap.across(), 0).get(0);
                         PieceLayout.Grid sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
                         int turns = PieceLayout.turns(cap.sx(), cap.sz(), (d + 2) % 4), rel = 0;
@@ -661,7 +661,7 @@ final class PieceCatalog {
             List<PieceSets.Piece> tilePieces = new ArrayList<>();
             int used;
             if (!gates.isEmpty() && n >= gates.get(0).first().run()) {
-                PieceSets.Piece gate = gates.get(0).pick(l.level(), i);
+                PieceSets.Piece gate = gates.get(0).pickAs(primary(l, 0), l.level(), i);
                 int left = (n - gate.run()) / 2;
                 List<Integer> l1 = PieceLayout.fill(left, lens), l2 = PieceLayout.fill(n - gate.run() - left, lens);
                 for (int x : l1) tiles.add(x);
@@ -871,7 +871,7 @@ final class PieceCatalog {
         if (f == null || st == null) return 0;
         List<PieceSets.Group> gs = groups(l.pack(), f, r);
         if (gs.isEmpty()) return 0;
-        PieceLayout.Grid jg = grid(l.pack(), gs.get(0).pick(l.level(), 0).path(), 0), sg = grid(l.pack(), st.path(), sturn(st, 0, l.flip()));
+        PieceLayout.Grid jg = grid(l.pack(), gs.get(0).pickAs(st, l.level(), 0).path(), 0), sg = grid(l.pack(), st.path(), sturn(st, 0, l.flip()));
         if (jg == null || sg == null) return 0;
         int[] c = {0, 0};
         return PieceLayout.attach(c, 0, PieceLayout.centred(c, jg.sx(), jg.sz()), jg, sg, st.across(), st.run(), Math.max(3, st.across()))[0];
@@ -1014,13 +1014,15 @@ final class PieceCatalog {
             return null;
         }
         int level = lvs[li];
+        // The joint's piece shares the number of that line's straight (its level, or its variant).
+        PieceSets.Piece like = primary(at.get(li), 0);
         List<PieceSets.Piece> cands = new ArrayList<>();
         List<PieceSets.Role> roles = new ArrayList<>();
         int primaries = 0;
         for (List<PieceSets.Role> rs : List.of(primary, fallback)) {
             for (PieceSets.Role r : rs)
                 for (PieceSets.Group g : groups(l.pack(), f, r)) {
-                    cands.add(g.pick(level, i));
+                    cands.add(g.pickAs(like, level, i));
                     roles.add(r);
                 }
             if (rs == primary) primaries = cands.size();

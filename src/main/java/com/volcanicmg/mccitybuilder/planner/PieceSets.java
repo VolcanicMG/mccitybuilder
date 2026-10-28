@@ -36,6 +36,16 @@ public final class PieceSets {
             return pieces.get(0);
         }
 
+        /**
+         * @param like the line's straight as picked: a piece of this group with its number (the same level or variant)
+         *             wins, so a variant wall's corner is that variant even when the corners' sizes make them levels
+         * @return the piece with like's number, else {@link #pick}
+         */
+        public Piece pickAs(Piece like, int levelOrVariant, int seed) {
+            if (like != null) for (Piece p : pieces) if (p.number() == like.number()) return p;
+            return pick(levelOrVariant, seed);
+        }
+
         /** @return the piece for a level (levels) or variant index (variants; -1 = picked by {@code seed}) */
         public Piece pick(int levelOrVariant, int seed) {
             if (levels) {

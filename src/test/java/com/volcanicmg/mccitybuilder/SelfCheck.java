@@ -738,6 +738,7 @@ public final class SelfCheck {
         editing();
         continuity();
         jointGaps();
+        jointVariants();
         intersections();
         jointChecks();
         cornerTurns();
@@ -1791,6 +1792,20 @@ public final class SelfCheck {
         var builtCorner = java.util.Map.of("k", List.of(new Plan.BuiltPiece(0, 0, 20, 0, "walls/outer_corner1.blueprint", 0, 20, 64, 0, 17, -3, 23, 3, "CORNER")));
         check(!Plan.builtJointAt(builtEnd.values(), new int[]{20, 0}) && Plan.builtJointAt(builtCorner.values(), new int[]{20, 0}),
                 "branch at a built segment's end: allowed without a built joint piece, refused on one");
+    }
+
+    /**
+     * Ethan's "variant wall" (colonial walls, variant 2 of 2): its straights are variants (one footprint) but its
+     * corners differ in size, so they read as levels; a corner must share the straight's number, not the line's level.
+     */
+    private static void jointVariants() throws Exception {
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        var fam = PieceSets.classify(JointCases.packs().get("colonial")).get("wall:walls");
+        var st = fam.straights().get(0);
+        PieceSets.Piece v2 = st.pick(st.levels() ? 2 : 1, 0);
+        PieceSets.Piece outer = fam.of(PieceSets.Role.CORNER).get(0).pickAs(v2, 1, 0), inner = fam.of(PieceSets.Role.INNER).get(0).pickAs(v2, 1, 0);
+        check(!st.levels() && v2.number() == 2 && outer.path().equals("walls/outer_corner2.blueprint") && inner.path().equals("walls/inner_corner2.blueprint"),
+                "a variant-2 colonial wall takes the variant-2 corners: " + outer.path() + " " + inner.path());
     }
 
     private static void jointGaps() throws Exception {

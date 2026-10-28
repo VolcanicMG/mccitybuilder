@@ -662,7 +662,7 @@ final class LineView {
             for (PieceSets.Role r : com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(t, degree, collinear, l.towers())) {
                 var gs = f == null ? List.<PieceSets.Group>of() : PieceCatalog.groups(l.pack(), f, r);
                 if (!gs.isEmpty()) {
-                    piece = gs.get(0).pick(l.level(), 0);
+                    piece = gs.get(0).pickAs(PieceCatalog.primary(l, 0), l.level(), 0);
                     break;
                 }
             }
