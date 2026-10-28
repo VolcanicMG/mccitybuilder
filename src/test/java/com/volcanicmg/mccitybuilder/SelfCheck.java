@@ -1785,6 +1785,12 @@ public final class SelfCheck {
         tee.add(new Plan.Line("wall", 0, 0, 0, -10, "p", "f", 1, -1, false, false));
         check(Plan.arms(tee, new int[]{0, 0}).size() == 4 && Plan.menuTypes(4, false).contains(Plan.J_CROSS)
                 && PieceLayout.jointRoles(Plan.J_AUTO, 4, false, false).get(0) == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CROSS, "drawn out of the open side: a cross, auto picks the cross piece");
+        // A branch at a built segment's plain end (its pieces: straights only) is allowed; where a built joint piece
+        // stands (a corner covering the cell) it is refused.
+        var builtEnd = java.util.Map.of("k", List.of(new Plan.BuiltPiece(0, 0, 20, 0, "walls/long1.blueprint", 0, 5, 64, 1, 0, -1, 17, 1, "STRAIGHT")));
+        var builtCorner = java.util.Map.of("k", List.of(new Plan.BuiltPiece(0, 0, 20, 0, "walls/outer_corner1.blueprint", 0, 20, 64, 0, 17, -3, 23, 3, "CORNER")));
+        check(!Plan.builtJointAt(builtEnd.values(), new int[]{20, 0}) && Plan.builtJointAt(builtCorner.values(), new int[]{20, 0}),
+                "branch at a built segment's end: allowed without a built joint piece, refused on one");
     }
 
     private static void jointGaps() throws Exception {

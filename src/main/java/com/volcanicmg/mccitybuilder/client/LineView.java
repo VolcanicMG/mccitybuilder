@@ -1028,11 +1028,10 @@ final class LineView {
                 flashUntil = System.currentTimeMillis() + 2500;
                 return false;
             }
-        // A new arm at a joint of built or sending segments would need a new joint piece there: refused.
+        // A new arm where a built joint piece already stands would need another piece there: refused. A built
+        // segment's plain end has none: the new joint is placed at its level.
         for (int[] c : new int[][]{start, end}) {
-            boolean lockedAt = false;
-            for (Plan.Line x : PlanView.lines) for (int[] e : x.ends()) lockedAt |= e[0] == c[0] && e[1] == c[1] && PlanView.locked(x);
-            if (lockedAt && Plan.arms(PlanView.lines, c).size() >= 2) {
+            if (Plan.builtJointAt(PlanView.builtPieces.values(), c)) {
                 flash = "mccitybuilder.line.joint_built";
                 flashUntil = System.currentTimeMillis() + 2500;
                 return false;

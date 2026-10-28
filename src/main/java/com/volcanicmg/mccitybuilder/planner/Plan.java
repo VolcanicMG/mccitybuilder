@@ -201,6 +201,18 @@ public final class Plan {
         }
     }
 
+    /**
+     * @return true when a built (or frozen) joint piece stands on cell c: a new arm there would need another joint piece
+     * in its place. A built segment's plain end has none (the new joint is placed at its level).
+     */
+    public static boolean builtJointAt(java.util.Collection<List<BuiltPiece>> built, int[] c) {
+        for (List<BuiltPiece> ps : built)
+            for (BuiltPiece b : ps)
+                if (java.util.Set.of("CORNER", "INNER", "TEE", "CROSS", "TOWER").contains(b.role()) && c[0] >= Math.min(b.bx0(), b.bx1())
+                        && c[0] <= Math.max(b.bx0(), b.bx1()) && c[1] >= Math.min(b.bz0(), b.bz1()) && c[1] <= Math.max(b.bz0(), b.bz1())) return true;
+        return false;
+    }
+
     /** @return the key built pieces are stored under: the segment's ends */
     public static String lineKey(int x0, int z0, int x1, int z1) {
         return x0 + "," + z0 + "," + x1 + "," + z1;

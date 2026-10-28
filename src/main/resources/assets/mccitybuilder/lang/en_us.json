@@ -342,7 +342,7 @@
   "mccitybuilder.line.edit_title.wall": "Wall · Editing",
   "mccitybuilder.line.cross_built.wall": "Can't cross a built wall: end before it, or on it (a T)",
   "mccitybuilder.line.cross_built.road": "Can't cross a built road: end before it, or on it (a T)",
-  "mccitybuilder.line.joint_built": "That joint is built or sending: another arm would need a new joint piece there",
+  "mccitybuilder.line.joint_built": "A built joint stands there: another arm would need a new joint piece",
   "mccitybuilder.line.on_arm": "A segment is already there: leave the joint on an open side",
   "mccitybuilder.line.crossing": "Crosses a segment without a joint: end on it (a T) or on its end",
   "mccitybuilder.line.extended": "Wall extended by %s so its pieces fit the new joint",
