@@ -28,7 +28,8 @@ final class LineView {
     static String tool;
     // Options for the next segments: family per tool, level (level groups) or variant (-1 = varied), towers, gate.
     static String roadFamily, wallFamily;
-    static int level = 1, variant = -1;
+    // One variant by default; mixed (-1) is an option in the selector.
+    static int level = 1, variant = 0;
     static boolean towers, gate, flip;
     // Height for the next segments: mode (Plan.FOLLOW..SMOOTH), blocks added, and the chain's shared level (CHAIN).
     static int heightMode = Plan.FOLLOW, dy, chainBase = Plan.NO_BASE;
