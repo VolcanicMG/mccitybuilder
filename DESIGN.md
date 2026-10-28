@@ -431,6 +431,17 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   (`LineSnap.joinEnd`) and the joint forms there. Onto a segment's body: a T where the run crosses it. A live
   segment that would still clear or replace a planned piece is red with "crosses a segment without a joint". The
   target joint and its snap points show before the click.
+- Intersections (`Plan.crossings` / `splitThrough`): a segment drawn through a perpendicular unlocked segment of the
+  same tool (inside both, at neither's end) splits both there on the drop (one undo step) and in the live preview, so
+  a four-way joint forms (auto: the cross piece, else the tower, else a butt joint, `PieceLayout.jointRoles`).
+  Crossing a built or sending segment isn't split and stays red. The cells show as cyan boxes while drawing.
+- Snap feedback (`LineView.renderSnap`, cyan = snap target): a marker on the snapped cell and a thin line from the
+  cursor to it; the target outlined: the joint piece there (joint, tower, a moved end), the segment a T splits, seam
+  ticks along the run for a whole-pieces length; the joint's snap points; the label stays short ("snap: T").
+- Gaps between two joints (`PieceLayout.overlapFill`): a run the straights miss by 1-2 cells uses straights that
+  long and reaches that far into a joint when that breaks nothing (the start's joint, then the end's); else the amber
+  gap stays (a free end still takes the gap, `runStart`). A joint takes the widest meeting line's level, then the
+  highest (`PieceLayout.jointLevelLine`), so the drawing order no longer picks it.
 - Edit mode (X or the Edit button; the line tools then draw nothing): hover highlights a joint (a segment end) or
   a segment; a click selects one. Dragging an end of the selected segment, the segment or the selected joint moves
   it (`Plan.move`, pure): segments ending at a moved point follow, along their axis by changing length, across it

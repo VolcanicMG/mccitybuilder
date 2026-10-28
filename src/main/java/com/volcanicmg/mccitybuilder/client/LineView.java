@@ -51,6 +51,8 @@ final class LineView {
     static String snap;
     static int snapPieces;
     static int[] guide;
+    // The cursor's ground position this frame (the snap feedback draws a line from it to the snapped cell).
+    static double[] cursor;
     static List<int[]> snapPoints = List.of();
     // Edit mode: no drawing; hover / select a segment or a joint, drag ends, bodies and joints.
     static boolean edit;
@@ -178,6 +180,7 @@ final class LineView {
             return;
         }
         double cx = hit.getLocation().x, cz = hit.getLocation().z, r = radius(hit);
+        cursor = new double[]{cx, cz};
         List<int[][]> segs = segments();
         int[] a, b;
         boolean tee = false;
@@ -1398,16 +1401,63 @@ final class LineView {
         // Snapping: the joint's snap points (cyan) and a guide along the snapped axis.
         for (int[] p : snapPoints) {
             int y = groundY(p[0], p[1]);
-            LevelRenderer.renderLineBox(pose, lines, p[0] + 0.25, y + 0.1, p[1] + 0.25, p[0] + 0.75, y + 0.6, p[1] + 0.75, 0.3f, 0.9f, 1f, 1f);
+            LevelRenderer.renderLineBox(pose, lines, p[0] + 0.2, y + 0.1, p[1] + 0.2, p[0] + 0.8, y + 0.9, p[1] + 0.8, 0.3f, 0.9f, 1f, 1f);
         }
-        if (guide != null) {
-            int y = groundY(guide[0], guide[1]) + 1;
-            var m = pose.last();
-            float nx = Math.signum(guide[2] - guide[0]), nz = Math.signum(guide[3] - guide[1]);
-            lines.addVertex(m, guide[0] + 0.5f, y, guide[1] + 0.5f).setColor(0.3f, 0.9f, 1f, 0.6f).setNormal(m, nx, 0, nz);
-            lines.addVertex(m, guide[2] + 0.5f, y, guide[3] + 0.5f).setColor(0.3f, 0.9f, 1f, 0.6f).setNormal(m, nx, 0, nz);
-        }
+        if (guide != null) segment(pose, lines, guide[0] + 0.5f, guide[1] + 0.5f, guide[2] + 0.5f, guide[3] + 0.5f, groundY(guide[0], guide[1]) + 1, 0.6f);
+        renderSnap(pose, lines);
         PlanView.floating(pose, lines, live);
+    }
+
+    /**
+     * What the cursor snaps to (cyan): a marker on the snapped cell and a thin line from the cursor to it; the target
+     * outlined: the joint piece there (joint / tower / a moved end), the segment a T splits, and seam ticks along the run
+     * for a length snapped to whole pieces.
+     */
+    private static void renderSnap(PoseStack pose, VertexConsumer lines) {
+        // Intersections the drop will make: their cells.
+        for (int[] x : liveCross) {
+            int y = groundY(x[0], x[1]);
+            LevelRenderer.renderLineBox(pose, lines, x[0] - 0.4, y, x[1] - 0.4, x[0] + 1.4, y + 1.2, x[1] + 1.4, 0.3f, 0.9f, 1f, 1f);
+        }
+        int[] c = start == null ? hover : end;
+        if (snap == null || c == null) return;
+        int y = groundY(c[0], c[1]);
+        LevelRenderer.renderLineBox(pose, lines, c[0] + 0.1, y, c[1] + 0.1, c[0] + 0.9, y + 1.2, c[1] + 0.9, 0.3f, 0.9f, 1f, 1f);
+        if (cursor != null) segment(pose, lines, (float) cursor[0], (float) cursor[1], c[0] + 0.5f, c[1] + 0.5f, y + 0.6f, 0.8f);
+        switch (snap) {
+            case "joint", "tower", "join_moved" -> {
+                List<PieceCatalog.Placed> js = new ArrayList<>();
+                for (List<PieceCatalog.Placed> ps : PlanView.linePieces) for (PieceCatalog.Placed p : ps) if (p.joint() && covers(p.box(), c)) js.add(p);
+                for (PieceCatalog.Placed p : live) if (p.joint() && covers(p.box(), c) && !js.contains(p)) js.add(p);
+                List<Boolean> no = new ArrayList<>(java.util.Collections.nCopies(js.size(), false));
+                PlanView.outline(pose, lines, js, no, false, 0.3f, 0.9f, 1f, 1f);
+            }
+            case "tee", "tee_end", "piece" -> {
+                for (Plan.Line l : PlanView.lines)
+                    if (onLine(l, c) && !(l.x0() == l.x1() && l.z0() == l.z1()))
+                        segment(pose, lines, l.x0() + 0.5f, l.z0() + 0.5f, l.x1() + 0.5f, l.z1() + 0.5f, groundY(l.x0(), l.z0()) + 1.5f, 1f);
+            }
+            case "pieces" -> {
+                // A tick at every seam of the live run's pieces.
+                for (PieceCatalog.Placed p : live) {
+                    if (p.joint()) continue;
+                    int[] b = p.box();
+                    int ty = p.anchor().getY();
+                    for (int[] k : new int[][]{{b[0], b[1]}, {b[2] + 1, b[3] + 1}})
+                        LevelRenderer.renderLineBox(pose, lines, k[0] - 0.05, ty, k[1] - 0.05, k[0] + 0.05, ty + 2.5, k[1] + 0.05, 0.3f, 0.9f, 1f, 1f);
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    /** A thin cyan line on the ground from (x0, z0) to (x1, z1) at height y. */
+    private static void segment(PoseStack pose, VertexConsumer lines, float x0, float z0, float x1, float z1, float y, float alpha) {
+        var m = pose.last();
+        float dx = x1 - x0, dz = z1 - z0, n = (float) Math.max(1e-4, Math.sqrt(dx * dx + dz * dz));
+        lines.addVertex(m, x0, y, z0).setColor(0.3f, 0.9f, 1f, alpha).setNormal(m, dx / n, 0, dz / n);
+        lines.addVertex(m, x1, y, z1).setColor(0.3f, 0.9f, 1f, alpha).setNormal(m, dx / n, 0, dz / n);
     }
 
     /** Edit mode: the hovered / selected joint, the selected segment's end handles, and a drag's outcome (cyan). */
