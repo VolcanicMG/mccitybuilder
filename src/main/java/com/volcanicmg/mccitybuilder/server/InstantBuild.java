@@ -1043,7 +1043,8 @@ public final class InstantBuild {
                     BlockPos w = origin.offset(x, y, z);
                     int i = snap.index(x, y, z);
                     BlockState have = level.getBlockState(w);
-                    if (!PasteRules.restore(isPlaceholder(palette[st[y][z][x]]), snap.cells()[i] < 0, covered.test(w),
+                    // Only "leave as is" cells skip (older snapshots still hold them); filled placeholders come back like any cell.
+                    if (!PasteRules.restore(palette[st[y][z][x]].getBlock() == ModBlocks.blockSubstitution.get(), snap.cells()[i] < 0, covered.test(w),
                             have.getBlock() instanceof AbstractBlockHut<?> || entityKept.contains(w))) continue;
                     BlockState want = snap.palette()[snap.cells()[i]];
                     if (have.equals(want) && !snap.bes().containsKey(i)) continue;
