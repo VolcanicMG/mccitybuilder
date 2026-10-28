@@ -645,7 +645,7 @@ public final class InstantBuild {
                         return false;
                     }
                     // Placing into air: one place event per chunk (claims are per chunk or area; not one per block).
-                    if (a == PasteRules.Action.PLACE && have.isAir() && !want.isAir() && placeChecked.add(world.getX() >> 4 | (long) (world.getZ() >> 4) << 32)
+                    if (a == PasteRules.Action.PLACE && have.isAir() && !want.isAir() && placeChecked.add(net.minecraft.world.level.ChunkPos.asLong(world.getX() >> 4, world.getZ() >> 4))
                             && NeoForge.EVENT_BUS.post(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, world), have, p)).isCanceled()) {
                         reject(p, r, "a claim or protection refused placing at " + world.toShortString());
                         return false;
@@ -933,7 +933,7 @@ public final class InstantBuild {
                     BlockPos w = origin.offset(x, y, z);
                     if (!palette[st[y][z][x]].isAir() || !level.getBlockState(w).isAir() || occupied.contains(w)) continue;
                     BlockState fill = ground(w.getY(), top);
-                    if (!placeOk.computeIfAbsent(w.getX() >> 4 | (long) (w.getZ() >> 4) << 32, k -> !NeoForge.EVENT_BUS.post(
+                    if (!placeOk.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(w.getX() >> 4, w.getZ() >> 4), k -> !NeoForge.EVENT_BUS.post(
                             new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, w), level.getBlockState(w.below()), p)).isCanceled())) continue;
                     level.setBlock(w, fill, 3);
                 }
