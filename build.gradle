@@ -16,6 +16,14 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
+// Dev-only control port (DevBridge), loaded by runBridge and never packed into the jar.
+sourceSets {
+    bridge {
+        compileClasspath += main.output + main.compileClasspath
+        runtimeClasspath += main.output + main.runtimeClasspath
+    }
+}
+
 neoForge {
     version = project.neo_version
 
@@ -27,11 +35,21 @@ neoForge {
             server()
             programArgument '--nogui'
         }
+        // A copy of a pack profile (mods, config, world): -PbridgeDir=<game dir> -PbridgeUser=<name> -PbridgeUuid=<uuid>
+        bridge {
+            client()
+            sourceSet = sourceSets.bridge
+            gameDirectory = file(findProperty('bridgeDir') ?: 'run-bridge')
+            systemProperty 'mccitybuilder.bridge', findProperty('bridgePort') ?: '25599'
+            if (findProperty('bridgeUser')) programArguments.addAll '--username', findProperty('bridgeUser'), '--uuid', findProperty('bridgeUuid')
+            if (findProperty('bridgeWorld')) programArguments.addAll '--quickPlaySingleplayer', findProperty('bridgeWorld')
+        }
     }
 
     mods {
         "${mod_id}" {
             sourceSet(sourceSets.main)
+            sourceSet(sourceSets.bridge)
         }
     }
 }
@@ -46,6 +64,7 @@ def colonyJars = [
 ]
 dependencies {
     compileOnly files(colonyJars)
+    bridgeCompileOnly files(colonyJars)
     // The MineColonies stack for runServer/runClient.
     runtimeOnly files(colonyJars)
 }
@@ -91,6 +110,7 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
 }
 sourceSets.main.resources.srcDir generateModMetadata
 neoForge.ideSyncTask generateModMetadata
+neoForge.addModdingDependenciesTo sourceSets.bridge
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
