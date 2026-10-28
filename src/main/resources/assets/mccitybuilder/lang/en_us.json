@@ -170,6 +170,7 @@
   "mccitybuilder.plan.conflict.overlap_plan": "overlaps the plan",
   "mccitybuilder.plan.conflict.overlap_building": "overlaps a building",
   "mccitybuilder.plan.conflict.outside": "outside the colony",
+  "mccitybuilder.overlay.needs": "Needs: %s",
   "mccitybuilder.overlay.holding": "Holding: %s",
   "mccitybuilder.overlay.armour": "Armour: %s (%s/4)",
   "mccitybuilder.overlay.needs_help": "Needs help (open the citizen)",

@@ -258,10 +258,14 @@ final class PlannerScreen extends Screen {
             if (ndc == null || Math.abs(ndc[0]) > 1.05 || Math.abs(ndc[1]) > 1.05) continue;
             int sx = (int) Math.round((ndc[0] + 1) / 2 * width), sy = (int) Math.round((1 - ndc[1]) / 2 * height);
             if (m.site() != null) {
-                // A builder: its hammer badge, or the tool it actually holds.
+                // A builder: what it needs next on red, else the tool it holds, else its hammer badge.
+                boolean needs = m.icon() != null && icons < MAX_JOB_ICONS;
                 g.fill(sx - 7, sy - 7, sx + 7, sy + 7, 0xFF000000);
-                g.fill(sx - 6, sy - 6, sx + 6, sy + 6, m.color());
-                if (!m.held().isEmpty() && icons < MAX_JOB_ICONS) {
+                g.fill(sx - 6, sy - 6, sx + 6, sy + 6, needs ? 0xFFD02020 : m.color());
+                if (needs) {
+                    icons++;
+                    miniItem(g, m.icon(), sx - 5, sy - 5, 0.625f);
+                } else if (!m.held().isEmpty() && icons < MAX_JOB_ICONS) {
                     icons++;
                     miniItem(g, m.held(), sx - 5, sy - 5, 0.625f);
                 } else icon(g, "build", sx - 4, sy - 4, 0xFF202020);
@@ -393,6 +397,7 @@ final class PlannerScreen extends Screen {
         ICitizenDataView c = m.citizen();
         out.add(Component.literal(c == null ? "?" : c.getName()));
         if (c != null) out.add(c.getJobComponent().copy().withStyle(net.minecraft.ChatFormatting.GRAY));
+        if (m.site() != null && m.icon() != null) out.add(Component.translatable("mccitybuilder.overlay.needs", m.icon().getHoverName()).withStyle(net.minecraft.ChatFormatting.RED));
         if (!m.held().isEmpty()) out.add(Component.translatable("mccitybuilder.overlay.holding", m.held().getHoverName()).withStyle(net.minecraft.ChatFormatting.GRAY));
         if (!m.armour().isEmpty()) {
             // "Iron Chestplate" -> "Iron": the material is the name's first word.

@@ -41,7 +41,7 @@ final class OverlayView {
      */
     record Marker(Vec3 pos, int color, ICitizenDataView citizen, Site site, net.minecraft.world.item.ItemStack icon, net.minecraft.world.item.ItemStack held,
                   net.minecraft.world.item.ItemStack armour, int armourPieces) {
-        /** @return the main icon: the held item, else the workplace hut item, else null */
+        /** @return the main icon: the held item, else the workplace hut item (a builder: the item it needs next), else null */
         net.minecraft.world.item.ItemStack mainIcon() {
             return !held.isEmpty() ? held : icon;
         }
@@ -80,10 +80,21 @@ final class OverlayView {
                 IWorkOrderView order = null;
                 for (IWorkOrderView o : colony.getWorkOrders()) if (o.isClaimed() && b.getID().equals(o.getClaimedBy())) order = o;
                 List<Overlays.Need> needs = new ArrayList<>();
+                net.minecraft.world.item.ItemStack next = null;
+                boolean nextLacks = false;
                 BuildingResourcesModuleView res = b.getModuleViewByType(BuildingResourcesModuleView.class);
                 if (res != null)
                     for (BuildingBuilderResource r : res.getResources().values()) {
                         var a = r.getAvailabilityStatus();
+                        // The marker shows the first thing it lacks outright, else one it needs more of (deliveries are on their way).
+                        if (order != null && (a == BuildingBuilderResource.RessourceAvailability.DONT_HAVE
+                                || a == BuildingBuilderResource.RessourceAvailability.NEED_MORE && next == null)) {
+                            boolean lacks = a == BuildingBuilderResource.RessourceAvailability.DONT_HAVE;
+                            if (next == null || lacks && !nextLacks) {
+                                next = r.getItemStack();
+                                nextLacks = lacks;
+                            }
+                        }
                         if (a == BuildingBuilderResource.RessourceAvailability.DONT_HAVE || a == BuildingBuilderResource.RessourceAvailability.NEED_MORE
                                 || a == BuildingBuilderResource.RessourceAvailability.IN_DELIVERY)
                             needs.add(new Overlays.Need(r.getName(), r.getAmount() - r.getAvailable()));
@@ -91,7 +102,7 @@ final class OverlayView {
                 Site site = new Site(b, order == null ? null : order.getLocation(), order == null ? null : order.getBoundingBox(), Overlays.waiting(needs, 8), who);
                 s.add(site);
                 Vec3 at = where(who);
-                if (at != null) builders.add(marker(at, 0xFFFFD040, who, site, null));
+                if (at != null) builders.add(marker(at, 0xFFFFD040, who, site, next));
             }
             int slots = 0, assigned = 0;
             for (WorkerBuildingModuleView w : b.getModuleViews(WorkerBuildingModuleView.class)) {
