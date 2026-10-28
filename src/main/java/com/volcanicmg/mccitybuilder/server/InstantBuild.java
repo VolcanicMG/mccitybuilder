@@ -912,14 +912,29 @@ public final class InstantBuild {
         // Top down, so nothing falls or pops before its support goes; up to the terrain around it comes back as ground.
         gone.sort((a, b) -> b.getY() - a.getY());
         int top = groundAround(level, origin, far);
-        for (BlockPos w : gone)
-            level.setBlock(w, (w.getY() < top ? net.minecraft.world.level.block.Blocks.DIRT : w.getY() == top ? net.minecraft.world.level.block.Blocks.GRASS_BLOCK
-                    : net.minecraft.world.level.block.Blocks.AIR).defaultBlockState(), 3);
+        // Liquids first, without neighbour updates: the decoration's own water can't spill out while its walls go.
+        for (BlockPos w : gone) if (!level.getFluidState(w).isEmpty()) level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
+        for (BlockPos w : gone) level.setBlock(w, ground(w.getY(), top), 3);
+        // Hollows under the ground around it (a basin, a cellar) fill too, unless something living is in them.
+        for (int y = origin.getY(); y <= Math.min(top, far.getY()); y++)
+            for (int z = origin.getZ(); z <= far.getZ(); z++)
+                for (int x = origin.getX(); x <= far.getX(); x++) {
+                    BlockPos w = new BlockPos(x, y, z);
+                    if (level.getBlockState(w).isAir() && !entityKept.contains(w)
+                            && level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class, new net.minecraft.world.phys.AABB(w)).isEmpty())
+                        level.setBlock(w, ground(y, top), 3);
+                }
         if (report) {
             done(p);
             p.displayClientMessage(Component.translatable("mccitybuilder.deleted", gone.size()), false);
         }
         return gone.size();
+    }
+
+    /** @return the refill for height y: dirt under the surrounding ground's top, grass at it, air above */
+    private static BlockState ground(int y, int top) {
+        return (y < top ? net.minecraft.world.level.block.Blocks.DIRT : y == top ? net.minecraft.world.level.block.Blocks.GRASS_BLOCK
+                : net.minecraft.world.level.block.Blocks.AIR).defaultBlockState();
     }
 
     /**
