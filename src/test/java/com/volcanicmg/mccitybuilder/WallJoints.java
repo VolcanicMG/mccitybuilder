@@ -26,7 +26,7 @@ public final class WallJoints {
         File dir = new File(args.length > 0 ? args[0] : "build/wall-joints");
         dir.mkdirs();
         int n = 0;
-        for (var cs : JointCases.all()) {
+        for (var cs : Boolean.getBoolean("allLevels") ? JointCases.allLevels() : JointCases.all()) {
             File f = new File(dir, (cs.family().replace(' ', '_').replace('/', '_') + "_" + cs.name() + ".png"));
             ImageIO.write(render(cs), "png", f);
             n++;

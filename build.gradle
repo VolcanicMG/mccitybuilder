@@ -69,7 +69,7 @@ tasks.register('wallJoints', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'com.volcanicmg.mccitybuilder.WallJoints'
     args = [project.findProperty('out') ?: "${buildDir}/wall-joints"]
-    jvmArgs '-Djava.awt.headless=true'
+    jvmArgs '-Djava.awt.headless=true', "-DallLevels=${project.hasProperty('allLevels')}"
 }
 tasks.named('test') { failOnNoDiscoveredTests = false }
 

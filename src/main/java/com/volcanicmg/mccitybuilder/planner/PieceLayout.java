@@ -465,6 +465,22 @@ public final class PieceLayout {
                 bestOff = off;
             }
         }
+        if (best != null && best.depth() < 0) {
+            // No contact anywhere: line the run's very end up with the joint's outer face, blocks and all (the road's
+            // cross-section continues), rather than by centres alone.
+            Set<Long> Je = visible(joint.profile(d, 0, ja, true), joint), Se = visible(straight.profile((d + 2) % 4, 0, sa, true), straight);
+            double bestJ = 0;
+            int at = best.shift();
+            for (int s = -maxShift; s <= maxShift; s++) {
+                double j = jaccard(Je, Se, s);
+                if (j > bestJ + 1e-9 || j > bestJ - 1e-9 && Math.abs(s) < Math.abs(at)) {
+                    bestJ = j;
+                    at = s;
+                }
+            }
+            // Only a face that really continues the run (half its blocks or more): a tower's wall face doesn't.
+            if (bestJ >= 0.5) best = new Fit(edge, at, 0, -1);
+        }
         return best;
     }
 
@@ -562,8 +578,18 @@ public final class PieceLayout {
     /** {@link #faceScore} without the cache. */
     public static double faceScoreNow(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run) {
         Fit f = fit(c, d, jb, joint, straight, width, run, Math.max(3, width));
-        if (f.depth() < 0) return 0;
         int si = straight.inset((d + 2) % 4), ref = d % 2 == 0 ? c[1] : c[0];
+        if (f.depth() < 0) {
+            // No contact (pieces with lamps whose air would clear each other): the joint's outer face, blocks and
+            // all, still tells an open side (the road's cross-section) from a closed one (its border), worth half.
+            int[] sbox = boxes(c, d, f.off(), List.of(run), width, 0).get(0);
+            int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox[1] : sbox[0]) - ref;
+            // The straight's very end (its trim inset may stand on a lamp post, not the road's cross-section).
+            Set<Long> J = visible(joint.profile(d, 0, ja, true), joint), S = visible(straight.profile((d + 2) % 4, 0, sa, true), straight);
+            double best = 0;
+            for (int s = -Math.max(3, width); s <= Math.max(3, width); s++) best = Math.max(best, jaccard(J, S, s));
+            return 0.5 * best;
+        }
         int[] sbox = boxes(c, d, f.off(), List.of(run), width, 0).get(0);
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox[1] : sbox[0]) - ref;
         return f.match() + jaccard(visible(joint.profile(d, f.depth(), ja, true), joint), visible(straight.profile((d + 2) % 4, si, sa, true), straight), f.shift());

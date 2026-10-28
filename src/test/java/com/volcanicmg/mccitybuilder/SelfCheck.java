@@ -736,6 +736,7 @@ public final class SelfCheck {
         joining();
         editing();
         continuity();
+        cornerTurns();
         editRules();
         alignments();
         // Saved lines round trip; hostile rows (huge segments, old vanilla rows) are skipped.
@@ -1288,6 +1289,28 @@ public final class SelfCheck {
      * as any turn / shift / depth could (the layout is optimal), and the fit's own metric must agree with the blocks.
      * Prints which joints are continuous and a table of those that can't be, with the rows that differ.
      */
+    /**
+     * Every road family at every level: an L turning left and one turning right take their corner turned differently
+     * (a road's cross-section is symmetric, so one turn can't serve both). Corners whose runs never touch them (lamp
+     * pieces whose air would clear each other) once fell back to one turn for both. Jungle level 1 is the one known
+     * exception (its walks have no full surface layer to tell the sides apart).
+     */
+    private static void cornerTurns() throws Exception {
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        Map<String, JointCases.Case> left = new java.util.HashMap<>(), right = new java.util.HashMap<>();
+        for (var cs : JointCases.allLevels()) {
+            if (!cs.family().contains("infrastructure")) continue;
+            if (cs.name().equals("L-left")) left.put(cs.family(), cs);
+            if (cs.name().equals("L-right")) right.put(cs.family(), cs);
+        }
+        List<String> same = new java.util.ArrayList<>();
+        for (var en : left.entrySet()) {
+            var r = right.get(en.getKey());
+            if (r != null && java.util.Arrays.equals(en.getValue().joint().ids(), r.joint().ids()) && en.getValue().joint().sx() == r.joint().sx()) same.add(en.getKey());
+        }
+        check(same.equals(List.of("jungle infrastructure/roads L1")), "road corners turn both ways at every level: " + same);
+    }
+
     private static void continuity() throws Exception {
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
         // Memoised fits equal fresh ones, and don't depend on where the joint is.

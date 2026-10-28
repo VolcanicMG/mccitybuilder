@@ -76,11 +76,30 @@ final class JointCases {
         return PACKS;
     }
 
-    /** @return every case of every bundled road / wall family that has a straight and a joint or cap piece */
+    /** @return every case of every bundled road / wall family that has a straight and a joint or cap piece (top level) */
     static List<Case> all() throws Exception {
         List<Case> out = new ArrayList<>();
         for (var en : packs().entrySet())
             for (String famKey : PieceSets.classify(en.getValue()).keySet()) out.addAll(cases(en.getKey(), famKey));
+        return out;
+    }
+
+    // The level / variant number the cases pick from each group (0: the highest).
+    static int level;
+
+    /** @return {@link #all} at every level / variant number any group has, each family name suffixed " L<n>" */
+    static List<Case> allLevels() throws Exception {
+        java.util.TreeSet<Integer> numbers = new java.util.TreeSet<>();
+        for (var ps : packs().values()) for (PieceSets.Piece p : ps) numbers.add(p.number());
+        List<Case> out = new ArrayList<>();
+        try {
+            for (int n : numbers) {
+                level = n;
+                for (Case cs : all()) out.add(new Case(cs.family() + " L" + n, cs.name(), cs.jointPath(), cs.joint(), cs.jointBox(), cs.runs(), cs.butt()));
+            }
+        } finally {
+            level = 0;
+        }
         return out;
     }
 
@@ -172,8 +191,9 @@ final class JointCases {
         out.add(new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name + "-butt", st.path(), og, ob, runs, true));
     }
 
-    /** The highest level of a group (the pieces in the screenshots are level 5). */
+    /** The group's piece at {@link #level} (0: its highest; a group without that number: its highest). */
     private static PieceSets.Piece pickTop(PieceSets.Group g) {
+        if (level > 0) for (PieceSets.Piece p : g.pieces()) if (p.number() == level) return p;
         return g.pieces().get(g.pieces().size() - 1);
     }
 
@@ -263,6 +283,24 @@ final class JointCases {
             case 1 -> r.box()[1] + si;
             default -> r.box()[3] - si;
         };
+    }
+
+    /**
+     * @return how open the joint is toward a run: the share of the run's visible face cells with a joint block at the
+     * same height and lateral cell on the joint's outer face toward it (a corner turned away shows its closed side)
+     */
+    static double openness(Case cs, Run r) {
+        int d = r.out(), outer = switch (d) {
+            case 0 -> cs.jointBox()[2];
+            case 2 -> cs.jointBox()[0];
+            case 1 -> cs.jointBox()[3];
+            default -> cs.jointBox()[1];
+        };
+        Set<Integer> a = section(r.straight(), r.box()[0], r.box()[1], d, face(r)), b = section(cs.joint(), cs.jointBox()[0], cs.jointBox()[1], d, outer);
+        if (a.isEmpty()) return 1;
+        int hit = 0;
+        for (int v : a) if (b.contains(v)) hit++;
+        return (double) hit / a.size();
     }
 
     /** @return the cell one step from {@code along} toward the joint cell, for runs leaving in {@code d} */
