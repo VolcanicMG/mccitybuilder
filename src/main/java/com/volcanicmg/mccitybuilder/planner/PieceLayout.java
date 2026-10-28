@@ -133,6 +133,27 @@ public final class PieceLayout {
         return keyRot;
     }
 
+    /**
+     * An L can be laid out with its arms west and north, or west and south (both reviewed shapes, whose straights then
+     * meet the corner differently when the two arms' straights differ): the layout searches both and keeps the one
+     * whose runs meet the corner better (the first on a tie). Anything else has one frame ({@link #frameRot}).
+     *
+     * @return the candidate frames' quarter turns to the world
+     */
+    public static int[] frameRots(int[] outs, int[] kinds, int keyRot) {
+        if (outs.length == 2 && outs[0] % 2 != outs[1] % 2)
+            for (int r = 0; r < 4; r++) {
+                int a = Math.floorMod(outs[0] - r, 4), b = Math.floorMod(outs[1] - r, 4);
+                if (a + b == 3 && a * b == 2) return new int[]{frameRot(outs, kinds, keyRot), r};
+            }
+        return new int[]{frameRot(outs, kinds, keyRot)};
+    }
+
+    /** @return how well a frame's layout meets its runs: the weakest run's match first, then the summed contact */
+    public static double frameScore(double worstMatch, double contact) {
+        return Math.round(worstMatch * 1000) * 100.0 + contact;
+    }
+
     /** @return box {x0, z0, x1, z1} turned {@code r} quarter turns clockwise about cell {@code c} (like Structurize) */
     public static int[] rotBox(int[] c, int[] b, int r) {
         int x0 = b[0] - c[0], z0 = b[1] - c[1], x1 = b[2] - c[0], z1 = b[3] - c[1];
@@ -460,11 +481,31 @@ public final class PieceLayout {
      * alignment first, then the built-in one, then the search; a destructive setting is skipped.
      */
     public static Fit fit(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift, int[] builtIn) {
-        // A player-set alignment wins over the search (it is looked up every time, so a change shows at once).
-        for (int[] o : new int[][]{align.get(joint, straight, d), builtIn}) {
+        // A player-set alignment wins over the search (it is looked up every time, so a change shows at once). A legacy
+        // world shift only means something in the world's geometry: the caller converts it ({@link #relAlign}).
+        int[] o = align.get(joint, straight, d);
+        return fitWith(c, d, jb, joint, straight, width, run, maxShift, o != null && o.length > 2 ? null : o, builtIn);
+    }
+
+    /** @return the player's alignment for a joint and a straight as placed in the world (a legacy one marked), or null */
+    public static int[] alignAt(Grid joint, Grid straight, int d) {
+        return align.get(joint, straight, d);
+    }
+
+    /**
+     * @param jb the joint's box in the world (where a legacy world shift was seen)
+     * @return the alignment with a legacy world shift turned into a shift against the joint box ({@link #alignShift}),
+     * so it lands where the player saw it in whatever frame the joint is laid out
+     */
+    public static int[] relAlign(int[] o, int[] c, int d, int[] jb, int width) {
+        return o == null || o.length < 3 ? o : new int[]{alignShift(c, d, jb, width, o[0]), o[1]};
+    }
+
+    /** {@link #fit} with the player's alignment given ({shift, depth} against the joint box, or null) instead of looked up. */
+    public static Fit fitWith(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift, int[] player, int[] builtIn) {
+        for (int[] o : new int[][]{player, builtIn}) {
             if (o == null) continue;
-            // A legacy world shift is used as it was saved (exactly what the player saw then).
-            int os = o.length > 2 && o[2] == 1 ? o[0] : worldShift(c, d, jb, width, o[0]);
+            int os = worldShift(c, d, jb, width, o[0]);
             if (!destructiveAt(c, d, jb, joint, straight, width, run, os, o[1])) return fitAt(c, d, jb, joint, straight, width, run, os, o[1]);
         }
         // The result depends only on the pieces and the joint box relative to the joint cell, never on where it is.

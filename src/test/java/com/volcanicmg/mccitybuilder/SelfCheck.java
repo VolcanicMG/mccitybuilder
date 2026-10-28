@@ -1789,6 +1789,11 @@ public final class SelfCheck {
         List<Plan.Line> pe = new java.util.ArrayList<>(List.of(lw, lrun2));
         Plan.splitThrough(pe, lrun2, l -> false);
         check(pe.size() == 3 && Plan.arms(pe, new int[]{0, 0}).size() == 3, "through a segment's free end: a T");
+        // A diagonal segment's end on the run isn't a crossing; a cell where a built joint stands isn't split.
+        Plan.Line dg = new Plan.Line("wall", -5, -5, 0, 0, "p", "f", 1, -1, false, false);
+        check(Plan.crossings(List.of(dg, lrun), lrun, l -> false).isEmpty(), "a diagonal segment's end isn't crossed");
+        List<Plan.Line> fx = new java.util.ArrayList<>(List.of(lw, lrun2));
+        check(Plan.splitThrough(fx, lrun2, l -> false, cc -> cc[0] == 0 && cc[1] == 0).size() == 1 && fx.size() == 2, "no split where a built joint stands");
         // A built joint piece there: the drop refuses it (the crossing cell is under a built T piece).
         var builtTee = java.util.Map.of("k", List.of(new Plan.BuiltPiece(-3510, -4583, -3502, -4583, "roads/t.blueprint", 0, -3502, 64, -4583, -3506, -4587, -3498, -4579, "TEE")));
         check(Plan.builtJointAt(builtTee.values(), c2.get(0)), "through a built joint: refused");
@@ -1924,8 +1929,20 @@ public final class SelfCheck {
         int si = sg.inset(2), edge = PieceLayout.reach(c, d, jb);
         check(f.shift() == safe[0] && f.depth() == safe[1] && f.off() == (safe[1] < 0 ? edge : edge - safe[1] - si), "override used exactly as set: " + f);
         check(java.util.Arrays.equals(PieceLayout.attach(c, d, jb, tw, sg, 6, 9, 6), new int[]{f.off(), f.shift()}), "attach follows the override");
+        // A legacy world shift lands where the player saw it on the world's joint, whatever frame the joint is laid out in.
+        for (int w = 0; w < 4; w++) {
+            PieceLayout.Grid twW = tw.turned(w), sgW = sg0.turned(PieceLayout.turns(sg0.sx(), sg0.sz(), w));
+            int[] jbW = PieceLayout.centred(c, twW.sx(), twW.sz());
+            var seen = PieceLayout.fitAt(c, w, jbW, twW, sgW, 6, 9, safe[0], safe[1]);
+            for (int r = 0; r < 4; r++) {
+                int dC = Math.floorMod(w - r, 4);
+                var got = PieceLayout.fitBack(c, dC, PieceLayout.fitWith(c, dC, PieceLayout.rotBox(c, jbW, -r), twW.turned(-r), sgW.turned(-r), 6, 9, 6,
+                        PieceLayout.relAlign(new int[]{safe[0], safe[1], 1}, c, w, jbW, 6), null), 6, 9, r);
+                check(got.off() == seen.off() && got.shift() == seen.shift(), "legacy world shift as seen, run " + w + " frame " + r + ": " + got + " vs " + seen);
+            }
+        }
         set[0] = new int[]{safe[0], safe[1], 1};
-        check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(PieceLayout.fitAt(c, d, jb, tw, sg, 6, 9, safe[0], safe[1])), "a legacy world shift is used as saved");
+        check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(auto), "a legacy value isn't applied without its world geometry");
         set[0] = new int[]{PieceLayout.alignShift(c, d, jb, 6, safe[0]), safe[1]};
         if (bad != null) {
             set[0] = new int[]{PieceLayout.alignShift(c, d, jb, 6, bad[0]), bad[1]};

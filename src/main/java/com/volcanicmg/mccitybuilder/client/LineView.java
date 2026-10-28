@@ -262,7 +262,7 @@ final class LineView {
             List<int[]> cs = new ArrayList<>();
             for (int[] c : Plan.crossings(all, nl, PlanView::locked)) if (c[2] == 0 && !Plan.builtJointAt(PlanView.builtPieces.values(), c)) cs.add(c);
             liveCross = cs;
-            List<Plan.Line> parts = Plan.splitThrough(all, nl, PlanView::locked);
+            List<Plan.Line> parts = Plan.splitThrough(all, nl, PlanView::locked, c -> Plan.builtJointAt(PlanView.builtPieces.values(), c));
             all.remove(parts.get(parts.size() - 1));
             all.add(parts.get(parts.size() - 1));
             PieceCatalog.Layout lay = PieceCatalog.layout(all, previewTypes());

@@ -273,37 +273,55 @@ final class JointCases {
         PieceLayout.Grid s2 = sg.turned(2);
         boolean[] sym = new boolean[outs.length];
         java.util.Arrays.fill(sym, s2.sx() == sg.sx() && java.util.Arrays.equals(s2.ids(), sg.ids()));
-        int rot = role == PieceSets.Role.END ? 0 : PieceLayout.frameRot(outs, kinds(outs, sts), PieceLayout.jointKey(jp.path(), outs, sps, sts, sym).rot());
+        int[] frames = role == PieceSets.Role.END ? new int[]{0} : PieceLayout.frameRots(outs, kinds(outs, sts), PieceLayout.jointKey(jp.path(), outs, sps, sts, sym).rot());
+        int rot = frames[0], best = 0;
         int[] oc = new int[outs.length], dc = new int[outs.length];
-        for (int q = 0; q < outs.length; q++) {
-            oc[q] = Math.floorMod(outs[q] - rot, 4);
-            dc[q] = Math.floorMod(dirs[q] - rot, 4);
-        }
-        // The turn whose faces best continue the straights, as the planner picks it: any for a joint, along the line for a cap.
-        int best = 0, from = 0, step = 1;
-        if (role == PieceSets.Role.END) {
-            from = PieceLayout.turns(jp.sx(), jp.sz(), (outs[0] + 2) % 4);
-            step = 2;
-        }
-        List<Integer> ks = new ArrayList<>(), outList = new ArrayList<>();
-        for (int o : oc) outList.add(o);
-        double[] contact = new double[4 / step], shape = new double[4 / step], bestMatch = new double[4 / step];
-        for (int k = from; k < from + 4; k += step) {
-            PieceLayout.Grid t = jg.turned(k);
-            double sc = 0, bm = 1;
+        double bestScore = -1;
+        for (int fr : frames) {
+            int[] ocf = new int[outs.length], dcf = new int[outs.length];
             for (int q = 0; q < outs.length; q++) {
-                int[] tb = box(c, oc[0], t, role, jp);
-                sc += PieceLayout.faceScore(c, oc[q], tb, t, straight(sg, dc[q], flip), width, run);
-                bm = Math.min(bm, PieceLayout.fit(c, oc[q], tb, t, straight(sg, dc[q], flip), width, run, Math.max(3, width)).match());
+                ocf[q] = Math.floorMod(outs[q] - fr, 4);
+                dcf[q] = Math.floorMod(dirs[q] - fr, 4);
             }
-            // The floor judges wall corners only (towers, T's, crosses and roads keep their contact order).
-            bestMatch[ks.size()] = outs.length == 2 && famKey.startsWith("wall:") && (role == PieceSets.Role.CORNER || role == PieceSets.Role.INNER) ? bm : 1;
-            double[] ac = PieceLayout.armClosed(t, outList, sg, flip);
-            contact[ks.size()] = sc;
-            shape[ks.size()] = ac[0] - ac[1];
-            ks.add(k);
+            // The turn whose faces best continue the straights, as the planner picks it: any for a joint, along the line for a cap.
+            int from = 0, step = 1;
+            if (role == PieceSets.Role.END) {
+                from = PieceLayout.turns(jp.sx(), jp.sz(), (outs[0] + 2) % 4);
+                step = 2;
+            }
+            List<Integer> ks = new ArrayList<>(), outList = new ArrayList<>();
+            for (int o : ocf) outList.add(o);
+            double[] contact = new double[4 / step], shape = new double[4 / step], bestMatch = new double[4 / step];
+            for (int k = from; k < from + 4; k += step) {
+                PieceLayout.Grid t = jg.turned(k);
+                double sc = 0, bm = 1;
+                for (int q = 0; q < outs.length; q++) {
+                    int[] tb = box(c, ocf[0], t, role, jp);
+                    sc += PieceLayout.faceScore(c, ocf[q], tb, t, straight(sg, dcf[q], flip), width, run);
+                    bm = Math.min(bm, PieceLayout.fit(c, ocf[q], tb, t, straight(sg, dcf[q], flip), width, run, Math.max(3, width)).match());
+                }
+                // The floor judges wall corners only (towers, T's, crosses and roads keep their contact order).
+                bestMatch[ks.size()] = outs.length == 2 && famKey.startsWith("wall:") && (role == PieceSets.Role.CORNER || role == PieceSets.Role.INNER) ? bm : 1;
+                double[] ac = PieceLayout.armClosed(t, outList, sg, flip);
+                contact[ks.size()] = sc;
+                shape[ks.size()] = ac[0] - ac[1];
+                ks.add(k);
+            }
+            int pick = PieceLayout.pickTurn(contact, bestMatch, shape);
+            // Of the frames, the one whose weakest run meets the joint best, then the most contact.
+            PieceLayout.Grid tp = jg.turned(ks.get(pick));
+            double worst = 1;
+            for (int q = 0; q < outs.length; q++)
+                worst = Math.min(worst, PieceLayout.fit(c, ocf[q], box(c, ocf[0], tp, role, jp), tp, straight(sg, dcf[q], flip), width, run, Math.max(3, width)).match());
+            double score = PieceLayout.frameScore(worst, contact[pick]);
+            if (score > bestScore + 1e-9) {
+                bestScore = score;
+                best = ks.get(pick);
+                rot = fr;
+                oc = ocf;
+                dc = dcf;
+            }
         }
-        best = ks.get(PieceLayout.pickTurn(contact, bestMatch, shape));
         PieceLayout.JointFix fix = null;
         if (role != PieceSets.Role.END) {
             // The mod's built-in setting for this configuration, as the planner reads it.

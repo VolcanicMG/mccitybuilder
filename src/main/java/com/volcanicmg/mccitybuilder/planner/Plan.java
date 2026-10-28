@@ -402,7 +402,8 @@ public final class Plan {
         // Through segment ends (a joint or a free end) inside the run.
         int d = dirOf(run.x0(), run.z0(), run.x1(), run.z1());
         List<Line> others = new java.util.ArrayList<>();
-        for (Line l : lines) if (l != run && l.tool().equals(run.tool())) others.add(l);
+        // Diagonal segments have no axis end to cross.
+        for (Line l : lines) if (l != run && l.tool().equals(run.tool()) && (l.x0() == l.x1() || l.z0() == l.z1())) others.add(l);
         java.util.Set<Long> seen = new java.util.HashSet<>();
         for (int[] c : out) seen.add(cell(c[0], c[1]));
         for (Line l : others)
@@ -424,10 +425,15 @@ public final class Plan {
      * @return the run's parts in order (the run itself when it crosses nothing)
      */
     public static List<Line> splitThrough(List<Line> lines, Line run, java.util.function.Predicate<Line> locked) {
+        return splitThrough(lines, run, locked, c -> false);
+    }
+
+    /** @param fixedAt cells where nothing may change (a built joint piece stands there): no split there */
+    public static List<Line> splitThrough(List<Line> lines, Line run, java.util.function.Predicate<Line> locked, java.util.function.Predicate<int[]> fixedAt) {
         List<Line> parts = new java.util.ArrayList<>(List.of(run));
         boolean runX = run.z0() == run.z1();
         for (int[] c : crossings(lines, run, locked)) {
-            if (c[2] != 0) continue;
+            if (c[2] != 0 || fixedAt.test(c)) continue;
             // Only the crossed segment: same tool, across the run (never the run itself or another line through the cell).
             split(lines, c, l -> locked.test(l) || parts.contains(l) || !l.tool().equals(run.tool()) || (l.z0() == l.z1()) == runX);
             Line last = parts.get(parts.size() - 1);
