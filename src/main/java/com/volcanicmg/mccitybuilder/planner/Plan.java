@@ -380,8 +380,12 @@ public final class Plan {
      * Intersections: the cells where {@code run} passes through a perpendicular segment of the same tool, inside both
      * (neither's end), in order along the run.
      *
+     * Also where the run passes through an existing joint or a segment's end lying across it (the segments end there):
+     * the run alone splits there and the joint gains its arms (an L becomes a T, a T a cross).
+     *
      * @param locked segments that can't be split (built, sending): crossing one isn't an intersection
-     * @return {x, z, 1 when the crossed segment is locked} per crossing
+     * @return {x, z, state, 1 at segment ends} per crossing; state 0 ok, 1 the crossed segment is locked, 2 a segment
+     * already lies along the run there (the run would overlap it)
      */
     public static List<int[]> crossings(List<Line> lines, Line run, java.util.function.Predicate<Line> locked) {
         List<int[]> out = new java.util.ArrayList<>();
@@ -393,8 +397,22 @@ public final class Plan {
             Line h = runX ? run : l, v = runX ? l : run;
             int x = v.x0(), z = h.z0();
             boolean inH = x > Math.min(h.x0(), h.x1()) && x < Math.max(h.x0(), h.x1()), inV = z > Math.min(v.z0(), v.z1()) && z < Math.max(v.z0(), v.z1());
-            if (inH && inV) out.add(new int[]{x, z, locked.test(l) ? 1 : 0});
+            if (inH && inV) out.add(new int[]{x, z, locked.test(l) ? 1 : 0, 0});
         }
+        // Through segment ends (a joint or a free end) inside the run.
+        int d = dirOf(run.x0(), run.z0(), run.x1(), run.z1());
+        List<Line> others = new java.util.ArrayList<>();
+        for (Line l : lines) if (l != run && l.tool().equals(run.tool())) others.add(l);
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        for (int[] c : out) seen.add(cell(c[0], c[1]));
+        for (Line l : others)
+            for (int[] e : l.ends()) {
+                boolean inside = runX ? e[1] == run.z0() && e[0] > Math.min(run.x0(), run.x1()) && e[0] < Math.max(run.x0(), run.x1())
+                        : e[0] == run.x0() && e[1] > Math.min(run.z0(), run.z1()) && e[1] < Math.max(run.z0(), run.z1());
+                if (!inside || !seen.add(cell(e[0], e[1]))) continue;
+                java.util.Set<Integer> a = arms(others, e);
+                out.add(new int[]{e[0], e[1], a.contains(d) || a.contains((d + 2) % 4) ? 2 : 0, 1});
+            }
         out.sort(java.util.Comparator.comparingInt(c -> Math.abs(c[0] - run.x0()) + Math.abs(c[1] - run.z0())));
         return out;
     }
@@ -409,7 +427,7 @@ public final class Plan {
         List<Line> parts = new java.util.ArrayList<>(List.of(run));
         boolean runX = run.z0() == run.z1();
         for (int[] c : crossings(lines, run, locked)) {
-            if (c[2] == 1) continue;
+            if (c[2] != 0) continue;
             // Only the crossed segment: same tool, across the run (never the run itself or another line through the cell).
             split(lines, c, l -> locked.test(l) || parts.contains(l) || !l.tool().equals(run.tool()) || (l.z0() == l.z1()) == runX);
             Line last = parts.get(parts.size() - 1);

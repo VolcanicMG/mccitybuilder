@@ -260,7 +260,7 @@ final class LineView {
             all.add(nl);
             // Passing through a segment: both split there (an intersection), as the click will.
             List<int[]> cs = new ArrayList<>();
-            for (int[] c : Plan.crossings(all, nl, PlanView::locked)) if (c[2] == 0) cs.add(c);
+            for (int[] c : Plan.crossings(all, nl, PlanView::locked)) if (c[2] == 0 && !Plan.builtJointAt(PlanView.builtPieces.values(), c)) cs.add(c);
             liveCross = cs;
             List<Plan.Line> parts = Plan.splitThrough(all, nl, PlanView::locked);
             all.remove(parts.get(parts.size() - 1));
@@ -1021,10 +1021,11 @@ final class LineView {
             flashUntil = System.currentTimeMillis() + 1500;
             return false;
         }
-        // Through a built or sending segment: no intersection there (it can't be split).
+        // Through a built or sending segment, or a built joint piece: no intersection there (it can't change); along a
+        // segment already there: it would overlap.
         for (int[] c : Plan.crossings(PlanView.lines, next(start, end), PlanView::locked))
-            if (c[2] == 1) {
-                flash = "mccitybuilder.line.cross_built." + (wall() ? "wall" : "road");
+            if (c[2] != 0 || Plan.builtJointAt(PlanView.builtPieces.values(), c)) {
+                flash = c[2] == 2 ? "mccitybuilder.line.on_arm" : "mccitybuilder.line.cross_built." + (wall() ? "wall" : "road");
                 flashUntil = System.currentTimeMillis() + 2500;
                 return false;
             }

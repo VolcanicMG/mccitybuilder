@@ -1764,6 +1764,34 @@ public final class SelfCheck {
         List<Plan.Line> two = new java.util.ArrayList<>(List.of(h2, h, run));
         var p2 = Plan.splitThrough(two, run, l -> false);
         check(p2.size() == 3 && p2.get(0).z1() == 0 && p2.get(1).z1() == 6 && two.size() == 7, "two crossings in order along the run");
+        // Through an existing joint (Ethan's road through the T at (-3502,-4583)): only the run splits; the joint gains arms.
+        Plan.Line tw = new Plan.Line("road", -3510, -4583, -3502, -4583, "p", "f", 1, 0, false, false), te = new Plan.Line("road", -3502, -4583, -3463, -4583, "p", "f", 1, 0, false, false),
+                ts = new Plan.Line("road", -3502, -4583, -3502, -4560, "p", "f", 1, 0, false, false), thru = new Plan.Line("road", -3502, -4600, -3502, -4570, "p", "f", 1, 0, false, false);
+        // A T whose south arm lies along the run: refused (the run would overlap it).
+        check(Plan.crossings(List.of(tw, te, ts, thru), thru, l -> false).get(0)[2] == 2, "through a T along its arm: refused");
+        // An L (west + east halves of a road meeting, plus nothing on the run's line): the run through it makes a cross.
+        Plan.Line run2 = new Plan.Line("road", -3502, -4595, -3502, -4570, "p", "f", 1, 0, false, false);
+        List<Plan.Line> t2 = new java.util.ArrayList<>(List.of(tw, te, run2));
+        var c2 = Plan.crossings(t2, run2, l -> false);
+        var p3 = Plan.splitThrough(t2, run2, l -> false);
+        check(c2.size() == 1 && c2.get(0)[2] == 0 && c2.get(0)[3] == 1 && p3.size() == 2 && t2.size() == 4 && Plan.arms(t2, new int[]{-3502, -4583}).size() == 4,
+                "through a joint of two segments: the run splits there, four arms (a cross)");
+        Plan.Line lw = new Plan.Line("wall", -10, 0, 0, 0, "p", "f", 1, -1, false, false), ln = new Plan.Line("wall", 0, 0, 0, -10, "p", "f", 1, -1, false, false),
+                lrun = new Plan.Line("wall", -5, 0, 5, 0, "p", "f", 1, -1, false, false);
+        List<Plan.Line> lcase = new java.util.ArrayList<>(List.of(lw, ln, lrun));
+        check(Plan.crossings(lcase, lrun, l -> false).get(0)[2] == 2, "through an L along its west arm: refused");
+        Plan.Line lrun2 = new Plan.Line("wall", 0, -5, 0, 5, "p", "f", 1, -1, false, false), le = new Plan.Line("wall", 0, 0, 10, 0, "p", "f", 1, -1, false, false);
+        List<Plan.Line> lcase2 = new java.util.ArrayList<>(List.of(lw, le, new Plan.Line("wall", 0, 3, 0, 9, "p", "f", 1, -1, false, false)));
+        Plan.Line endRun = new Plan.Line("wall", 0, -6, 0, 2, "p", "f", 1, -1, false, false);
+        lcase2.add(endRun);
+        check(Plan.crossings(lcase2, endRun, l -> false).get(0)[3] == 1, "through a straight joint of two segments (an end on the run): a crossing");
+        // A plain end lying across the run (an L forms mid-run): the run splits there, a T.
+        List<Plan.Line> pe = new java.util.ArrayList<>(List.of(lw, lrun2));
+        Plan.splitThrough(pe, lrun2, l -> false);
+        check(pe.size() == 3 && Plan.arms(pe, new int[]{0, 0}).size() == 3, "through a segment's free end: a T");
+        // A built joint piece there: the drop refuses it (the crossing cell is under a built T piece).
+        var builtTee = java.util.Map.of("k", List.of(new Plan.BuiltPiece(-3510, -4583, -3502, -4583, "roads/t.blueprint", 0, -3502, 64, -4583, -3506, -4587, -3498, -4579, "TEE")));
+        check(Plan.builtJointAt(builtTee.values(), c2.get(0)), "through a built joint: refused");
         // A diagonal run crosses nothing (no shared cell on both axes); a road through the cell isn't split by a wall.
         Plan.Line diag = new Plan.Line("wall", -5, -5, 5, 5, "p", "f", 1, -1, false, false);
         check(Plan.crossings(List.of(h, diag), diag, l -> false).isEmpty(), "a diagonal run makes no intersection");
