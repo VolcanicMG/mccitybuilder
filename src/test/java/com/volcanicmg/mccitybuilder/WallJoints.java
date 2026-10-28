@@ -23,6 +23,7 @@ public final class WallJoints {
     }
 
     public static void main(String[] args) throws Exception {
+        if (System.getProperty("contactFloor") != null) PieceLayout.contactFloor = Double.parseDouble(System.getProperty("contactFloor"));
         File dir = new File(args.length > 0 ? args[0] : "build/wall-joints");
         dir.mkdirs();
         int n = 0;

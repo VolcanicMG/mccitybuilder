@@ -960,6 +960,7 @@ final class PieceCatalog {
         for (int q = 0; q < cands.size(); q++) {
             PieceSets.Piece p = cands.get(q);
             double[] contact = new double[4], shape = new double[4], bestMatch = new double[4];
+            java.util.Arrays.fill(bestMatch, 1);
             for (int k = 0; k < 4; k++) {
                 PieceLayout.Grid jg = grid(l.pack(), p.path(), k);
                 // Every turn must be scored, or the pick could change once the rest loads.
@@ -983,7 +984,8 @@ final class PieceCatalog {
                     }
                     // By shape and material: a road corner's faces can share a shape, its open sides share the road's blocks.
                     score += PieceLayout.faceScore(c, outs.get(o), jb, jg, sg, st.across(), st.run());
-                    bestMatch[k] = Math.max(bestMatch[k], PieceLayout.fit(c, outs.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across())).match());
+                    // The floor judges wall corners only, by their weakest run (towers, T's, crosses and roads keep their contact order).
+                    if (outs.size() == 2 && l.isWall() && (roles.get(q) == PieceSets.Role.CORNER || roles.get(q) == PieceSets.Role.INNER)) bestMatch[k] = Math.min(bestMatch[k], PieceLayout.fit(c, outs.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across())).match());
                 }
                 contact[k] = score;
                 // Ties (no run touches, or symmetric faces): the turn whose arms look like the line's straight.

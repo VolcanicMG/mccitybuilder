@@ -221,13 +221,14 @@ final class JointCases {
         double[] contact = new double[4 / step], shape = new double[4 / step], bestMatch = new double[4 / step];
         for (int k = from; k < from + 4; k += step) {
             PieceLayout.Grid t = jg.turned(k);
-            double sc = 0, bm = 0;
+            double sc = 0, bm = 1;
             for (int q = 0; q < outs.length; q++) {
                 int[] tb = box(c, outs[0], t, role, jp);
                 sc += PieceLayout.faceScore(c, outs[q], tb, t, straight(sg, dirs[q], flip), width, run);
-                bm = Math.max(bm, PieceLayout.fit(c, outs[q], tb, t, straight(sg, dirs[q], flip), width, run, Math.max(3, width)).match());
+                bm = Math.min(bm, PieceLayout.fit(c, outs[q], tb, t, straight(sg, dirs[q], flip), width, run, Math.max(3, width)).match());
             }
-            bestMatch[ks.size()] = bm;
+            // The floor judges wall corners only (towers, T's, crosses and roads keep their contact order).
+            bestMatch[ks.size()] = outs.length == 2 && famKey.startsWith("wall:") && (role == PieceSets.Role.CORNER || role == PieceSets.Role.INNER) ? bm : 1;
             double[] ac = PieceLayout.armClosed(t, outList, sg, flip);
             contact[ks.size()] = sc;
             shape[ks.size()] = ac[0] - ac[1];

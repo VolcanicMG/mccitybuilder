@@ -530,12 +530,16 @@ public final class PieceLayout {
         return new double[]{na == 0 ? 0 : arm / na, nc == 0 ? 0 : closed / nc};
     }
 
-    /** Below this best run match no turn is trusted to touch well: the corner's shape decides ({@link #pickTurn}). */
+    /**
+     * When every turn of an L corner has a run matching below this (its weakest run), no turn is trusted to touch well
+     * and the corner's shape decides ({@link #pickTurn}). Off (0) until its picture review is done: at 0.4 it turns 11
+     * flagged wall corners the right way but 2 visibly wrong, and changes ~250 other cases still unreviewed.
+     */
     public static double contactFloor = 0;
 
     /**
-     * @param contact per turn, the summed {@link #faceScore} (runs that touch); @param bestMatch per turn, its best run
-     *                match; @param shape per turn, arm minus closed ({@link #armClosed})
+     * @param contact per turn, the summed {@link #faceScore} (runs that touch); @param bestMatch per turn, the match its
+     *                weakest run reaches (1 for joints the floor doesn't judge); @param shape per turn, arm minus closed ({@link #armClosed})
      * @return the turn to use: the most contact, the first on a tie; but when no turn has a run matching at least
      * {@link #contactFloor} (or none touches at all), the one whose arms look most like the straight's end against its
      * closed sides
