@@ -18,14 +18,6 @@ public final class PasteRules {
         return protectedBl ? Action.KEEP : Action.PLACE;
     }
 
-    /**
-     * Deleting a decoration or a retired building: only blocks that still are the blueprint's go, and never a hut,
-     * storage that still holds items, or a block an item-holding entity needs.
-     *
-     * @param sameState   the world block is exactly the blueprint's; @param protectedBl storage or a hut
-     * @param emptied     the storage holds nothing (a moved building's chest, just copied); @param hut a hut block
-     * @param entityKept  an entity with items stands on or hangs from it
-     */
     /** @return the most common value (the lowest on a tie), or Integer.MIN_VALUE for none */
     public static int mode(java.util.List<Integer> values) {
         java.util.Map<Integer, Integer> n = new java.util.HashMap<>();
@@ -38,6 +30,14 @@ public final class PasteRules {
         return best;
     }
 
+    /**
+     * Deleting a decoration or a retired building: only blocks that still are the blueprint's go, and never a hut,
+     * storage that still holds items, or a block an item-holding entity needs.
+     *
+     * @param sameState   the world block is the blueprint's (any state); @param protectedBl storage or a hut
+     * @param emptied     the storage holds nothing (a moved building's chest, just copied); @param hut a hut block
+     * @param entityKept  an entity with items stands on or hangs from it
+     */
     public static boolean remove(boolean sameState, boolean protectedBl, boolean emptied, boolean hut, boolean entityKept) {
         if (!sameState || hut || entityKept) return false;
         return !protectedBl || emptied;

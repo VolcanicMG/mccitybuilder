@@ -922,17 +922,32 @@ public final class InstantBuild {
         return gone.size();
     }
 
-    /** @return the top block y of the terrain just outside the footprint (its most common height) */
+    /**
+     * @return the top block y of the natural ground just outside the footprint (its most common height), or
+     * Integer.MIN_VALUE (no refill) when the ring touches water or has no natural ground; buildings beside it don't count
+     */
     private static int groundAround(ServerLevel level, BlockPos origin, BlockPos far) {
-        List<Integer> hs = new ArrayList<>();
-        var type = net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES;
+        List<int[]> ring = new ArrayList<>();
         for (int x = origin.getX() - 1; x <= far.getX() + 1; x++) {
-            hs.add(level.getHeight(type, x, origin.getZ() - 1) - 1);
-            hs.add(level.getHeight(type, x, far.getZ() + 1) - 1);
+            ring.add(new int[]{x, origin.getZ() - 1});
+            ring.add(new int[]{x, far.getZ() + 1});
         }
         for (int z = origin.getZ(); z <= far.getZ(); z++) {
-            hs.add(level.getHeight(type, origin.getX() - 1, z) - 1);
-            hs.add(level.getHeight(type, far.getX() + 1, z) - 1);
+            ring.add(new int[]{origin.getX() - 1, z});
+            ring.add(new int[]{far.getX() + 1, z});
+        }
+        List<Integer> hs = new ArrayList<>();
+        for (int[] c : ring) {
+            // Never load a chunk for this.
+            if (!level.hasChunk(c[0] >> 4, c[1] >> 4)) continue;
+            BlockPos surface = new BlockPos(c[0], level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.WORLD_SURFACE, c[0], c[1]) - 1, c[1]);
+            // By water the old site stays open so the water flows back.
+            if (!level.getFluidState(surface).isEmpty()) return Integer.MIN_VALUE;
+            BlockPos top = new BlockPos(c[0], level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, c[0], c[1]) - 1, c[1]);
+            BlockState t = level.getBlockState(top);
+            if (t.is(net.minecraft.tags.BlockTags.DIRT) || t.is(net.minecraft.tags.BlockTags.SAND) || t.is(net.minecraft.tags.BlockTags.BASE_STONE_OVERWORLD)
+                    || t.is(net.minecraft.tags.BlockTags.TERRACOTTA) || t.is(net.minecraft.world.level.block.Blocks.GRAVEL) || t.is(net.minecraft.world.level.block.Blocks.DIRT_PATH))
+                hs.add(top.getY());
         }
         return PasteRules.mode(hs);
     }
