@@ -1086,7 +1086,7 @@ public final class SelfCheck {
         var lines = new java.util.ArrayList<>(List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, true).asBuilt(),
                 new Plan.Line("wall", 0, 5, 20, 5, "p", "f", 1, -1, false, true)));
         check(Plan.split(lines, new int[]{8, 0}, Plan.Line::built) == -1 && lines.size() == 2, "built records are never split");
-        check(Plan.split(lines, new int[]{8, 5}, Plan.Line::built) == 1 && lines.size() == 3 && lines.get(1).x1() == 8 && !lines.get(2).gate(), "split at a cell");
+        check(Plan.split(lines, new int[]{8, 5}, Plan.Line::built) == 1 && lines.size() == 3 && lines.get(1).x1() == 8 && !lines.get(1).gate() && lines.get(2).gate(), "split at a cell: the gate stays with the middle");
         check(Plan.readLines("mccitybuilder-plan\t1\nL3\twall\t0\t0\t9\t0\tp\tf\t1\t-1\tfalse\tfalse\tfalse\t2\t0\t99999\tfalse\n").isEmpty(), "hostile base skipped");
     }
 
@@ -1763,11 +1763,33 @@ public final class SelfCheck {
         List<Plan.Line> two = new java.util.ArrayList<>(List.of(h2, h, run));
         var p2 = Plan.splitThrough(two, run, l -> false);
         check(p2.size() == 3 && p2.get(0).z1() == 0 && p2.get(1).z1() == 6 && two.size() == 7, "two crossings in order along the run");
+        // A diagonal run crosses nothing (no shared cell on both axes); a road through the cell isn't split by a wall.
+        Plan.Line diag = new Plan.Line("wall", -5, -5, 5, 5, "p", "f", 1, -1, false, false);
+        check(Plan.crossings(List.of(h, diag), diag, l -> false).isEmpty(), "a diagonal run makes no intersection");
+        Plan.Line roadX = new Plan.Line("road", -10, 0, 10, 0, "p", "f", 1, -1, false, false);
+        List<Plan.Line> mix = new java.util.ArrayList<>(List.of(roadX, h, run));
+        Plan.splitThrough(mix, run, l -> false);
+        check(mix.contains(roadX) && mix.size() == 5, "only the crossed segment of the run's tool splits");
+        // The gate stays with the half holding the segment's middle.
+        Plan.Line gated = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, true);
+        List<Plan.Line> g1 = new java.util.ArrayList<>(List.of(gated));
+        Plan.split(g1, new int[]{4, 0}, l -> false);
+        check(!g1.get(0).gate() && g1.get(1).gate(), "a split keeps the gate on the half with the middle");
+        // A T turns into a cross: a segment out of the joint's open side gives four arms (the cross piece's menu), along an
+        // arm already there is refused; the T itself offers the cross piece as a type.
+        Plan.Line w = new Plan.Line("wall", -10, 0, 0, 0, "p", "f", 1, -1, false, false), e = new Plan.Line("wall", 0, 0, 10, 0, "p", "f", 1, -1, false, false),
+                s0 = new Plan.Line("wall", 0, 0, 0, 10, "p", "f", 1, -1, false, false);
+        List<Plan.Line> tee = new java.util.ArrayList<>(List.of(w, e, s0));
+        check(Plan.arms(tee, new int[]{0, 0}).equals(java.util.Set.of(0, 1, 2)) && !Plan.arms(tee, new int[]{0, 0}).contains(3)
+                && Plan.menuTypes(3, false).contains(Plan.J_CROSS), "a T: three arms, the north side open, cross offered");
+        tee.add(new Plan.Line("wall", 0, 0, 0, -10, "p", "f", 1, -1, false, false));
+        check(Plan.arms(tee, new int[]{0, 0}).size() == 4 && Plan.menuTypes(4, false).contains(Plan.J_CROSS)
+                && PieceLayout.jointRoles(Plan.J_AUTO, 4, false, false).get(0) == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CROSS, "drawn out of the open side: a cross, auto picks the cross piece");
     }
 
     private static void jointGaps() throws Exception {
         check(PieceLayout.jointLevelLine(new int[]{5, 9}, new int[]{1, 3}) == 1 && PieceLayout.jointLevelLine(new int[]{9, 5}, new int[]{3, 1}) == 0
-                && PieceLayout.jointLevelLine(new int[]{5, 5}, new int[]{1, 2}) == 1 && PieceLayout.jointLevelLine(new int[]{-1, 5}, new int[]{3, 1}) == 1, "joint level from the widest line, any order");
+                && PieceLayout.jointLevelLine(new int[]{5, 5}, new int[]{1, 2}) == 1 && PieceLayout.jointLevelLine(new int[]{-1, 5}, new int[]{3, 1}) == -1, "joint level from the widest line, any order; waits while a width loads");
         int[] ov = PieceLayout.overlapFill(17, new int[]{18, 9, 6}, 2);
         check(ov != null && ov[0] == 1 && java.util.Arrays.stream(ov).skip(1).sum() == 18, "17 cells: one piece of 18 reaching 1 into a joint");
         check(PieceLayout.overlapFill(18, new int[]{18}, 2) == null || PieceLayout.overlapFill(18, new int[]{18}, 2)[0] > 0, "exact fills never need it");

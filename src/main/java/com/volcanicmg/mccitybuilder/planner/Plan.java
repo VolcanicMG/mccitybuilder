@@ -53,7 +53,8 @@ public final class Plan {
     public static List<Integer> menuTypes(int degree, boolean collinear) {
         if (degree <= 1) return List.of(J_AUTO, J_CAP, J_TOWER, J_NONE);
         if (degree >= 4) return List.of(J_AUTO, J_CROSS, J_TOWER, J_NONE);
-        if (degree == 3) return List.of(J_AUTO, J_TEE, J_TOWER, J_NONE);
+        // A T may take the cross piece too (three of its arms meet the runs, the fourth stays open).
+        if (degree == 3) return List.of(J_AUTO, J_TEE, J_CROSS, J_TOWER, J_NONE);
         return collinear ? List.of(J_AUTO, J_TOWER, J_NONE) : List.of(J_AUTO, J_CORNER, J_INNER, J_TOWER, J_NONE);
     }
 
@@ -340,12 +341,27 @@ public final class Plan {
             boolean onX = l.z0() == l.z1() && c[1] == l.z0() && c[0] > Math.min(l.x0(), l.x1()) && c[0] < Math.max(l.x0(), l.x1());
             boolean onZ = l.x0() == l.x1() && c[0] == l.x0() && c[1] > Math.min(l.z0(), l.z1()) && c[1] < Math.max(l.z0(), l.z1());
             if (!onX && !onZ) continue;
-            lines.set(i, l.between(l.x0(), l.z0(), c[0], c[1]));
-            Line rest = l.between(c[0], c[1], l.x1(), l.z1());
-            lines.add(i + 1, rest.with(rest.family(), rest.level(), rest.variant(), rest.towers(), false));
+            Line[] h = halves(l, c);
+            lines.set(i, h[0]);
+            lines.add(i + 1, h[1]);
             return i;
         }
         return -1;
+    }
+
+    /** @return the directions out of cell {@code c} along the segments ending there (a joint's arms) */
+    public static java.util.Set<Integer> arms(List<Line> lines, int[] c) {
+        java.util.Set<Integer> out = new java.util.TreeSet<>();
+        for (Line l : lines) {
+            if (l.x0() == c[0] && l.z0() == c[1] && (l.x1() != c[0] || l.z1() != c[1])) out.add(dirOf(l.x0(), l.z0(), l.x1(), l.z1()));
+            if (l.x1() == c[0] && l.z1() == c[1] && (l.x0() != c[0] || l.z0() != c[1])) out.add(dirOf(l.x1(), l.z1(), l.x0(), l.z0()));
+        }
+        return out;
+    }
+
+    /** @return the axis direction from (x0, z0) toward (x1, z1): 0 east, 1 south, 2 west, 3 north */
+    private static int dirOf(int x0, int z0, int x1, int z1) {
+        return x1 > x0 ? 0 : x1 < x0 ? 2 : z1 > z0 ? 1 : 3;
     }
 
     /**
@@ -357,6 +373,8 @@ public final class Plan {
      */
     public static List<int[]> crossings(List<Line> lines, Line run, java.util.function.Predicate<Line> locked) {
         List<int[]> out = new java.util.ArrayList<>();
+        // A diagonal run crosses no axis segment at a cell both share.
+        if (run.x0() != run.x1() && run.z0() != run.z1()) return out;
         boolean runX = run.z0() == run.z1();
         for (Line l : lines) {
             if (l == run || !l.tool().equals(run.tool()) || (l.z0() == l.z1()) == runX || l.x0() != l.x1() && l.z0() != l.z1()) continue;
@@ -377,19 +395,28 @@ public final class Plan {
      */
     public static List<Line> splitThrough(List<Line> lines, Line run, java.util.function.Predicate<Line> locked) {
         List<Line> parts = new java.util.ArrayList<>(List.of(run));
+        boolean runX = run.z0() == run.z1();
         for (int[] c : crossings(lines, run, locked)) {
             if (c[2] == 1) continue;
-            split(lines, c, l -> locked.test(l) || parts.contains(l));
+            // Only the crossed segment: same tool, across the run (never the run itself or another line through the cell).
+            split(lines, c, l -> locked.test(l) || parts.contains(l) || !l.tool().equals(run.tool()) || (l.z0() == l.z1()) == runX);
             Line last = parts.get(parts.size() - 1);
             int i = lines.indexOf(last);
-            Line a = last.between(last.x0(), last.z0(), c[0], c[1]), b = last.between(c[0], c[1], last.x1(), last.z1());
-            b = b.with(b.family(), b.level(), b.variant(), b.towers(), false);
-            lines.set(i, a);
-            lines.add(i + 1, b);
-            parts.set(parts.size() - 1, a);
-            parts.add(b);
+            Line[] h = halves(last, c);
+            lines.set(i, h[0]);
+            lines.add(i + 1, h[1]);
+            parts.set(parts.size() - 1, h[0]);
+            parts.add(h[1]);
         }
         return parts;
+    }
+
+    /** @return the segment split at cell c (inside it): the gate stays with the half holding the segment's middle */
+    private static Line[] halves(Line l, int[] c) {
+        Line a = l.between(l.x0(), l.z0(), c[0], c[1]), b = l.between(c[0], c[1], l.x1(), l.z1());
+        int mid = (Math.abs(l.x1() - l.x0()) + Math.abs(l.z1() - l.z0())) / 2, at = Math.abs(c[0] - l.x0()) + Math.abs(c[1] - l.z0());
+        return mid > at ? new Line[]{a.with(a.family(), a.level(), a.variant(), a.towers(), false), b}
+                : new Line[]{a, b.with(b.family(), b.level(), b.variant(), b.towers(), false)};
     }
 
     /**

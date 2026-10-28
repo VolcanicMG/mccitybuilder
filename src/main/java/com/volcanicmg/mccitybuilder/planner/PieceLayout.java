@@ -89,9 +89,10 @@ public final class PieceLayout {
     /**
      * @param widths each line's straight width at a joint (-1 while it loads); @param levels each line's level
      * @return the line whose level the joint piece takes: the widest, then the highest level, then the first (so the
-     * drawing order never decides)
+     * drawing order never decides); -1 while a width is unknown (the joint waits rather than flickering)
      */
     public static int jointLevelLine(int[] widths, int[] levels) {
+        for (int w : widths) if (w < 0) return -1;
         int best = 0;
         for (int q = 1; q < widths.length; q++)
             if (widths[q] > widths[best] || widths[q] == widths[best] && levels[q] > levels[best]) best = q;

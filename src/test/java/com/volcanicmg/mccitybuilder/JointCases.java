@@ -133,6 +133,8 @@ final class JointCases {
                     continue;
                 }
                 add(out, pack, famKey, name, fam, PieceLayout.jointRoles(Plan.J_AUTO, outs.length, false, false), sg, st, outs, dirsOf(outs), flip);
+                // A T may take the cross piece (chosen per joint): three arms meet the runs, the fourth stays open.
+                if (outs.length == 3) add(out, pack, famKey, name + "-cross", fam, List.of(PieceSets.Role.CROSS), sg, st, outs, dirsOf(outs), flip);
                 if (outs.length == 2) {
                     add(out, pack, famKey, name + "-inner", fam, List.of(PieceSets.Role.INNER), sg, st, outs, dirsOf(outs), flip);
                     // Both walls leaving the joint (two chains started there) or both arriving: the straights turn differently.

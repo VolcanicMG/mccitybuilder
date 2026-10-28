@@ -387,6 +387,13 @@ final class PieceCatalog {
     }
 
     static Layout layout(List<Plan.Line> lines, Map<Long, Integer> jointTypes) {
+        return layout(lines, jointTypes, new java.util.HashSet<>());
+    }
+
+    /** @param noReach run ends ({@code line * 2 + end}) whose gap-closing reach into a joint clashed: they keep the gap */
+    private static Layout layout(List<Plan.Line> lines, Map<Long, Integer> jointTypes, java.util.Set<Integer> noReach) {
+        // Run ends reaching into a joint to close a gap: {line, end, index of that piece in the line's pieces}.
+        List<int[]> reaches = new ArrayList<>();
         jointNotes.clear();
         jointMatch.clear();
         jointGapAir.clear();
@@ -690,6 +697,7 @@ final class PieceCatalog {
             // into a joint without breaking it (tried at the start's joint, then the end's).
             Placed ja = joints.get(key(a[0], a[1])), jz = joints.get(key(b[0], b[1]));
             int[] ov = left > 0 && left <= 2 && gates.isEmpty() && ja != null && jz != null ? PieceLayout.overlapFill(n, lens, 2) : null;
+            int reachEnd = -1;
             if (ov != null) {
                 List<PieceSets.Piece> ps = new ArrayList<>();
                 List<Integer> rl = new ArrayList<>();
@@ -698,9 +706,11 @@ final class PieceCatalog {
                     rl.add(ov[k]);
                 }
                 for (int s0 : new int[]{off[0] - ov[0], off[0]}) {
-                    int e = s0 == off[0] ? ps.size() - 1 : 0;
+                    int e = s0 == off[0] ? ps.size() - 1 : 0, je = s0 == off[0] ? 1 : 0;
+                    if (noReach.contains(i * 2 + je)) continue;
                     Placed probe = place(l.pack(), ps.get(e).path(), sturn(ps.get(e), dir, l.flip()), PieceLayout.boxes(a, dir, s0, rl, width, shift).get(e), PieceSets.Role.STRAIGHT);
-                    if (probe == null || clash(l.pack(), s0 == off[0] ? jz : ja, l.pack(), probe)) continue;
+                    if (probe == null || clashOrUnknown(jointPack(lines, je == 1 ? b : a, l.pack()), je == 1 ? jz : ja, l.pack(), probe)) continue;
+                    reachEnd = je;
                     tiles.clear();
                     tiles.addAll(rl);
                     tilePieces.clear();
@@ -718,6 +728,7 @@ final class PieceCatalog {
             List<Integer> runs = new ArrayList<>();
             for (PieceSets.Piece p : tilePieces) runs.add(p.run());
             List<int[]> boxes = PieceLayout.boxes(a, dir, start, runs, width, shift);
+            if (reachEnd >= 0) reaches.add(new int[]{i, reachEnd, placed.size() + (reachEnd == 1 ? tilePieces.size() - 1 : 0)});
             for (int k = 0; k < tilePieces.size(); k++) {
                 PieceSets.Piece p = tilePieces.get(k);
                 Placed pl = place(l.pack(), p.path(), sturn(p, dir, l.flip()), boxes.get(k), tiles.get(k) < 0 ? PieceSets.Role.GATE : PieceSets.Role.STRAIGHT);
@@ -783,6 +794,23 @@ final class PieceCatalog {
             for (int[] n : next)
                 if (n[2] == 1 && anyBuilt) setTo(out, lines, lineRun, lineLv, n, level);
                 else if (n[2] == 1) raiseTo(out, lines, lineRun, lineLv, n, level);
+        }
+        // A run end reaching into a joint is checked again at the final levels, against the joint and every piece in
+        // its box: any clash lays the plan out again with that end keeping its gap.
+        for (int[] r : reaches) {
+            Plan.Line l = lines.get(r[0]);
+            int[] c = r[1] == 0 ? new int[]{l.x0(), l.z0()} : new int[]{l.x1(), l.z1()};
+            int[] where = jointAt.get(key(c[0], c[1]));
+            if (where == null || r[2] >= out.get(r[0]).size()) continue;
+            Placed p = out.get(r[0]).get(r[2]), j = out.get(where[0]).get(where[1]);
+            boolean bad = false;
+            for (int li = 0; li < out.size() && !bad; li++)
+                for (Placed q : out.get(li))
+                    if (q != p && (q == j || overlaps(q.box(), j.box())) && clashOrUnknown(lines.get(li).pack(), q, l.pack(), p)) {
+                        bad = true;
+                        break;
+                    }
+            if (bad && noReach.add(r[0] * 2 + r[1])) return layout(lines, jointTypes, noReach);
         }
         return new Layout(out, shortened, gaps, need, lineComplete, heights, offs, complete);
     }
@@ -975,10 +1003,16 @@ final class PieceCatalog {
         int[] ws = new int[at.size()], lvs = new int[at.size()];
         for (int o = 0; o < at.size(); o++) {
             PieceSets.Piece st = primary(at.get(o), 0);
-            ws[o] = st == null ? -1 : st.across();
+            // Unknown while the pack loads; a family without straights has no say.
+            ws[o] = st != null ? st.across() : families(at.get(o).pack()) == null ? -1 : 0;
             lvs[o] = at.get(o).level();
         }
-        int level = lvs[PieceLayout.jointLevelLine(ws, lvs)];
+        int li = PieceLayout.jointLevelLine(ws, lvs);
+        if (li < 0) {
+            jointLoading = true;
+            return null;
+        }
+        int level = lvs[li];
         List<PieceSets.Piece> cands = new ArrayList<>();
         List<PieceSets.Role> roles = new ArrayList<>();
         int primaries = 0;
@@ -1080,6 +1114,23 @@ final class PieceCatalog {
         if (x[0] > y[2] || y[0] > x[2] || x[1] > y[3] || y[1] > x[3] || a.y0() + a.h() <= b.y0() || b.y0() + b.h() <= a.y0()) return false;
         PieceLayout.Grid ga = grid(packA, a.path(), a.turns()), gb = grid(packB, b.path(), b.turns());
         return ga != null && gb != null && PieceLayout.destructive(ga, x[0], a.y0(), x[1], gb, y[0], b.y0(), y[1]);
+    }
+
+    /** @return {@link #clash}, but true while either piece's blocks are unknown (a run never reaches into what it can't check) */
+    private static boolean clashOrUnknown(String packA, Placed a, String packB, Placed b) {
+        int[] x = a.box(), y = b.box();
+        if (x[0] > y[2] || y[0] > x[2] || x[1] > y[3] || y[1] > x[3] || a.y0() + a.h() <= b.y0() || b.y0() + b.h() <= a.y0()) return false;
+        return grid(packA, a.path(), a.turns()) == null || grid(packB, b.path(), b.turns()) == null || clash(packA, a, packB, b);
+    }
+
+    private static boolean overlaps(int[] x, int[] y) {
+        return x[0] <= y[2] && y[0] <= x[2] && x[1] <= y[3] && y[1] <= x[3];
+    }
+
+    /** @return the pack of the joint piece at cell c: that of the first line ending there (the one laying it out), else {@code dflt} */
+    private static String jointPack(List<Plan.Line> lines, int[] c, String dflt) {
+        for (Plan.Line l : lines) for (int[] e : l.ends()) if (e[0] == c[0] && e[1] == c[1]) return l.pack();
+        return dflt;
     }
 
     /** @return the joint's setting from the player's or the built-in overrides for these lines meeting it, or null */

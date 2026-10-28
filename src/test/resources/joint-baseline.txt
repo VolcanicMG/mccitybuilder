@@ -1,2 +1,9 @@
+throughArmsAligned fortress walls|T-cross|walls/wall/intersection.blueprint|e9fc979bx16|2:472691d4:8,2,0|0:472691d4:9,0,0|1:ca740d70:5,2,0	throughArmsAligned fortress walls L3|T-cross
+throughArmsAligned fortress walls|T-cross|walls/wall/intersection.blueprint|e9fc979bx16|2:fe3ff41a:8,-2,0|0:fe3ff41a:9,-1,-1|1:8b45ed8a:5,3,-1	throughArmsAligned fortress walls L1|T-cross
+throughArmsAligned fortress walls|T-flipped-cross|walls/wall/intersection.blueprint|ce589467x16|2:93a2ba0e:8,1,0|0:93a2ba0e:9,-1,0|1:6079bdf2:5,3,0	throughArmsAligned fortress walls L3|T-flipped-cross
+throughArmsAligned fortress walls|T-flipped-cross|walls/wall/intersection.blueprint|ce589467x16|2:94064148:8,2,-1|0:94064148:9,3,0|1:d058bcd8:5,-1,0	throughArmsAligned fortress walls L1|T-flipped-cross
+throughArmsAligned incan infrastructure/roads/path|T-cross|infrastructure/roads/path/pathintersection.blueprint|7f5bb5b8x6|2:76b89207:3,1,0|0:76b89207:4,0,0|1:b3e1132b:4,0,0	throughArmsAligned incan infrastructure/roads/path L0|T-cross
+throughArmsAligned incan infrastructure/roads/path|T-flipped-cross|infrastructure/roads/path/pathintersection.blueprint|9867522ax6|2:2035727b:3,1,0|0:2035727b:4,0,0|1:146f0657:4,0,0	throughArmsAligned incan infrastructure/roads/path L0|T-flipped-cross
+throughArmsAligned original infrastructure/roads/poor|T-cross|infrastructure/roads/poor/poorintersectionodd.blueprint|6ab550a9x11|2:7c6f167:6,-1,0|0:7c6f167:6,0,0|1:689122eb:6,0,0	throughArmsAligned original infrastructure/roads/poor L0|T-cross
 wallCornerTurns birch walls|L-left-inner|walls/wallinnercorner.blueprint|564a5f85x10|2:27290451:5,-2,0|3:6f5765d1:5,4,0	wallCornerTurns birch walls L0|L-left-inner
 wallCornerTurns birch walls|L-right-flipped-inner|walls/wallinnercorner.blueprint|df8fb285x10|2:ef615b51:5,3,0|1:6f5765d1:6,4,0	wallCornerTurns birch walls L0|L-right-flipped-inner

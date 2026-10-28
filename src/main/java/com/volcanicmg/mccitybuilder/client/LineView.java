@@ -123,6 +123,7 @@ final class LineView {
         liveA = liveB = null;
         live = List.of();
         liveCross = List.of();
+        cursor = null;
         liveBad = List.of();
         liveGap = null;
         liveShort = liveLen = 0;
@@ -166,6 +167,7 @@ final class LineView {
         String fam = active() ? family() : null;
         snap = null;
         guide = null;
+        cursor = null;
         snapPoints = List.of();
         if (edit) {
             // Edit mode draws nothing: the cursor finds a joint (a segment end) or a segment.
@@ -664,6 +666,8 @@ final class LineView {
                     break;
                 }
             }
+            // A T offers the cross only when the family has a cross piece (not the tower standing in for it).
+            if (t == Plan.J_CROSS && degree == 3 && (f == null || PieceCatalog.groups(l.pack(), f, PieceSets.Role.CROSS).isEmpty())) continue;
             // A chosen role the family lacks is a stand-in for another option: skip it (auto and none always count).
             if (piece == null && t != Plan.J_AUTO && t != Plan.J_NONE) continue;
             final PieceSets.Piece pc = piece;
@@ -1015,6 +1019,30 @@ final class LineView {
             flash = liveNeed == Integer.MAX_VALUE ? "mccitybuilder.line.no_fit" : "mccitybuilder.line.too_short";
             flashArg = liveNeed;
             flashUntil = System.currentTimeMillis() + 1500;
+            return false;
+        }
+        // Through a built or sending segment: no intersection there (it can't be split).
+        for (int[] c : Plan.crossings(PlanView.lines, next(start, end), PlanView::locked))
+            if (c[2] == 1) {
+                flash = "mccitybuilder.line.cross_built." + (wall() ? "wall" : "road");
+                flashUntil = System.currentTimeMillis() + 2500;
+                return false;
+            }
+        // A new arm at a joint of built or sending segments would need a new joint piece there: refused.
+        for (int[] c : new int[][]{start, end}) {
+            boolean lockedAt = false;
+            for (Plan.Line x : PlanView.lines) for (int[] e : x.ends()) lockedAt |= e[0] == c[0] && e[1] == c[1] && PlanView.locked(x);
+            if (lockedAt && Plan.arms(PlanView.lines, c).size() >= 2) {
+                flash = "mccitybuilder.line.joint_built";
+                flashUntil = System.currentTimeMillis() + 2500;
+                return false;
+            }
+        }
+        // Out of (or into) a joint: only on an open side, never along an arm already there.
+        int sd = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(start, end);
+        if (Plan.arms(PlanView.lines, start).contains(sd) || Plan.arms(PlanView.lines, end).contains((sd + 2) % 4)) {
+            flash = "mccitybuilder.line.on_arm";
+            flashUntil = System.currentTimeMillis() + 2000;
             return false;
         }
         checkpoint();
@@ -1421,6 +1449,17 @@ final class LineView {
         }
         int[] c = start == null ? hover : end;
         if (snap == null || c == null) return;
+        // A T's open side (a segment drawn out of it makes a cross): a short cyan line that way.
+        java.util.Set<Integer> arms = Plan.arms(PlanView.lines, c);
+        if (arms.size() == 3)
+            for (int d = 0; d < 4; d++)
+                if (!arms.contains(d)) {
+                    int[] v = {d == 0 ? 1 : d == 2 ? -1 : 0, d == 1 ? 1 : d == 3 ? -1 : 0};
+                    float gy = groundY(c[0], c[1]) + 1.2f, cx0 = c[0] + 0.5f, cz0 = c[1] + 0.5f;
+                    segment(pose, lines, cx0, cz0, cx0 + v[0] * 4, cz0 + v[1] * 4, gy, 1f);
+                    segment(pose, lines, cx0 + v[0] * 4, cz0 + v[1] * 4, cx0 + v[0] * 3 + v[1] * 0.6f, cz0 + v[1] * 3 + v[0] * 0.6f, gy, 1f);
+                    segment(pose, lines, cx0 + v[0] * 4, cz0 + v[1] * 4, cx0 + v[0] * 3 - v[1] * 0.6f, cz0 + v[1] * 3 - v[0] * 0.6f, gy, 1f);
+                }
         int y = groundY(c[0], c[1]);
         LevelRenderer.renderLineBox(pose, lines, c[0] + 0.1, y, c[1] + 0.1, c[0] + 0.9, y + 1.2, c[1] + 0.9, 0.3f, 0.9f, 1f, 1f);
         if (cursor != null) segment(pose, lines, (float) cursor[0], (float) cursor[1], c[0] + 0.5f, c[1] + 0.5f, y + 0.6f, 0.8f);
