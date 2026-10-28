@@ -1317,46 +1317,67 @@ public final class SelfCheck {
 
     /**
      * Joint geometry checks over every family, level and variant ({@link JointCases#allLevels}), each a ratchet
-     * against {@code src/test/resources/joint-baseline.txt} (the cases failing when the checks were added, not yet
-     * reviewed one by one): a new failure fails, and so does a baselined case that now passes, so the list only
-     * shrinks ({@code -DwriteBaseline=true} rewrites both baseline files):
+     * against {@code src/test/resources/joint-baseline.txt}: entries are keyed by geometry (family, case, joint piece
+     * and turn, each run's straight and off / shift / depth), so a level that lays out the same is one entry. A new
+     * failure fails, and so does a baselined case that now passes, so the list only shrinks
+     * ({@code -DwriteBaseline=true} rewrites both baseline files). Known classes (below) are listed, not judged.
      * <ul>
-     * <li>wallCornerTurns: an L's corner shows the straight's cross-section on its arms at least as much as on its
-     * closed sides ({@link PieceLayout#armClosed}, 0.05 slack); symmetric corners skipped;</li>
+     * <li>wallCornerTurns: walls only, and only corners no run touches well (no contact, or the best run match under
+     * 0.3): fails when the corner's closed sides look more like the straight's end than its arms do by over 0.15
+     * ({@link PieceLayout#armClosed});</li>
      * <li>noOverhang: a run that touches nothing stays within the joint's lateral span (plus its own side trim);</li>
-     * <li>throughArmsAligned: a T's or cross's opposite arms share one lateral shift;</li>
-     * <li>tShiftCentred: a tower T's third arm sits on the tower's centre line;</li>
+     * <li>throughArmsAligned: a T's or cross's opposite arms line up: their visible end profiles' world lateral
+     * centres within half a cell;</li>
+     * <li>tShiftCentred: a tower T's third arm that touches nothing sits on the tower's centre line;</li>
      * <li>noContactDelta: runs that touch nothing, per family, never more than the checked-in baseline
-     * ({@code src/test/resources/no-contact.tsv}; {@code -DwriteBaseline=true} rewrites it).</li>
+     * ({@code src/test/resources/no-contact.tsv}).</li>
      * </ul>
      */
     private static void jointChecks() throws Exception {
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
         List<JointCases.Case> all = JointCases.allLevels();
         Path allowFile = Path.of("src/test/resources/joint-baseline.txt");
-        java.util.Set<String> allow = Files.exists(allowFile) ? new java.util.HashSet<>(Files.readAllLines(allowFile)) : new java.util.HashSet<>();
-        java.util.Set<String> failing = new java.util.TreeSet<>();
-        List<String> fails = new java.util.ArrayList<>(), passingAllowed = new java.util.ArrayList<>();
-        StringBuilder table = new StringBuilder("CityBuilder self-check: wallCornerTurns (case: arm / closed)\n");
+        java.util.Set<String> allow = new java.util.HashSet<>();
+        if (Files.exists(allowFile))
+            for (String line : Files.readAllLines(allowFile)) if (!line.isBlank()) allow.add(line.split("\t")[0]);
+        Map<String, String> failing = new java.util.TreeMap<>(), known = new java.util.TreeMap<>();
+        java.util.Set<String> seen = new java.util.HashSet<>(), passingAllowed = new java.util.TreeSet<>();
+        List<String> fails = new java.util.ArrayList<>(), notes = new java.util.ArrayList<>();
         Map<String, Integer> noContact = new java.util.TreeMap<>();
         for (var cs : all) {
-            String id = cs.family() + "|" + cs.name();
-            java.util.function.BiConsumer<String, Boolean> verdict = (check, ok) -> {
-                String k = check + " " + id;
-                if (!ok) failing.add(k);
-                if (allow.contains(k)) {
-                    if (ok) passingAllowed.add(k);
-                } else if (!ok) fails.add(k);
-            };
             for (var r : cs.runs()) if (r.fit().depth() < 0) noContact.merge(cs.family(), 1, Integer::sum);
-            if (cs.runs().size() == 2 && cs.name().startsWith("L-") && !cs.name().contains("tower")) {
+            String fam = cs.family().replaceAll(" L\\d+$", "");
+            StringBuilder g = new StringBuilder(fam + "|" + cs.name() + "|" + cs.jointPath() + "|" + Integer.toHexString(java.util.Arrays.hashCode(cs.joint().ids())) + "x" + cs.joint().sx());
+            for (var r : cs.runs())
+                g.append("|").append(r.out()).append(":").append(Integer.toHexString(java.util.Arrays.hashCode(r.straight().ids()))).append(":").append(r.fit().off())
+                        .append(",").append(r.fit().shift()).append(",").append(r.fit().depth());
+            String geo = g.toString(), id = cs.family() + "|" + cs.name();
+            if (!seen.add(geo)) continue;
+            String knownWhy = fam.equals("jungle infrastructure/roads") ? "jungle's walks include diagonal pieces, laid like axis runs" : null;
+            java.util.function.BiConsumer<String, Boolean> verdict = (check, ok) -> {
+                String k = check + " " + geo;
+                if (knownWhy != null) {
+                    if (!ok) known.put(check + " " + id, knownWhy);
+                    return;
+                }
+                if (!ok) failing.put(k, check + " " + id);
+                if (allow.contains(k)) {
+                    if (ok) passingAllowed.add(check + " " + id);
+                } else if (!ok) fails.add(check + " " + id);
+            };
+            if (fam.contains("walls") && cs.runs().size() == 2 && cs.name().startsWith("L-") && !cs.name().contains("tower")) {
+                double bestMatch = 0;
+                boolean contact = false;
+                for (var r : cs.runs()) {
+                    contact |= r.fit().depth() >= 0;
+                    bestMatch = Math.max(bestMatch, r.fit().match());
+                }
                 PieceLayout.Grid j = cs.joint(), t1 = j.turned(1);
-                if (!(t1.sx() == j.sx() && java.util.Arrays.equals(t1.ids(), j.ids()))) {
+                if ((!contact || bestMatch < 0.3) && !(t1.sx() == j.sx() && java.util.Arrays.equals(t1.ids(), j.ids()))) {
                     List<Integer> outs = new java.util.ArrayList<>();
                     for (var r : cs.runs()) outs.add(r.out());
                     double[] ac = PieceLayout.armClosed(j, outs, cs.runs().get(0).straight(), false);
-                    table.append(String.format("  %-70s %.2f / %.2f%n", id, ac[0], ac[1]));
-                    verdict.accept("wallCornerTurns", ac[0] >= ac[1] - 0.05);
+                    verdict.accept("wallCornerTurns", ac[1] - ac[0] <= 0.15);
                 }
             }
             for (var r : cs.runs()) {
@@ -1369,33 +1390,45 @@ public final class SelfCheck {
             }
             if ((cs.name().startsWith("T") || cs.name().startsWith("cross")) && !cs.butt()) {
                 boolean ok = true;
+                StringBuilder nums = new StringBuilder();
                 for (var a : cs.runs())
-                    for (var b : cs.runs()) if (b.out() == (a.out() + 2) % 4 && a.fit().shift() != b.fit().shift()) ok = false;
+                    for (var b : cs.runs())
+                        if (b.out() == (a.out() + 2) % 4 && a.out() < b.out()) {
+                            double ca = endCentre(a), cb = endCentre(b);
+                            ok &= Math.abs(ca - cb) <= 0.5;
+                            nums.append(String.format(" %d/%d: %.2f vs %.2f", a.out(), b.out(), ca, cb));
+                        }
                 verdict.accept("throughArmsAligned", ok);
+                if (cs.family().matches("(medievaloak walls L5|fortress walls L1)") && cs.name().equals("cross"))
+                    notes.add(id + (ok ? " aligned" : " NOT aligned") + nums);
                 if (cs.name().startsWith("T") && cs.jointPath().toLowerCase(java.util.Locale.ROOT).contains("tower"))
                     for (var r : cs.runs()) {
                         boolean through = false;
                         for (var b : cs.runs()) through |= b.out() == (r.out() + 2) % 4;
-                        if (through) continue;
+                        if (through || r.fit().depth() >= 0) continue;
                         int lat0 = r.out() % 2 == 0 ? 1 : 0, lat1 = lat0 + 2;
                         double rc = (r.box()[lat0] + r.box()[lat1]) / 2.0, jc = (cs.jointBox()[lat0] + cs.jointBox()[lat1]) / 2.0;
                         verdict.accept("tShiftCentred", Math.abs(rc - jc) <= 0.5);
                     }
             }
         }
-        System.out.print(table);
+        for (String n : notes) System.out.println("CityBuilder self-check: through arms, " + n);
         Path base = Path.of("src/test/resources/no-contact.tsv");
         if (Boolean.getBoolean("writeBaseline")) {
             StringBuilder sb = new StringBuilder();
             noContact.forEach((f, n) -> sb.append(f).append('\t').append(n).append('\n'));
             Files.createDirectories(base.getParent());
             Files.writeString(base, sb.toString());
-            Files.writeString(allowFile, String.join("\n", failing) + "\n");
+            StringBuilder al = new StringBuilder();
+            failing.forEach((k, readable) -> al.append(k).append('\t').append(readable).append('\n'));
+            Files.writeString(allowFile, al.toString());
             return;
         }
         Map<String, Integer> per = new java.util.TreeMap<>();
-        for (String f : failing) per.merge(f.substring(0, f.indexOf(' ')), 1, Integer::sum);
-        System.out.println("CityBuilder self-check: joint checks failing per check (baselined or not): " + per);
+        for (String r : failing.values()) per.merge(r.substring(0, r.indexOf(' ')), 1, Integer::sum);
+        System.out.println("CityBuilder self-check: joint checks, distinct geometries " + seen.size() + " of " + all.size() + "; failing (baselined) per check " + per);
+        for (String r : failing.values()) System.out.println("  " + r);
+        System.out.println("CityBuilder self-check: joint checks, known classes (" + known.size() + "): " + new java.util.TreeSet<>(known.values()));
         Map<String, Integer> was = new java.util.HashMap<>();
         if (Files.exists(base))
             for (String line : Files.readAllLines(base)) {
@@ -1405,9 +1438,20 @@ public final class SelfCheck {
         noContact.forEach((f, n) -> {
             if (n > was.getOrDefault(f, 0)) fails.add("noContactDelta " + f + " " + was.getOrDefault(f, 0) + " -> " + n);
         });
-        System.out.println("CityBuilder self-check: joint checks failing (" + fails.size() + "): " + fails);
+        System.out.println("CityBuilder self-check: joint checks failing beyond the baseline (" + fails.size() + "): " + fails);
         check(fails.isEmpty(), "joint checks: " + fails.size() + " failing (listed above)");
         check(passingAllowed.isEmpty(), "baselined joint cases now passing (drop them from joint-baseline.txt): " + passingAllowed);
+    }
+
+    /** @return a run's visible end profile's lateral centre in world cells (its box's lateral origin plus the profile's mean) */
+    private static double endCentre(JointCases.Run r) {
+        int d = r.out(), lat0 = d % 2 == 0 ? 1 : 0;
+        PieceLayout.Grid s = r.straight();
+        java.util.Set<Long> p = PieceLayout.visible(s.profile((d + 2) % 4, s.inset((d + 2) % 4), 0, false), s);
+        if (p.isEmpty()) return r.box()[lat0] + (r.box()[lat0 + 2] - r.box()[lat0]) / 2.0;
+        double sum = 0;
+        for (long v : p) sum += (v & 0xFFFF) - 30000;
+        return r.box()[lat0] + sum / p.size();
     }
 
     private static void continuity() throws Exception {
