@@ -942,7 +942,7 @@ public final class InstantBuild {
             if (!level.getFluidState(w).isEmpty()) level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
         // No drops and no shape updates mid-way (a door's or bed's other half would pop off as an item); neighbours after.
         for (BlockPos w : gone) level.setBlock(w, ground(w.getY(), top), 2 | 16 | 32);
-        for (BlockPos w : gone) level.updateNeighborsAt(w, level.getBlockState(w).getBlock());
+        settle(level, gone);
         // The blueprint's own hollows under the ground around it (a basin, a cellar) fill too; never a cell with an
         // entity in it, and only where placing is allowed (one place event per chunk, as the paste does).
         java.util.Set<BlockPos> occupied = new java.util.HashSet<>(entityKept);
@@ -1001,7 +1001,7 @@ public final class InstantBuild {
             }
         int n = restore(p, r, level, bp, origin, far, snap, live, report);
         if (n >= 0) {
-            for (String yk : newer) Snapshots.handOver(level, snap, yk);
+            Snapshots.handOver(level, snap, newer);
             Snapshots.delete(level, snapKey);
         }
         return n;
@@ -1070,12 +1070,25 @@ public final class InstantBuild {
                 level.sendBlockUpdated(w, snap.palette()[snap.cells()[i]], snap.palette()[snap.cells()[i]], 3);
             }
         }
-        for (BlockPos w : cells) level.updateNeighborsAt(w, level.getBlockState(w).getBlock());
+        settle(level, cells);
         if (report) {
             done(p);
             p.displayClientMessage(Component.translatable("mccitybuilder.restored", cells.size()), false);
         }
         return cells.size();
+    }
+
+    /**
+     * After cells were set without shape updates or drops: each takes the shape its neighbours give it, tells its
+     * neighbours its own (fences, panes, walls, stairs, dust reconnect), then the usual neighbour updates.
+     */
+    private static void settle(ServerLevel level, List<BlockPos> cells) {
+        for (BlockPos w : cells) {
+            BlockState s = level.getBlockState(w), u = net.minecraft.world.level.block.Block.updateFromNeighbourShapes(s, level, w);
+            if (u != s) level.setBlock(w, u, 2 | 32);
+            u.updateNeighbourShapes(level, w, 2 | 32);
+        }
+        for (BlockPos w : cells) level.updateNeighborsAt(w, level.getBlockState(w).getBlock());
     }
 
     /** @return the refill for height y: dirt under the surrounding ground's top, grass at it, air above */

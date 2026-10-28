@@ -99,6 +99,16 @@ public final class PasteRules {
         return !placeholder && !untouched && !otherLive && !keep;
     }
 
+    /**
+     * @param changed per newer live placement over a cell, oldest first: whether its paste changed that cell
+     * @return which one takes over what stood there before the placement being removed: the oldest that changed it
+     * (the ones above it hold their own "before" already), or -1 when none did
+     */
+    public static int handOverTarget(boolean[] changed) {
+        for (int q = 0; q < changed.length; q++) if (changed[q]) return q;
+        return -1;
+    }
+
     /** @return true when the block (x, y, z) lies in any of the boxes {x0, y0, z0, x1, y1, z1} (inclusive) */
     public static boolean inAny(java.util.List<int[]> boxes, int x, int y, int z) {
         for (int[] b : boxes) if (x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5]) return true;

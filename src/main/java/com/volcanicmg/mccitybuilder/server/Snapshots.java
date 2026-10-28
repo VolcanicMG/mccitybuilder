@@ -172,35 +172,64 @@ final class Snapshots {
     }
 
     /**
-     * A placement {@code from} goes while a newer one ({@code toKey}) stands over part of it: in the cells both
-     * changed, what stood before the older one is what the newer one must put back when it goes, so those cells of
-     * its snapshot take {@code from}'s values (cells either kept stay as they are).
+     * A placement {@code from} goes while newer ones stand over parts of it: in each cell, what stood before it is what
+     * the oldest newer placement that changed that cell must put back when it goes ({@link PasteRules#handOverTarget}),
+     * so that cell of its snapshot takes {@code from}'s value; the others above it already hold their own "before".
+     *
+     * @param newer the newer placements' snapshot keys (any order)
      */
-    static void handOver(ServerLevel level, Snap from, String toKey) {
-        Snap to = load(level, toKey);
-        if (to == null) return;
-        List<BlockState> palette = new ArrayList<>(List.of(to.palette()));
-        int[] cells = to.cells().clone();
-        Map<Integer, CompoundTag> bes = new HashMap<>(to.bes());
-        boolean changed = false;
-        for (int y = 0; y < to.sy(); y++)
-            for (int z = 0; z < to.sz(); z++)
-                for (int x = 0; x < to.sx(); x++) {
-                    int ti = to.index(x, y, z), fi = from.at(to.origin().offset(x, y, z));
-                    if (fi < 0 || cells[ti] < 0 || from.cells()[fi] < 0) continue;
-                    BlockState s = from.palette()[from.cells()[fi]];
-                    int pi = palette.indexOf(s);
-                    if (pi < 0) {
-                        palette.add(s);
-                        pi = palette.size() - 1;
+    static void handOver(ServerLevel level, Snap from, List<String> newer) {
+        List<String> keys = new ArrayList<>();
+        List<Snap> snaps = new ArrayList<>();
+        for (String k : newer) {
+            Snap s = load(level, k);
+            if (s == null) continue;
+            int at = 0;
+            while (at < snaps.size() && snaps.get(at).time() <= s.time()) at++;
+            snaps.add(at, s);
+            keys.add(at, k);
+        }
+        int n = snaps.size();
+        List<List<BlockState>> palettes = new ArrayList<>();
+        List<int[]> cells = new ArrayList<>();
+        List<Map<Integer, CompoundTag>> bes = new ArrayList<>();
+        boolean[] changed = new boolean[n];
+        for (Snap s : snaps) {
+            palettes.add(new ArrayList<>(List.of(s.palette())));
+            cells.add(s.cells().clone());
+            bes.add(new HashMap<>(s.bes()));
+        }
+        for (int y = 0; y < from.sy(); y++)
+            for (int z = 0; z < from.sz(); z++)
+                for (int x = 0; x < from.sx(); x++) {
+                    int fi = from.index(x, y, z);
+                    if (from.cells()[fi] < 0) continue;
+                    BlockPos w = from.origin().offset(x, y, z);
+                    boolean[] took = new boolean[n];
+                    int[] at = new int[n];
+                    for (int q = 0; q < n; q++) {
+                        at[q] = snaps.get(q).at(w);
+                        took[q] = at[q] >= 0 && cells.get(q)[at[q]] >= 0;
                     }
-                    cells[ti] = pi;
+                    int q = PasteRules.handOverTarget(took);
+                    if (q < 0) continue;
+                    BlockState st = from.palette()[from.cells()[fi]];
+                    int pi = palettes.get(q).indexOf(st);
+                    if (pi < 0) {
+                        palettes.get(q).add(st);
+                        pi = palettes.get(q).size() - 1;
+                    }
+                    cells.get(q)[at[q]] = pi;
                     CompoundTag nbt = from.bes().get(fi);
-                    if (nbt != null) bes.put(ti, nbt);
-                    else bes.remove(ti);
-                    changed = true;
+                    if (nbt != null) bes.get(q).put(at[q], nbt);
+                    else bes.get(q).remove(at[q]);
+                    changed[q] = true;
                 }
-        if (changed) save(level, toKey, new Snap(to.origin(), to.sx(), to.sy(), to.sz(), palette.toArray(new BlockState[0]), cells, bes, to.time()));
+        for (int q = 0; q < n; q++)
+            if (changed[q]) {
+                Snap t = snaps.get(q);
+                save(level, keys.get(q), new Snap(t.origin(), t.sx(), t.sy(), t.sz(), palettes.get(q).toArray(new BlockState[0]), cells.get(q), bes.get(q), t.time()));
+            }
     }
 
     /** Forgets a placement's snapshot (restored, or no longer valid). */
