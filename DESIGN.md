@@ -204,6 +204,17 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - `delete` (DECO_DELETE, and a move's retirement): only blocks that still equal the blueprint's state go
   (`PasteRules.remove`): never a hut, storage that still holds items, or an item-holding entity's support; an emptied
   container goes; one BreakEvent per block before anything changes, all or nothing; removed top down.
+- Snapshots (`server/Snapshots`): every creative paste (PLACE, DECO and so road / wall pieces, the new site of MOVE
+  and DECO_MOVE) first stores its footprint box as it stands (block states and block entity data, no container
+  contents; cells the paste keeps marked untouched), one compressed NBT per placement under
+  `<world>/data/mccitybuilder/snapshots/<sha1 of key>.nbt` (key: dimension + record key, or dimension + colony + hut
+  position). DECO_DELETE and a move's old site restore it instead of `delete` when it exists: only non-placeholder
+  cells the paste may have changed, never a cell inside another live record's box (`BuiltRecords` keeps boxes for
+  records added since) or a building's corners, a hut or an item-holding entity's support; liquids drained first;
+  storage now holding items hands them to the player (or drops them at the player) first; break events per removed
+  block and a place event per chunk, all or nothing; placed bottom up; the file is deleted afterwards. Older
+  placements (no file) keep match-and-refill. Survival is unchanged (a REMOVE order drops the file). Over 262,144
+  cells, or with the folder over 512 MB, no snapshot is taken (logged).
 - DECO_MOVE: the DECO paste at the target, then the container copy and the matching delete of the old (from +
   fromRot). DECO_REMOVE_ORDER: MineColonies' `WorkOrderDecoration` with REMOVE (the builder removes whatever stands
   at the blueprint's solid positions), MANAGE_HUTS, owned chunks, one order per location, the 64 open-order cap.

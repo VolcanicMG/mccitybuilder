@@ -40,6 +40,7 @@ public final class SelfCheck {
         roads();
         lines();
         groundOffsets();
+        snapshots();
         hintsAndLang();
         System.out.println("CityBuilder self-check passed");
     }
@@ -1629,6 +1630,23 @@ public final class SelfCheck {
         Plan.Line touch = new Plan.Line("wall", 10, 8, 20, 8, "p", "f", 1, 0, false, false);
         check(Plan.restore(List.of(touch), List.of(builtB), locked, l -> false).contains(touch), "joint cell shared: kept");
         check(Plan.sharedCells(c, builtB) == 5 && Plan.sharedCells(touch, builtB) == 1, "shared cells");
+    }
+
+    private static void snapshots() {
+        // File names: a fixed-length hash, nothing a key could use to leave the folder.
+        String n = com.volcanicmg.mccitybuilder.planner.PasteRules.snapshotName("minecraft:overworld|3|../../evil|..\\x|1,2,3|0");
+        check(n.matches("[0-9a-f]{40}\\.nbt"), "snapshot file name: " + n);
+        check(!n.equals(com.volcanicmg.mccitybuilder.planner.PasteRules.snapshotName("minecraft:overworld|3|p|a|1,2,3|0"))
+                && n.equals(com.volcanicmg.mccitybuilder.planner.PasteRules.snapshotName("minecraft:overworld|3|../../evil|..\\x|1,2,3|0")), "snapshot names: stable, per key");
+        // Restore: only cells the paste may have changed, never under another live placement, a hut or an entity's support.
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.restore(false, false, false, false), "an ordinary cell comes back");
+        check(!com.volcanicmg.mccitybuilder.planner.PasteRules.restore(true, false, false, false) && !com.volcanicmg.mccitybuilder.planner.PasteRules.restore(false, true, false, false)
+                && !com.volcanicmg.mccitybuilder.planner.PasteRules.restore(false, false, true, false) && !com.volcanicmg.mccitybuilder.planner.PasteRules.restore(false, false, false, true),
+                "placeholder, kept, under another placement or kept now: left alone");
+        List<int[]> live = List.of(new int[]{0, 60, 0, 4, 66, 2}, new int[]{10, 60, 10, 12, 61, 12});
+        check(com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(live, 4, 66, 2) && com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(live, 11, 60, 10)
+                && !com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(live, 5, 63, 1) && !com.volcanicmg.mccitybuilder.planner.PasteRules.inAny(List.of(), 0, 0, 0),
+                "live footprints, inclusive");
     }
 
     private static void groundOffsets() throws Exception {

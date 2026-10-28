@@ -72,6 +72,39 @@ public final class PasteRules {
         return p;
     }
 
+    /**
+     * @return a snapshot's file name: the SHA-1 of its key in hex plus ".nbt" (fixed length, only [0-9a-f], so no key
+     * can reach outside the snapshot folder)
+     */
+    public static String snapshotName(String key) {
+        try {
+            byte[] h = java.security.MessageDigest.getInstance("SHA-1").digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : h) sb.append(String.format("%02x", b));
+            return sb + ".nbt";
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * Whether a delete puts a cell back as it was before the paste.
+     *
+     * @param placeholder the blueprint has a placeholder there (the paste never touched it)
+     * @param untouched   the paste kept the cell (storage, a hut, an entity's support): the snapshot holds nothing for it
+     * @param otherLive   another live placement's footprint covers the cell (it stands there now)
+     * @param keep        the cell now holds a hut or an item-holding entity's support
+     */
+    public static boolean restore(boolean placeholder, boolean untouched, boolean otherLive, boolean keep) {
+        return !placeholder && !untouched && !otherLive && !keep;
+    }
+
+    /** @return true when the block (x, y, z) lies in any of the boxes {x0, y0, z0, x1, y1, z1} (inclusive) */
+    public static boolean inAny(java.util.List<int[]> boxes, int x, int y, int z) {
+        for (int[] b : boxes) if (x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5]) return true;
+        return false;
+    }
+
     /** @return true when two footprint boxes {x0, y0, z0, x1, y1, z1} (inclusive) share any block: a move's source and target may not */
     public static boolean overlap(int[] a, int[] b) {
         return a[0] <= b[3] && b[0] <= a[3] && a[1] <= b[4] && b[1] <= a[4] && a[2] <= b[5] && b[2] <= a[5];

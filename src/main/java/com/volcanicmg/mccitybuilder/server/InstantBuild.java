@@ -568,7 +568,9 @@ public final class InstantBuild {
             }
         BlockState anchor = bp.getBlockState(offset);
         if (r.mode == DECO_DELETE) {
-            if (delete(p, r, level, bp, origin, far, true) >= 0) records.remove(colonyId, pack, path, r.pos, rot.ordinal());
+            String rk = PasteRules.recordKey(colonyId, pack, path, r.pos.getX(), r.pos.getY(), r.pos.getZ(), rot.ordinal());
+            if (restoreOrDelete(p, r, level, colony, bp, origin, far, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()), rk, null, true) >= 0)
+                records.remove(colonyId, pack, path, r.pos, rot.ordinal());
             return false;
         }
         if (placesHut) {
@@ -609,8 +611,11 @@ public final class InstantBuild {
                     org.apache.commons.lang3.text.WordUtils.capitalizeFully(split[split.length - 1].replace(".blueprint", "")), r.pos, rot, 0);
             order.setBlueprint(bp, level);
             colony.getWorkManager().addWorkOrder(order, false);
-            if (r.mode == DECO_REMOVE_ORDER) records.remove(colonyId, pack, path, r.pos, rot.ordinal());
-            else records.add(colonyId, pack, path, r.pos, rot.ordinal());
+            if (r.mode == DECO_REMOVE_ORDER) {
+                records.remove(colonyId, pack, path, r.pos, rot.ordinal());
+                // A builder takes it down its own way: what stood before can't come back on top of that.
+                Snapshots.delete(level, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()));
+            } else records.add(colonyId, pack, path, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
             done(p);
             return false;
         }
@@ -624,6 +629,7 @@ public final class InstantBuild {
         BlockState[] palette = bp.getPalette();
         List<BlockPos> skip = new ArrayList<>();
         java.util.Set<Long> placeChecked = new java.util.HashSet<>();
+        java.util.Set<BlockPos> keptCells = new java.util.HashSet<>();
         int kept = 0;
         for (int y = 0; y < bp.getSizeY(); y++)
             for (int z = 0; z < bp.getSizeZ(); z++)
@@ -651,10 +657,17 @@ public final class InstantBuild {
                         return false;
                     }
                     if (a == PasteRules.Action.PLACE) continue;
-                    if (a == PasteRules.Action.KEEP) kept++;
+                    if (a == PasteRules.Action.KEEP) {
+                        kept++;
+                        keptCells.add(world);
+                    }
                     skip.add(local);
                     tes[y][z][x] = null;
                 }
+        // What stands there now, for a later delete or move to put back (huts by building position).
+        String snapKey = placesHut ? Snapshots.hutKey(level, colonyId, r.pos) : r.mode == DECO || r.mode == DECO_MOVE
+                ? Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()) : null;
+        if (snapKey != null) Snapshots.take(level, snapKey, origin, far, keptCells);
         if (placesHut) {
             BlockState previous = level.getBlockState(r.pos);
             level.setBlockAndUpdate(r.pos, anchor);
@@ -662,6 +675,7 @@ public final class InstantBuild {
             if (colony.getServerBuildingManager().getBuilding(r.pos) == null) {
                 // No stray hut: put back what was there.
                 level.setBlockAndUpdate(r.pos, previous);
+                Snapshots.delete(level, snapKey);
                 reject(p, r, "no building after placing at " + r.pos.toShortString());
                 return false;
             }
@@ -682,9 +696,10 @@ public final class InstantBuild {
         Handler handler = new Handler(level, r.pos, bp, rot, () -> {
             try {
                 if (r.mode != DECO && r.mode != DECO_MOVE) finish(level, colonyId, r, bp, origin, offset, dataPos, data);
-                if (r.mode == DECO || r.mode == DECO_MOVE) records.add(colonyId, fPack, fPath, r.pos, rot.ordinal());
+                if (r.mode == DECO || r.mode == DECO_MOVE)
+                    records.add(colonyId, fPack, fPath, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
                 if (r.mode == MOVE || r.mode == DECO_MOVE) {
-                    moveFinish(p, level, colonyId, r, fSrcRot, fSrcOrigin, fSrcFar, bp);
+                    moveFinish(p, level, colonyId, r, fSrcRot, fSrcOrigin, fSrcFar, bp, fPack, fPath);
                     if (r.mode == DECO_MOVE) records.remove(colonyId, fPack, fPath, r.from, r.fromRot.ordinal());
                 }
             } finally {
@@ -741,7 +756,8 @@ public final class InstantBuild {
      * old building is retired ({@code destroy}) and the old blocks that still match the old blueprint are removed
      * (containers now empty included; storage with contents, huts and entity supports stay).
      */
-    private static void moveFinish(ServerPlayer p, ServerLevel level, int colonyId, Request r, RotationMirror srcRot, BlockPos srcOrigin, BlockPos srcFar, Blueprint bp) {
+    private static void moveFinish(ServerPlayer p, ServerLevel level, int colonyId, Request r, RotationMirror srcRot, BlockPos srcOrigin, BlockPos srcFar, Blueprint bp,
+                                   String pack, String path) {
         IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, level);
         IBuilding old = colony == null || r.mode != MOVE ? null : colony.getServerBuildingManager().getBuilding(r.from);
         IBuilding nu = colony == null || r.mode != MOVE ? null : colony.getServerBuildingManager().getBuilding(r.pos);
@@ -814,9 +830,12 @@ public final class InstantBuild {
             old.destroy();
             if (level.getBlockState(r.from).getBlock() instanceof AbstractBlockHut<?>) level.removeBlock(r.from, false);
         }
-        // The old site: the blueprint turned as it stood there (the paste is done with it).
+        // The old site: the blueprint turned as it stood there (the paste is done with it); back as it was before it
+        // stood there when a snapshot exists.
         bp.setRotationMirror(srcRot, level);
-        int removed = delete(p, r, level, bp, srcOrigin, srcFar, false);
+        String rk = r.mode == DECO_MOVE ? PasteRules.recordKey(colonyId, pack, path, r.from.getX(), r.from.getY(), r.from.getZ(), r.fromRot.ordinal()) : "";
+        String sk = r.mode == MOVE ? Snapshots.hutKey(level, colonyId, r.from) : Snapshots.decoKey(level, colonyId, pack, path, r.from, r.fromRot.ordinal());
+        int removed = restoreOrDelete(p, r, level, colony, bp, srcOrigin, srcFar, sk, rk, r.mode == MOVE ? r.from : null, false);
         p.displayClientMessage(Component.translatable(r.mode == MOVE ? "mccitybuilder.moved" : "mccitybuilder.deco_moved", containers, toPlayer, Math.max(0, removed)), false);
         // A claim refusing the clean-up after the move is done: the move stands, the old site is partly kept.
         if (removed < 0) p.displayClientMessage(Component.translatable("mccitybuilder.moved_kept"), false);
@@ -942,6 +961,107 @@ public final class InstantBuild {
             p.displayClientMessage(Component.translatable("mccitybuilder.deleted", gone.size()), false);
         }
         return gone.size();
+    }
+
+    /**
+     * Takes a placement down: back to what stood there before it was pasted when a snapshot exists
+     * ({@link #restore}), else {@link #delete}.
+     *
+     * @param snapKey the placement's snapshot key; @param recordKey its record (other records' footprints are kept)
+     * @param retired a retired building's position (its old corners don't count as standing), or null
+     */
+    private static int restoreOrDelete(ServerPlayer p, Request r, ServerLevel level, IColony colony, Blueprint bp, BlockPos origin, BlockPos far, String snapKey,
+                                       String recordKey, BlockPos retired, boolean report) {
+        Snapshots.Snap snap = Snapshots.load(level, snapKey);
+        if (snap == null || !snap.origin().equals(origin) || snap.sx() != bp.getSizeX() || snap.sy() != bp.getSizeY() || snap.sz() != bp.getSizeZ())
+            return delete(p, r, level, bp, origin, far, report);
+        // What still stands: other City Builder placements and the colony's buildings.
+        List<int[]> live = BuiltRecords.of(level).otherBoxes(recordKey);
+        if (colony != null)
+            for (IBuilding b : colony.getServerBuildingManager().getBuildings().values()) {
+                var c = b.getCorners();
+                if (c == null || b.getPosition().equals(retired)) continue;
+                BlockPos a = c.getA(), z = c.getB();
+                live.add(new int[]{Math.min(a.getX(), z.getX()), Math.min(a.getY(), z.getY()), Math.min(a.getZ(), z.getZ()),
+                        Math.max(a.getX(), z.getX()), Math.max(a.getY(), z.getY()), Math.max(a.getZ(), z.getZ())});
+            }
+        int n = restore(p, r, level, bp, origin, far, snap, live, report);
+        if (n >= 0) Snapshots.delete(level, snapKey);
+        return n;
+    }
+
+    /**
+     * Puts each cell the paste may have changed back to its snapshot: never a placeholder cell (never touched), one the
+     * paste kept, one inside another live footprint, a hut or an item-holding entity's support. A break event per
+     * block it removes and a place event per chunk, all or nothing; liquids drain first; storage that holds items now
+     * hands them to the player (or drops them at the player) before its block goes. Never voids items.
+     *
+     * @return cells changed, -1 when a claim refused
+     */
+    private static int restore(ServerPlayer p, Request r, ServerLevel level, Blueprint bp, BlockPos origin, BlockPos far, Snapshots.Snap snap, List<int[]> live, boolean report) {
+        java.util.Set<BlockPos> entityKept = entityProtected(level, origin, far);
+        short[][][] st = bp.getStructure();
+        BlockState[] palette = bp.getPalette();
+        List<BlockPos> cells = new ArrayList<>();
+        List<Integer> idx = new ArrayList<>();
+        java.util.Set<Long> placeChecked = new java.util.HashSet<>();
+        for (int y = 0; y < bp.getSizeY(); y++)
+            for (int z = 0; z < bp.getSizeZ(); z++)
+                for (int x = 0; x < bp.getSizeX(); x++) {
+                    BlockPos w = origin.offset(x, y, z);
+                    int i = snap.index(x, y, z);
+                    BlockState have = level.getBlockState(w);
+                    if (!PasteRules.restore(isPlaceholder(palette[st[y][z][x]]), snap.cells()[i] < 0, PasteRules.inAny(live, w.getX(), w.getY(), w.getZ()),
+                            have.getBlock() instanceof AbstractBlockHut<?> || entityKept.contains(w))) continue;
+                    BlockState want = snap.palette()[snap.cells()[i]];
+                    if (have.equals(want) && !snap.bes().containsKey(i)) continue;
+                    if (!have.isAir() && NeoForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level, w, have, p)).isCanceled()
+                            || !want.isAir() && placeChecked.add(net.minecraft.world.level.ChunkPos.asLong(w.getX() >> 4, w.getZ() >> 4))
+                            && NeoForge.EVENT_BUS.post(new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, w), have, p)).isCanceled()) {
+                        if (report) reject(p, r, "a claim or protection refused restoring " + w.toShortString());
+                        else reject(p, "a claim or protection refused restoring " + w.toShortString() + " after a move");
+                        return -1;
+                    }
+                    cells.add(w);
+                    idx.add(i);
+                }
+        // Storage holding items now: its contents go to the player first.
+        for (BlockPos w : cells) {
+            IItemHandler h = handlerAt(level, w);
+            if (h == null) continue;
+            for (int s = 0; s < h.getSlots(); s++) {
+                ItemStack st2 = h.extractItem(s, Integer.MAX_VALUE, false);
+                if (!st2.isEmpty() && !p.getInventory().add(st2)) p.drop(st2, false);
+            }
+        }
+        // Liquids first, without neighbour updates, then every cell bottom up (supports before what stands on them).
+        List<BlockPos> drained = new ArrayList<>();
+        for (BlockPos w : cells)
+            if (!level.getFluidState(w).isEmpty()) {
+                level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
+                drained.add(w);
+            }
+        List<Integer> order = new ArrayList<>();
+        for (int k = 0; k < cells.size(); k++) order.add(k);
+        order.sort((a, b) -> cells.get(a).getY() - cells.get(b).getY());
+        for (int k : order) {
+            BlockPos w = cells.get(k);
+            int i = idx.get(k);
+            level.setBlock(w, snap.palette()[snap.cells()[i]], 3);
+            CompoundTag tag = snap.bes().get(i);
+            BlockEntity be = tag == null ? null : level.getBlockEntity(w);
+            if (be != null) {
+                be.loadWithComponents(tag, level.registryAccess());
+                be.setChanged();
+                level.sendBlockUpdated(w, snap.palette()[snap.cells()[i]], snap.palette()[snap.cells()[i]], 3);
+            }
+        }
+        for (BlockPos w : drained) level.updateNeighborsAt(w, level.getBlockState(w).getBlock());
+        if (report) {
+            done(p);
+            p.displayClientMessage(Component.translatable("mccitybuilder.restored", cells.size()), false);
+        }
+        return cells.size();
     }
 
     /** @return the refill for height y: dirt under the surrounding ground's top, grass at it, air above */
