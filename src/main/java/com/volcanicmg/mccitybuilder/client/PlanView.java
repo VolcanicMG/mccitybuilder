@@ -700,7 +700,8 @@ final class PlanView {
         List<Plan.BuiltPiece> ps = builtPieces.get(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1()));
         if (!Planner.serverInstant() || ps == null || ps.isEmpty()) return false;
         List<InstantBuild.Piece> batch = new ArrayList<>();
-        for (Plan.BuiltPiece b : ps) {
+        // Newest first (the reverse of the order they were built): a newer piece over an older one goes before it.
+        for (Plan.BuiltPiece b : ps.reversed()) {
             batch.add(new InstantBuild.Piece(b.path(), new BlockPos(b.ax(), b.ay(), b.az()), PieceCatalog.rotation(b.turns()).ordinal()));
             if (batch.size() == InstantBuild.MAX_BATCH) {
                 removalLine.put(nextBatchId, l);

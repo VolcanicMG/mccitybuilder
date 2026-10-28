@@ -615,7 +615,11 @@ public final class InstantBuild {
                 records.remove(colonyId, pack, path, r.pos, rot.ordinal());
                 // A builder takes it down its own way: what stood before can't come back on top of that.
                 Snapshots.delete(level, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()));
-            } else records.add(colonyId, pack, path, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
+            } else {
+                records.add(colonyId, pack, path, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
+                // A builder builds it over whatever stands then: an older snapshot of this spot no longer holds.
+                Snapshots.delete(level, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()));
+            }
             done(p);
             return false;
         }
@@ -667,7 +671,9 @@ public final class InstantBuild {
         // What stands there now, for a later delete or move to put back (huts by building position).
         String snapKey = placesHut ? Snapshots.hutKey(level, colonyId, r.pos) : r.mode == DECO || r.mode == DECO_MOVE
                 ? Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()) : null;
-        if (snapKey != null) Snapshots.take(level, snapKey, origin, far, keptCells);
+        // The same decoration pasted again where it stands keeps the snapshot of what stood before it the first time.
+        if (snapKey != null && !(Snapshots.exists(level, snapKey) && (placesHut ? existing != null : records.has(colonyId, pack, path, r.pos, rot.ordinal()))))
+            Snapshots.take(level, snapKey, origin, far, keptCells);
         if (placesHut) {
             BlockState previous = level.getBlockState(r.pos);
             level.setBlockAndUpdate(r.pos, anchor);
@@ -932,14 +938,11 @@ public final class InstantBuild {
         gone.sort((a, b) -> b.getY() - a.getY());
         int top = groundAround(level, origin, far);
         // Liquids first, without neighbour updates: the decoration's own water can't spill out while its walls go.
-        List<BlockPos> drained = new ArrayList<>();
         for (BlockPos w : gone)
-            if (!level.getFluidState(w).isEmpty()) {
-                level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
-                drained.add(w);
-            }
-        for (BlockPos w : gone) level.setBlock(w, ground(w.getY(), top), 3);
-        for (BlockPos w : drained) if (w.getY() > top) level.updateNeighborsAt(w, net.minecraft.world.level.block.Blocks.AIR);
+            if (!level.getFluidState(w).isEmpty()) level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
+        // No drops and no shape updates mid-way (a door's or bed's other half would pop off as an item); neighbours after.
+        for (BlockPos w : gone) level.setBlock(w, ground(w.getY(), top), 2 | 16 | 32);
+        for (BlockPos w : gone) level.updateNeighborsAt(w, level.getBlockState(w).getBlock());
         // The blueprint's own hollows under the ground around it (a basin, a cellar) fill too; never a cell with an
         // entity in it, and only where placing is allowed (one place event per chunk, as the paste does).
         java.util.Set<BlockPos> occupied = new java.util.HashSet<>(entityKept);
@@ -975,8 +978,19 @@ public final class InstantBuild {
         Snapshots.Snap snap = Snapshots.load(level, snapKey);
         if (snap == null || !snap.origin().equals(origin) || snap.sx() != bp.getSizeX() || snap.sy() != bp.getSizeY() || snap.sz() != bp.getSizeZ())
             return delete(p, r, level, bp, origin, far, report);
-        // What still stands: other City Builder placements and the colony's buildings.
-        List<int[]> live = BuiltRecords.of(level).otherBoxes(recordKey);
+        // What still stands over it: newer placements (an older one under it comes back from this snapshot, which holds
+        // its blocks) and the colony's buildings. Newer placements take over what stood before this one.
+        int[] mine = {origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()};
+        List<int[]> live = new ArrayList<>();
+        List<String> newer = new ArrayList<>();
+        for (var en : BuiltRecords.of(level).otherBoxes(recordKey).entrySet()) {
+            if (!PasteRules.overlap(mine, en.getValue())) continue;
+            String yk = Snapshots.recordSnapKey(level, en.getKey());
+            Snapshots.Snap y = Snapshots.load(level, yk);
+            if (y != null && y.time() < snap.time()) continue;
+            live.add(en.getValue());
+            if (y != null) newer.add(yk);
+        }
         if (colony != null)
             for (IBuilding b : colony.getServerBuildingManager().getBuildings().values()) {
                 var c = b.getCorners();
@@ -986,7 +1000,10 @@ public final class InstantBuild {
                         Math.max(a.getX(), z.getX()), Math.max(a.getY(), z.getY()), Math.max(a.getZ(), z.getZ())});
             }
         int n = restore(p, r, level, bp, origin, far, snap, live, report);
-        if (n >= 0) Snapshots.delete(level, snapKey);
+        if (n >= 0) {
+            for (String yk : newer) Snapshots.handOver(level, snap, yk);
+            Snapshots.delete(level, snapKey);
+        }
         return n;
     }
 
@@ -1035,19 +1052,16 @@ public final class InstantBuild {
             }
         }
         // Liquids first, without neighbour updates, then every cell bottom up (supports before what stands on them).
-        List<BlockPos> drained = new ArrayList<>();
         for (BlockPos w : cells)
-            if (!level.getFluidState(w).isEmpty()) {
-                level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
-                drained.add(w);
-            }
+            if (!level.getFluidState(w).isEmpty()) level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
         List<Integer> order = new ArrayList<>();
         for (int k = 0; k < cells.size(); k++) order.add(k);
         order.sort((a, b) -> cells.get(a).getY() - cells.get(b).getY());
         for (int k : order) {
             BlockPos w = cells.get(k);
             int i = idx.get(k);
-            level.setBlock(w, snap.palette()[snap.cells()[i]], 3);
+            // No drops and no shape updates mid-way (a door's or bed's other half would pop off); neighbours after.
+            level.setBlock(w, snap.palette()[snap.cells()[i]], 2 | 16 | 32);
             CompoundTag tag = snap.bes().get(i);
             BlockEntity be = tag == null ? null : level.getBlockEntity(w);
             if (be != null) {
@@ -1056,7 +1070,7 @@ public final class InstantBuild {
                 level.sendBlockUpdated(w, snap.palette()[snap.cells()[i]], snap.palette()[snap.cells()[i]], 3);
             }
         }
-        for (BlockPos w : drained) level.updateNeighborsAt(w, level.getBlockState(w).getBlock());
+        for (BlockPos w : cells) level.updateNeighborsAt(w, level.getBlockState(w).getBlock());
         if (report) {
             done(p);
             p.displayClientMessage(Component.translatable("mccitybuilder.restored", cells.size()), false);
@@ -1110,7 +1124,7 @@ public final class InstantBuild {
         if (state.getBlock() instanceof AbstractBlockHut<?>) return true;
         BlockEntity be = level.getBlockEntity(pos);
         if (be == null) return false;
-        if (be instanceof Container) return true;
+        if (be instanceof Container || be instanceof net.minecraft.world.Clearable) return true;
         if (level.getCapability(Capabilities.ItemHandler.BLOCK, pos, state, be, null) != null) return true;
         for (Direction d : Direction.values())
             if (level.getCapability(Capabilities.ItemHandler.BLOCK, pos, state, be, d) != null) return true;

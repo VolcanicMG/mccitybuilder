@@ -5,7 +5,9 @@ import com.volcanicmg.mccitybuilder.planner.PasteRules;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import net.minecraft.core.BlockPos;
@@ -25,18 +27,28 @@ import net.minecraft.world.level.storage.LevelResource;
  * What stood in a creative paste's footprint before it: block states and block entity data, one compressed NBT file
  * per placement under {@code <world>/data/mccitybuilder/snapshots/}, so a delete (or a move's old site) puts the world
  * back exactly. Server side only: files are named by a hash of the placement key, never by anything a client sends.
- * Cells the paste kept (storage, huts, entity supports) hold nothing: a restore leaves them alone, and container
- * contents are never stored, so nothing can be duplicated.
+ * Cells the paste kept (storage, huts, entity supports) hold nothing: a restore leaves them alone, and item contents
+ * are never stored, so nothing can be duplicated. Each snapshot carries when it was taken, so overlapping placements
+ * hand their "before" over to the newer one when the older goes ({@link #handOver}).
  */
 final class Snapshots {
     /** Footprints larger than this (cells) aren't snapshotted; the snapshot folder stops growing past MAX_DISK bytes. */
     static final int MAX_CELLS = 262_144;
     static final long MAX_DISK = 512L << 20;
+    // Bytes in the snapshot folder per world (listed once, then kept as files come and go), and the last time stamp.
+    private static final Map<Path, Long> total = new HashMap<>();
+    private static long lastTime;
 
-    /** A loaded snapshot: its box origin and size, a palette, a palette index per cell (-1: untouched) and block entity data by cell. */
-    record Snap(BlockPos origin, int sx, int sy, int sz, BlockState[] palette, int[] cells, Map<Integer, CompoundTag> bes) {
+    /** A snapshot: its box origin and size, a palette, a palette index per cell (-1: untouched), block entity data by cell, when taken. */
+    record Snap(BlockPos origin, int sx, int sy, int sz, BlockState[] palette, int[] cells, Map<Integer, CompoundTag> bes, long time) {
         int index(int x, int y, int z) {
             return (y * sz + z) * sx + x;
+        }
+
+        /** @return the cell index of world position w, or -1 outside the box */
+        int at(BlockPos w) {
+            int x = w.getX() - origin.getX(), y = w.getY() - origin.getY(), z = w.getZ() - origin.getZ();
+            return x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz ? -1 : index(x, y, z);
         }
     }
 
@@ -46,6 +58,11 @@ final class Snapshots {
     /** @return the key of a decoration / piece placement: its dimension and record key */
     static String decoKey(ServerLevel level, int colony, String pack, String path, BlockPos pos, int rot) {
         return level.dimension().location() + "|" + PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot);
+    }
+
+    /** @return the snapshot key for a record key in this dimension */
+    static String recordSnapKey(ServerLevel level, String recordKey) {
+        return level.dimension().location() + "|" + recordKey;
     }
 
     /** @return the key of a hut placement: its dimension, colony and building position */
@@ -71,13 +88,13 @@ final class Snapshots {
             CityBuilder.LOGGER.info("CityBuilder: no snapshot for {} ({} cells, over {}); a delete will match and refill", key, (long) sx * sy * sz, MAX_CELLS);
             return;
         }
-        // ponytail: the folder is summed on every paste; keep a running total if pastes get frequent and the folder large.
         if (size(level) > MAX_DISK) {
             CityBuilder.LOGGER.warn("CityBuilder: snapshot folder over {} bytes; no snapshot for {}", MAX_DISK, key);
             return;
         }
         Map<BlockState, Integer> ids = new HashMap<>();
-        ListTag palette = new ListTag(), bes = new ListTag();
+        List<BlockState> palette = new ArrayList<>();
+        Map<Integer, CompoundTag> bes = new HashMap<>();
         int[] cells = new int[sx * sy * sz];
         for (int y = 0; y < sy; y++)
             for (int z = 0; z < sz; z++)
@@ -90,29 +107,47 @@ final class Snapshots {
                     }
                     BlockState s = level.getBlockState(w);
                     cells[i] = ids.computeIfAbsent(s, k -> {
-                        palette.add(NbtUtils.writeBlockState(k));
+                        palette.add(k);
                         return palette.size() - 1;
                     });
                     BlockEntity be = level.getBlockEntity(w);
-                    if (be != null && !InstantBuild.isProtected(level, w, s)) {
-                        CompoundTag t = new CompoundTag();
-                        t.putInt("i", i);
-                        t.put("nbt", be.saveWithFullMetadata(level.registryAccess()));
-                        bes.add(t);
-                    }
+                    if (be != null && !InstantBuild.isProtected(level, w, s)) bes.put(i, be.saveWithFullMetadata(level.registryAccess()));
                 }
+        lastTime = Math.max(lastTime + 1, System.currentTimeMillis());
+        save(level, key, new Snap(origin, sx, sy, sz, palette.toArray(new BlockState[0]), cells, bes, lastTime));
+    }
+
+    private static void save(ServerLevel level, String key, Snap s) {
         CompoundTag root = new CompoundTag();
-        root.putIntArray("origin", new int[]{origin.getX(), origin.getY(), origin.getZ()});
-        root.putIntArray("size", new int[]{sx, sy, sz});
-        root.put("palette", palette);
-        root.putIntArray("cells", cells);
-        root.put("bes", bes);
+        root.putIntArray("origin", new int[]{s.origin().getX(), s.origin().getY(), s.origin().getZ()});
+        root.putIntArray("size", new int[]{s.sx(), s.sy(), s.sz()});
+        ListTag pl = new ListTag(), bl = new ListTag();
+        for (BlockState b : s.palette()) pl.add(NbtUtils.writeBlockState(b));
+        root.put("palette", pl);
+        root.putIntArray("cells", s.cells());
+        s.bes().forEach((i, nbt) -> {
+            CompoundTag t = new CompoundTag();
+            t.putInt("i", i);
+            t.put("nbt", nbt);
+            bl.add(t);
+        });
+        root.put("bes", bl);
+        root.putLong("time", s.time());
+        Path f = file(level, key);
+        size(level);
         try {
             Files.createDirectories(dir(level));
-            NbtIo.writeCompressed(root, file(level, key));
+            long before = Files.isRegularFile(f) ? Files.size(f) : 0;
+            NbtIo.writeCompressed(root, f);
+            total.merge(dir(level), Files.size(f) - before, Long::sum);
         } catch (IOException e) {
             CityBuilder.LOGGER.warn("CityBuilder: couldn't write the snapshot for {}", key, e);
         }
+    }
+
+    /** @return true when a placement has a snapshot */
+    static boolean exists(ServerLevel level, String key) {
+        return Files.isRegularFile(file(level, key));
     }
 
     /** @return the snapshot of a placement, or null when there is none (or it can't be read) */
@@ -129,29 +164,67 @@ final class Snapshots {
             for (int c : cells) if (c >= palette.length) return null;
             Map<Integer, CompoundTag> bes = new HashMap<>();
             for (Tag t : root.getList("bes", Tag.TAG_COMPOUND)) bes.put(((CompoundTag) t).getInt("i"), ((CompoundTag) t).getCompound("nbt"));
-            return new Snap(new BlockPos(o[0], o[1], o[2]), s[0], s[1], s[2], palette, cells, bes);
+            return new Snap(new BlockPos(o[0], o[1], o[2]), s[0], s[1], s[2], palette, cells, bes, root.getLong("time"));
         } catch (IOException | RuntimeException e) {
             CityBuilder.LOGGER.warn("CityBuilder: couldn't read the snapshot for {}", key, e);
             return null;
         }
     }
 
+    /**
+     * A placement {@code from} goes while a newer one ({@code toKey}) stands over part of it: in the cells both
+     * changed, what stood before the older one is what the newer one must put back when it goes, so those cells of
+     * its snapshot take {@code from}'s values (cells either kept stay as they are).
+     */
+    static void handOver(ServerLevel level, Snap from, String toKey) {
+        Snap to = load(level, toKey);
+        if (to == null) return;
+        List<BlockState> palette = new ArrayList<>(List.of(to.palette()));
+        int[] cells = to.cells().clone();
+        Map<Integer, CompoundTag> bes = new HashMap<>(to.bes());
+        boolean changed = false;
+        for (int y = 0; y < to.sy(); y++)
+            for (int z = 0; z < to.sz(); z++)
+                for (int x = 0; x < to.sx(); x++) {
+                    int ti = to.index(x, y, z), fi = from.at(to.origin().offset(x, y, z));
+                    if (fi < 0 || cells[ti] < 0 || from.cells()[fi] < 0) continue;
+                    BlockState s = from.palette()[from.cells()[fi]];
+                    int pi = palette.indexOf(s);
+                    if (pi < 0) {
+                        palette.add(s);
+                        pi = palette.size() - 1;
+                    }
+                    cells[ti] = pi;
+                    CompoundTag nbt = from.bes().get(fi);
+                    if (nbt != null) bes.put(ti, nbt);
+                    else bes.remove(ti);
+                    changed = true;
+                }
+        if (changed) save(level, toKey, new Snap(to.origin(), to.sx(), to.sy(), to.sz(), palette.toArray(new BlockState[0]), cells, bes, to.time()));
+    }
+
     /** Forgets a placement's snapshot (restored, or no longer valid). */
     static void delete(ServerLevel level, String key) {
+        Path f = file(level, key);
+        size(level);
         try {
-            Files.deleteIfExists(file(level, key));
+            long was = Files.isRegularFile(f) ? Files.size(f) : 0;
+            if (Files.deleteIfExists(f)) total.merge(dir(level), -was, Long::sum);
         } catch (IOException e) {
             CityBuilder.LOGGER.warn("CityBuilder: couldn't delete the snapshot for {}", key, e);
         }
     }
 
+    /** @return the snapshot folder's size in bytes: listed the first time, then kept up to date as files come and go */
     private static long size(ServerLevel level) {
         Path d = dir(level);
-        if (!Files.isDirectory(d)) return 0;
-        try (var files = Files.list(d)) {
-            return files.mapToLong(f -> f.toFile().length()).sum();
-        } catch (IOException e) {
-            return 0;
-        }
+        return total.computeIfAbsent(d, k -> {
+            if (!Files.isDirectory(k)) return 0L;
+            try (var files = Files.list(k)) {
+                return files.mapToLong(f -> f.toFile().length()).sum();
+            } catch (IOException e) {
+                return 0L;
+            }
+        });
     }
 }

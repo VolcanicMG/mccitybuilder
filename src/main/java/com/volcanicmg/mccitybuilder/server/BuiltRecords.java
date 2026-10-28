@@ -80,12 +80,10 @@ public final class BuiltRecords extends SavedData {
         setDirty();
     }
 
-    /** @return the footprint boxes of every live record but {@code except} (a record key) */
-    public List<int[]> otherBoxes(String except) {
-        List<int[]> out = new ArrayList<>();
-        boxes.forEach((k, b) -> {
-            if (!k.equals(except)) out.add(b);
-        });
+    /** @return record key → footprint box of every live record with a box but {@code except} (a record key) */
+    public java.util.Map<String, int[]> otherBoxes(String except) {
+        java.util.Map<String, int[]> out = new java.util.HashMap<>(boxes);
+        out.remove(except);
         return out;
     }
 
