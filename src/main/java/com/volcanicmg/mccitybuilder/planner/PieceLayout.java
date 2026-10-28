@@ -616,6 +616,18 @@ public final class PieceLayout {
     }
 
     /**
+     * A joint touching built segments stands at their level (the world has their blocks, maybe from an older height
+     * rule): the highest built neighbour; otherwise {@link #jointLevel(int, int[])}.
+     *
+     * @param built per neighbour, whether its segment is built
+     */
+    public static int jointLevel(int own, int[] neighbours, boolean[] built) {
+        int best = Integer.MIN_VALUE;
+        for (int q = 0; q < neighbours.length; q++) if (built[q]) best = Math.max(best, neighbours[q]);
+        return best != Integer.MIN_VALUE ? best : jointLevel(own, neighbours);
+    }
+
+    /**
      * @return the levels with piece {@code idx} raised to at least {@code level} and the rest raised outward from it
      * so neighbours differ by at most 1 (never lowered): a smoothed run whose first piece rose to its joint
      */

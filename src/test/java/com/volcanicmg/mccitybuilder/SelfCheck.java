@@ -1511,6 +1511,9 @@ public final class SelfCheck {
     }
 
     private static void groundOffsets() throws Exception {
+        // A joint next to built segments takes their level (built one lower by an older rule), not the highest.
+        check(PieceLayout.jointLevel(65, new int[]{64, 65, 66}, new boolean[]{true, false, false}) == 64, "joint at the built neighbour's level");
+        check(PieceLayout.jointLevel(65, new int[]{64, 66}, new boolean[]{false, false}) == 66, "no built neighbour: the highest");
         int A = PieceLayout.Grid.AIR;
         // A road: substitution layer, then its surface, then a lamp cell: the surface replaces the terrain's top block.
         int[] road = {0, 0, 0, 5, 5, 5, A, 7, A};
