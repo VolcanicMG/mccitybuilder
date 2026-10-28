@@ -1087,6 +1087,8 @@ public final class SelfCheck {
         var ax = LineSnap.axes(List.<int[][]>of(new int[][]{{0, 30}, {20, 30}}), 9, 4);
         check(LineSnap.nearest(31.2, ax.get(1), 2.5) == 30 && LineSnap.nearest(17.4, ax.get(0), 2.5) == 18, "axis and seam grid snap");
         check(LineSnap.nearest(40, ax.get(1), 2.5) == Integer.MIN_VALUE, "far from any axis: free");
+        var wall = List.<int[][]>of(new int[][]{{0, 30}, {20, 30}});
+        check(LineSnap.near(wall, 10, 50, 32).size() == 1 && LineSnap.near(wall, 10, 80, 32).isEmpty() && LineSnap.near(wall, 60, 30, 32).isEmpty(), "axis snap only follows nearby walls");
         check(LineSnap.radius(20) == LineSnap.RADIUS && LineSnap.radius(80) == 8 && LineSnap.radius(400) == 10, "snap radius grows with height");
         // T on a straight: the branch lands on a piece's middle, not its seam (pieces 0..8 and 9..17).
         check(LineSnap.nearest(9.6, List.of(4, 13), Double.MAX_VALUE) == 13 && LineSnap.nearest(7.2, List.of(4, 13), Double.MAX_VALUE) == 4, "T at a piece's middle");

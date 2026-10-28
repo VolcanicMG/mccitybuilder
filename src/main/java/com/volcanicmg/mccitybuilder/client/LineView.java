@@ -711,10 +711,11 @@ final class LineView {
             snap = "piece";
             return alongX ? new int[]{m, across} : new int[]{across, m};
         }
-        // Free: onto the segments' axes and their seam grid.
+        // Free: onto nearby segments' axes and their seam grid, with a small fixed radius (a nudge, not a magnet).
         PieceSets.Piece p = PieceCatalog.primary(next(new int[]{0, 0}, new int[]{0, 0}), 0);
-        List<List<Integer>> ax = LineSnap.axes(segs, p == null ? 0 : p.run(), 16);
-        int x = LineSnap.nearest(cx, ax.get(0), r), z = LineSnap.nearest(cz, ax.get(1), r);
+        List<List<Integer>> ax = LineSnap.axes(LineSnap.near(segs, cx, cz, 32), p == null ? 0 : p.run(), 3);
+        double ar = Math.min(r, LineSnap.RADIUS);
+        int x = LineSnap.nearest(cx, ax.get(0), ar), z = LineSnap.nearest(cz, ax.get(1), ar);
         int[] c = {x == Integer.MIN_VALUE ? (int) Math.floor(cx) : x, z == Integer.MIN_VALUE ? (int) Math.floor(cz) : z};
         if (x != Integer.MIN_VALUE || z != Integer.MIN_VALUE) {
             snap = "axis";

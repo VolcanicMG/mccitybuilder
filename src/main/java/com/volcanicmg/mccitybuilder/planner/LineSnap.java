@@ -138,6 +138,17 @@ public final class LineSnap {
         return best;
     }
 
+    /** @return the segments within {@code reach} blocks of (cx, cz), so the axis snap only follows walls nearby */
+    public static List<int[][]> near(List<int[][]> segments, double cx, double cz, double reach) {
+        List<int[][]> out = new java.util.ArrayList<>();
+        for (int[][] s : segments) {
+            double dx = Math.max(0, Math.max(Math.min(s[0][0], s[1][0]) - cx, cx - Math.max(s[0][0], s[1][0]) - 1));
+            double dz = Math.max(0, Math.max(Math.min(s[0][1], s[1][1]) - cz, cz - Math.max(s[0][1], s[1][1]) - 1));
+            if (dx * dx + dz * dz <= reach * reach) out.add(s);
+        }
+        return out;
+    }
+
     /**
      * Axis snap: centreline coordinates of the segments, per axis, so a start lines up with them (parallel walls on
      * one line, a perpendicular wall on another's axis) and so seams line up (start + whole pieces along the run).
