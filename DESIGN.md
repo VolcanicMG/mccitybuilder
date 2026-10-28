@@ -448,8 +448,9 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   path>|<straight turn - d>` -> `shift,depth` (keyed relative to the run's direction, so it holds for every
   orientation of the shape; the family and role are implied by the joint piece). The stored shift is the run box's
   right-hand edge (looking along the run) less the joint box's (`PieceLayout.worldShift` / `alignShift`): a world
-  shift would land differently once the shape turns, as the boxes' centring isn't symmetric (saves made before this
-  change are read in the new sense). `PieceLayout.fit` asks the
+  shift would land differently once the shape turns, as the boxes' centring isn't symmetric. Files are written with a
+  `#v2` first line; a file without it (`PieceSets.loadOverrides`) holds world shifts, so its alignments are marked
+  `shift,depth,w` and `fit` uses them as world shifts (exactly what the player saw) until the editor re-saves them. `PieceLayout.fit` asks the
   override source (`setAlign`, the client's per-pack overrides by grid identity) before the memo and the search; a
   destructive override is ignored. Adjustments show in the planned walls at once: unsaved drafts live in a separate
   in-memory overlay read before the saved overrides and never written to the file (`PieceSets.alignLookup`); it is
@@ -462,12 +463,17 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   -> `<turn> <out>:<shift>,<depth> ...` (the joint's turn and each run's alignment in that rotation). It applies to
   that exact configuration only (`PieceLayout.jointFix`): the turn replaces the turn search and each run's setting
   goes to `fit` after a player's alignment and before the search; nothing reaches other joints or their turn
-  scores. A player's saved override of the configuration key or a run's `align|` key wins (`PieceCatalog.jointLookup`).
+  scores. A player's saved override of the configuration key wins (`PieceCatalog.jointLookup`), and a player's
+  `align|` alignment (saved or drafted) for one of the configuration's runs under some turn keeps that turn, the
+  built-in's runs stepping aside (`PieceCatalog.playerAligned`). A straight that is the same turned 180° counts its
+  turns modulo 2 in the key, so its aliases hit the same line.
   The client applies it in `joint()` (per joint cell, `jointFixes`), the editor shows it as the auto turn, and the
   harness reads the same files (`JointCases`, the folder's pack.json name via `PackPieces.packName`); SelfCheck's
   optimality check skips cases a built-in lays out (`Case.fixed`). The fixes were derived with: the turn whose open
   sides face the arms, each run's outer edge flush with the joint's (for the filled square corners of original/basic,
-  the run's wall face flush with the corner's rim), and through arms of a cross on one lateral line.
+  the run's wall face flush with the corner's rim), and through arms of a cross on one lateral line. SelfCheck lists (not gating) every
+  family / level / case where the L turning left and the one turning right got the same turn of a corner that isn't
+  the same a quarter turn on: one of the two has its arms backwards (or the piece is nearly symmetric).
   The planner's exit closes the editor too, the editor returns to the planner only while it runs, and a leftover
   planner screen closes plainly (no soft-lock).
 - Joint continuity (`PieceLayout.fit`, replacing the inset rule): the ground truth is the placed blocks. For each
