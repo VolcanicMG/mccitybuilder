@@ -705,6 +705,7 @@ public final class Planner {
             return;
         }
         BlueprintPreviewData data = new BlueprintPreviewData(false);
+        data.setRenderBlocksNice(true);
         data.setBlueprint(placingHut.blueprint());
         data.setRotationMirror(rotation);
         data.setPos(at);

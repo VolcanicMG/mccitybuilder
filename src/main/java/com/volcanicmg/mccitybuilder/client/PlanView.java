@@ -263,6 +263,7 @@ final class PlanView {
                     continue;
                 }
                 BlueprintPreviewData data = new BlueprintPreviewData(false);
+                data.setRenderBlocksNice(true);
                 data.setBlueprint(bp);
                 data.setRotationMirror(RotationMirror.values()[e.rot()]);
                 data.setPos(new BlockPos(e.x(), e.y(), e.z()));
@@ -574,6 +575,7 @@ final class PlanView {
                     Blueprint bp = PieceCatalog.rotated(lines.get(i).pack(), p.path(), p.turns());
                     if (bp == null) continue;
                     BlueprintPreviewData data = new BlueprintPreviewData(false);
+                    data.setRenderBlocksNice(true);
                     data.setBlueprint(bp);
                     data.setRotationMirror(PieceCatalog.rotation(p.turns()));
                     data.setPos(p.anchor());

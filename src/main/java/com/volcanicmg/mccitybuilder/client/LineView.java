@@ -958,6 +958,7 @@ final class LineView {
             Blueprint bp = PieceCatalog.rotated(PlannerScreen.pack(), p.path(), p.turns());
             if (bp == null) continue;
             BlueprintPreviewData data = new BlueprintPreviewData(false);
+            data.setRenderBlocksNice(true);
             data.setBlueprint(bp);
             data.setRotationMirror(PieceCatalog.rotation(p.turns()));
             data.setPos(p.anchor());
