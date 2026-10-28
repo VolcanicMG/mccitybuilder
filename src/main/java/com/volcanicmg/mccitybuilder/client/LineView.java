@@ -441,8 +441,22 @@ final class LineView {
         if (dx != 0 || dz != 0) closeJointMenu(false);
         dragPreview = Plan.move(PlanView.lines, dragPoints, dx, dz, PlanView::locked);
         dragFits = dragPreview != null && Plan.allFit(PlanView.lines, dragPreview, PlanView.lineOffs, lens);
-        dragStatus = net.minecraft.network.chat.Component.translatable(dragPreview == null ? "mccitybuilder.edit.cant_move"
+        boolean out = dragPreview != null && movesOut(PlanView.lines, dragPreview);
+        if (out) dragFits = false;
+        dragStatus = net.minecraft.network.chat.Component.translatable(out ? "mccitybuilder.edit.cant_outside" : dragPreview == null ? "mccitybuilder.edit.cant_move"
                 : dragFits ? "mccitybuilder.edit.moving" : "mccitybuilder.edit.moving_loses", kindName(), Math.abs(dx) + Math.abs(dz)).getString();
+    }
+
+    /** @return true when a segment's centreline leaves the colony's claims (unknown claims: never) */
+    static boolean outside(Plan.Line l) {
+        java.util.Set<Long> c = Planner.claimed();
+        return !c.isEmpty() && !com.volcanicmg.mccitybuilder.planner.ColonyGeometry.footprintClaimed(l.x0(), l.z0(), l.x1(), l.z1(), c);
+    }
+
+    /** @return true when a segment the move changes would leave the claims */
+    private static boolean movesOut(List<Plan.Line> before, List<Plan.Line> after) {
+        for (int i = 0; i < after.size(); i++) if ((i >= before.size() || !after.get(i).equals(before.get(i))) && outside(after.get(i))) return true;
+        return false;
     }
 
     private static String kindName() {
@@ -481,6 +495,10 @@ final class LineView {
         java.util.Set<Integer> changed = new java.util.HashSet<>();
         for (int i = 0; i < moved.size(); i++) if (!moved.get(i).equals(before.get(i))) changed.add(i);
         moved = Plan.refitFree(moved, changed, PlanView.lineOffs, lensAll(), PlanView::locked, 12);
+        if (movesOut(before, moved)) {
+            flash = "mccitybuilder.edit.cant_outside_flash";
+            return;
+        }
         java.util.Map<Long, int[]> to = Plan.moved(before, moved, dragPoints);
         java.util.Map<Long, Integer> types = new java.util.HashMap<>();
         for (var en : to.entrySet()) {
@@ -954,6 +972,11 @@ final class LineView {
             return true;
         }
         if (end == null || end[0] == start[0] && end[1] == start[1]) return true;
+        if (outside(next(start, end))) {
+            flash = "mccitybuilder.line.outside";
+            flashUntil = System.currentTimeMillis() + 1500;
+            return false;
+        }
         if (!LineSnap.canDrop(liveLen, liveNeed)) {
             flash = liveNeed == Integer.MAX_VALUE ? "mccitybuilder.line.no_fit" : "mccitybuilder.line.too_short";
             flashArg = liveNeed;
