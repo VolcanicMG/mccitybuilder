@@ -1436,12 +1436,17 @@ public final class SelfCheck {
         System.out.println("CityBuilder self-check: mirrored through lines whose extents differ (not gating) (" + mirrored.size() + "):");
         for (String m : mirrored) System.out.println("  mirrored " + m);
         if (Boolean.getBoolean("jointReport")) {
+            // By case (check + family + level + case), whatever the layout: baselined ones no longer failing are fixed,
+            // failing ones not baselined are new.
+            java.util.Set<String> was = new java.util.TreeSet<>(), now = new java.util.TreeSet<>(failing.values());
+            if (Files.exists(allowFile))
+                for (String line : Files.readAllLines(allowFile)) if (line.contains("\t")) was.add(line.split("\t")[1]);
             Map<String, Integer> fixed = new java.util.TreeMap<>(), added = new java.util.TreeMap<>();
-            for (String k : passingAllowed) fixed.merge(k.substring(0, k.indexOf(' ')), 1, Integer::sum);
-            for (String k : fails) added.merge(k.substring(0, k.indexOf(' ')), 1, Integer::sum);
+            for (String k : was) if (!now.contains(k)) fixed.merge(k.substring(0, k.indexOf(' ')), 1, Integer::sum);
+            for (String k : now) if (!was.contains(k)) added.merge(k.substring(0, k.indexOf(' ')), 1, Integer::sum);
             System.out.println("CityBuilder joint report: floor " + PieceLayout.contactFloor + " fixed " + fixed + " new " + added + " review " + review.size());
-            for (String k : passingAllowed) System.out.println("  fixed " + k);
-            for (String k : fails) System.out.println("  new " + k);
+            for (String k : was) if (!now.contains(k)) System.out.println("  fixed " + k);
+            for (String k : now) if (!was.contains(k)) System.out.println("  new " + k);
             return;
         }
         Path base = Path.of("src/test/resources/no-contact.tsv");
