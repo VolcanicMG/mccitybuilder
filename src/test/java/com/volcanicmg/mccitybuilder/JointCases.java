@@ -216,17 +216,20 @@ final class JointCases {
             from = PieceLayout.turns(jp.sx(), jp.sz(), (outs[0] + 2) % 4);
             step = 2;
         }
-        double bs = -1;
+        List<Integer> ks = new ArrayList<>(), outList = new ArrayList<>();
+        for (int o : outs) outList.add(o);
+        double[] contact = new double[4 / step], shape = new double[4 / step];
         for (int k = from; k < from + 4; k += step) {
             PieceLayout.Grid t = jg.turned(k);
             double sc = 0;
             for (int q = 0; q < outs.length; q++)
                 sc += PieceLayout.faceScore(c, outs[q], box(c, outs[0], t, role, jp), t, straight(sg, dirs[q], flip), width, run);
-            if (sc > bs + 1e-9) {
-                bs = sc;
-                best = k;
-            }
+            double[] ac = PieceLayout.armClosed(t, outList, sg, flip);
+            contact[ks.size()] = sc;
+            shape[ks.size()] = ac[0] - ac[1];
+            ks.add(k);
         }
+        best = ks.get(PieceLayout.pickTurn(contact, shape));
         PieceLayout.Grid t = jg.turned(best);
         int[] jb = box(c, outs[0], t, role, jp);
         List<Run> runs = new ArrayList<>();

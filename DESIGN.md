@@ -462,7 +462,13 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   corner and T. It prints the continuous joints and a table of the rest with the rows that differ (most are a
   joint arm wider or narrower than the straight, or a tower's air ring). `./gradlew wallJoints -Pout=dir` writes
   top-down PNGs of every case (columns by highest block, joint box yellow, run boxes green, one contact strip per
-  run); add `-PallLevels` for every level / variant number (names get " L<n>"; the default is each group's top). The test reader (`PackPieces`) takes the ground layer like the game: primary offset y minus the
+  run); add `-PallLevels` for every level / variant number (names get " L<n>"; the default is each group's top).
+  SelfCheck's joint checks run over all levels as ratchets against `src/test/resources/joint-baseline.txt`
+  (wallCornerTurns, noOverhang, throughArmsAligned, tShiftCentred) and `no-contact.tsv` (runs touching nothing per
+  family): a new failure or a baselined case that now passes fails; `-DwriteBaseline=true` on SelfCheck rewrites them.
+  A run touching nothing stays inside the joint's lateral span, centred (a tower's centre line), unless the joint's
+  outer face clearly continues the straight's end elsewhere; a corner's turn goes by contact first, and only when no
+  turn touches any run by how much its arms (against its closed sides) look like the straight's end. The test reader (`PackPieces`) takes the ground layer like the game: primary offset y minus the
   `groundlevel` tag's depth below the anchor (1 without one).
 - Auto is from the topology only (`PieceLayout.autoRole`): every L gets the plain corner, turned to fit either way
   round (Ethan: a left turn giving a tower-like outer corner and a right turn a plain inner corner read as

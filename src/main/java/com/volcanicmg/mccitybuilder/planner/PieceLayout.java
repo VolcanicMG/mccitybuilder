@@ -465,22 +465,87 @@ public final class PieceLayout {
                 bestOff = off;
             }
         }
-        if (best != null && best.depth() < 0) {
-            // No contact anywhere: line the run's very end up with the joint's outer face, blocks and all (the road's
-            // cross-section continues), rather than by centres alone.
-            Set<Long> Je = visible(joint.profile(d, 0, ja, true), joint), Se = visible(straight.profile((d + 2) % 4, 0, sa, true), straight);
-            double bestJ = 0;
-            int at = best.shift();
-            for (int s = -maxShift; s <= maxShift; s++) {
-                double j = jaccard(Je, Se, s);
-                if (j > bestJ + 1e-9 || j > bestJ - 1e-9 && Math.abs(s) < Math.abs(at)) {
-                    bestJ = j;
-                    at = s;
-                }
+        if (best != null && best.depth() < 0) best = new Fit(edge, noContactShift(d, ja, sa, joint, straight, width, best.shift()), 0, -1);
+        return best;
+    }
+
+    /**
+     * A run that touches the joint nowhere (lamps or posts whose air would clear each other): its lateral span stays
+     * within the joint's (its arms never overhang the joint's outer edges); centred, unless the joint's outer face
+     * continues the straight's very end clearly better at another shift (half its blocks or more). A joint more than
+     * two cells wider than the run (a tower) keeps the run on its centre line.
+     *
+     * @param ja the joint's lateral start and {@code sa} the run's at shift 0 (relative to the joint cell)
+     * @param centred the shift that centres the run on the joint's fullest layer
+     */
+    static int noContactShift(int d, int ja, int sa, Grid joint, Grid straight, int width, int centred) {
+        int jl = d % 2 == 0 ? joint.sz() : joint.sx();
+        int lo = width <= jl ? ja - sa : ja + jl - width - sa, hi = width <= jl ? ja + jl - width - sa : ja - sa;
+        int base = Math.max(lo, Math.min(hi, centred));
+        if (jl - width > 2) return base;
+        // The straight's very end (its trim inset may stand on a lamp post, not the road's cross-section).
+        Set<Long> J = visible(joint.profile(d, 0, ja, true), joint), S = visible(straight.profile((d + 2) % 4, 0, sa, true), straight);
+        double bj = jaccard(J, S, base);
+        int at = base;
+        for (int s = lo; s <= hi; s++) {
+            double j = jaccard(J, S, s);
+            if (j > bj + 0.1 && j >= 0.8) {
+                bj = j;
+                at = s;
             }
-            // Only a face that really continues the run (half its blocks or more): a tower's wall face doesn't.
-            if (bestJ >= 0.5) best = new Fit(edge, at, 0, -1);
         }
+        return at;
+    }
+
+    /**
+     * How much the joint's outer face toward {@code f} looks like a straight's very end facing it (blocks and all,
+     * {@link #visible} cut, the best lateral shift): an open arm of a corner shows the road's or wall's
+     * cross-section, a closed side its border.
+     *
+     * @param straight the straight as laid along x or z (any turn): it is turned to run out in {@code f}
+     */
+    public static double faceLike(Grid joint, int f, Grid straight, boolean flip) {
+        Grid st = straight.turned(turns(straight.sx(), straight.sz(), f) + (flip ? 2 : 0));
+        Set<Long> J = visible(joint.profile(f, 0, 0, true), joint), S = visible(st.profile((f + 2) % 4, 0, 0, true), st);
+        int span = Math.max(Math.max(joint.sx(), joint.sz()), Math.max(st.sx(), st.sz()));
+        double best = 0;
+        for (int s = -span; s <= span; s++) best = Math.max(best, jaccard(J, S, s));
+        return best;
+    }
+
+    /** @return {arm, closed}: the mean {@link #faceLike} of the joint's faces toward {@code outs} and of its other faces (0 with none) */
+    public static double[] armClosed(Grid joint, List<Integer> outs, Grid straight, boolean flip) {
+        double arm = 0, closed = 0;
+        int na = 0, nc = 0;
+        for (int f = 0; f < 4; f++) {
+            double v = faceLike(joint, f, straight, flip);
+            if (outs.contains(f)) {
+                arm += v;
+                na++;
+            } else {
+                closed += v;
+                nc++;
+            }
+        }
+        return new double[]{na == 0 ? 0 : arm / na, nc == 0 ? 0 : closed / nc};
+    }
+
+    /**
+     * @param contact per turn, the summed {@link #faceScore} (runs that touch); @param shape per turn, arm minus closed
+     *                ({@link #armClosed})
+     * @return the turn to use: the most contact, the first on a tie; only when no turn touches any run at all, the one
+     * whose arms look most like the straight's end against its closed sides (a contact always ranks first, and ties
+     * between touching turns keep the order the fits were tuned with)
+     */
+    public static int pickTurn(double[] contact, double[] shape) {
+        int best = 0;
+        boolean none = true;
+        for (int k = 0; k < contact.length; k++) {
+            none &= contact[k] < 1e-9;
+            if (contact[k] > contact[best] + 1e-9) best = k;
+        }
+        if (!none) return best;
+        for (int k = 1; k < shape.length; k++) if (shape[k] > shape[best] + 1e-9) best = k;
         return best;
     }
 
@@ -579,17 +644,7 @@ public final class PieceLayout {
     public static double faceScoreNow(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run) {
         Fit f = fit(c, d, jb, joint, straight, width, run, Math.max(3, width));
         int si = straight.inset((d + 2) % 4), ref = d % 2 == 0 ? c[1] : c[0];
-        if (f.depth() < 0) {
-            // No contact (pieces with lamps whose air would clear each other): the joint's outer face, blocks and
-            // all, still tells an open side (the road's cross-section) from a closed one (its border), worth half.
-            int[] sbox = boxes(c, d, f.off(), List.of(run), width, 0).get(0);
-            int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox[1] : sbox[0]) - ref;
-            // The straight's very end (its trim inset may stand on a lamp post, not the road's cross-section).
-            Set<Long> J = visible(joint.profile(d, 0, ja, true), joint), S = visible(straight.profile((d + 2) % 4, 0, sa, true), straight);
-            double best = 0;
-            for (int s = -Math.max(3, width); s <= Math.max(3, width); s++) best = Math.max(best, jaccard(J, S, s));
-            return 0.5 * best;
-        }
+        if (f.depth() < 0) return 0;
         int[] sbox = boxes(c, d, f.off(), List.of(run), width, 0).get(0);
         int ja = (d % 2 == 0 ? jb[1] : jb[0]) - ref, sa = (d % 2 == 0 ? sbox[1] : sbox[0]) - ref;
         return f.match() + jaccard(visible(joint.profile(d, f.depth(), ja, true), joint), visible(straight.profile((d + 2) % 4, si, sa, true), straight), f.shift());

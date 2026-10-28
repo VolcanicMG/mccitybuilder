@@ -736,6 +736,7 @@ public final class SelfCheck {
         joining();
         editing();
         continuity();
+        jointChecks();
         cornerTurns();
         editRules();
         alignments();
@@ -1292,8 +1293,8 @@ public final class SelfCheck {
     /**
      * Every road family at every level: an L turning left and one turning right take their corner turned differently
      * (a road's cross-section is symmetric, so one turn can't serve both). Corners whose runs never touch them (lamp
-     * pieces whose air would clear each other) once fell back to one turn for both. Jungle level 1 is the one known
-     * exception (its walks have no full surface layer to tell the sides apart).
+     * pieces whose air would clear each other) once fell back to one turn for both. Jungle levels 1-3 are the known
+     * exceptions (their corner meets the left and right L's runs equally well either way: a tie kept in order).
      */
     private static void cornerTurns() throws Exception {
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
@@ -1308,7 +1309,104 @@ public final class SelfCheck {
             var r = right.get(en.getKey());
             if (r != null && java.util.Arrays.equals(en.getValue().joint().ids(), r.joint().ids()) && en.getValue().joint().sx() == r.joint().sx()) same.add(en.getKey());
         }
-        check(same.equals(List.of("jungle infrastructure/roads L1")), "road corners turn both ways at every level: " + same);
+        same.sort(null);
+        check(same.equals(List.of("jungle infrastructure/roads L1", "jungle infrastructure/roads L2", "jungle infrastructure/roads L3")),
+                "road corners turn both ways at every level: " + same);
+    }
+
+    /**
+     * Joint geometry checks over every family, level and variant ({@link JointCases#allLevels}), each a ratchet
+     * against {@code src/test/resources/joint-baseline.txt} (the cases failing when the checks were added, not yet
+     * reviewed one by one): a new failure fails, and so does a baselined case that now passes, so the list only
+     * shrinks ({@code -DwriteBaseline=true} rewrites both baseline files):
+     * <ul>
+     * <li>wallCornerTurns: an L's corner shows the straight's cross-section on its arms at least as much as on its
+     * closed sides ({@link PieceLayout#armClosed}, 0.05 slack); symmetric corners skipped;</li>
+     * <li>noOverhang: a run that touches nothing stays within the joint's lateral span (plus its own side trim);</li>
+     * <li>throughArmsAligned: a T's or cross's opposite arms share one lateral shift;</li>
+     * <li>tShiftCentred: a tower T's third arm sits on the tower's centre line;</li>
+     * <li>noContactDelta: runs that touch nothing, per family, never more than the checked-in baseline
+     * ({@code src/test/resources/no-contact.tsv}; {@code -DwriteBaseline=true} rewrites it).</li>
+     * </ul>
+     */
+    private static void jointChecks() throws Exception {
+        if (!new java.io.File(PackPieces.JAR).isFile()) return;
+        List<JointCases.Case> all = JointCases.allLevels();
+        Path allowFile = Path.of("src/test/resources/joint-baseline.txt");
+        java.util.Set<String> allow = Files.exists(allowFile) ? new java.util.HashSet<>(Files.readAllLines(allowFile)) : new java.util.HashSet<>();
+        java.util.Set<String> failing = new java.util.TreeSet<>();
+        List<String> fails = new java.util.ArrayList<>(), passingAllowed = new java.util.ArrayList<>();
+        StringBuilder table = new StringBuilder("CityBuilder self-check: wallCornerTurns (case: arm / closed)\n");
+        Map<String, Integer> noContact = new java.util.TreeMap<>();
+        for (var cs : all) {
+            String id = cs.family() + "|" + cs.name();
+            java.util.function.BiConsumer<String, Boolean> verdict = (check, ok) -> {
+                String k = check + " " + id;
+                if (!ok) failing.add(k);
+                if (allow.contains(k)) {
+                    if (ok) passingAllowed.add(k);
+                } else if (!ok) fails.add(k);
+            };
+            for (var r : cs.runs()) if (r.fit().depth() < 0) noContact.merge(cs.family(), 1, Integer::sum);
+            if (cs.runs().size() == 2 && cs.name().startsWith("L-") && !cs.name().contains("tower")) {
+                PieceLayout.Grid j = cs.joint(), t1 = j.turned(1);
+                if (!(t1.sx() == j.sx() && java.util.Arrays.equals(t1.ids(), j.ids()))) {
+                    List<Integer> outs = new java.util.ArrayList<>();
+                    for (var r : cs.runs()) outs.add(r.out());
+                    double[] ac = PieceLayout.armClosed(j, outs, cs.runs().get(0).straight(), false);
+                    table.append(String.format("  %-70s %.2f / %.2f%n", id, ac[0], ac[1]));
+                    verdict.accept("wallCornerTurns", ac[0] >= ac[1] - 0.05);
+                }
+            }
+            for (var r : cs.runs()) {
+                if (r.fit().depth() >= 0 || cs.butt()) continue;
+                int d = r.out(), lat0 = d % 2 == 0 ? 1 : 0, lat1 = lat0 + 2;
+                int jl = cs.jointBox()[lat1] - cs.jointBox()[lat0] + 1, rl = r.box()[lat1] - r.box()[lat0] + 1;
+                if (rl > jl) continue;
+                int ia = r.straight().inset((d + 1) % 4), ib = r.straight().inset((d + 3) % 4), trim = Math.max(ia, ib);
+                verdict.accept("noOverhang", r.box()[lat0] >= cs.jointBox()[lat0] - trim && r.box()[lat1] <= cs.jointBox()[lat1] + trim);
+            }
+            if ((cs.name().startsWith("T") || cs.name().startsWith("cross")) && !cs.butt()) {
+                boolean ok = true;
+                for (var a : cs.runs())
+                    for (var b : cs.runs()) if (b.out() == (a.out() + 2) % 4 && a.fit().shift() != b.fit().shift()) ok = false;
+                verdict.accept("throughArmsAligned", ok);
+                if (cs.name().startsWith("T") && cs.jointPath().toLowerCase(java.util.Locale.ROOT).contains("tower"))
+                    for (var r : cs.runs()) {
+                        boolean through = false;
+                        for (var b : cs.runs()) through |= b.out() == (r.out() + 2) % 4;
+                        if (through) continue;
+                        int lat0 = r.out() % 2 == 0 ? 1 : 0, lat1 = lat0 + 2;
+                        double rc = (r.box()[lat0] + r.box()[lat1]) / 2.0, jc = (cs.jointBox()[lat0] + cs.jointBox()[lat1]) / 2.0;
+                        verdict.accept("tShiftCentred", Math.abs(rc - jc) <= 0.5);
+                    }
+            }
+        }
+        System.out.print(table);
+        Path base = Path.of("src/test/resources/no-contact.tsv");
+        if (Boolean.getBoolean("writeBaseline")) {
+            StringBuilder sb = new StringBuilder();
+            noContact.forEach((f, n) -> sb.append(f).append('\t').append(n).append('\n'));
+            Files.createDirectories(base.getParent());
+            Files.writeString(base, sb.toString());
+            Files.writeString(allowFile, String.join("\n", failing) + "\n");
+            return;
+        }
+        Map<String, Integer> per = new java.util.TreeMap<>();
+        for (String f : failing) per.merge(f.substring(0, f.indexOf(' ')), 1, Integer::sum);
+        System.out.println("CityBuilder self-check: joint checks failing per check (baselined or not): " + per);
+        Map<String, Integer> was = new java.util.HashMap<>();
+        if (Files.exists(base))
+            for (String line : Files.readAllLines(base)) {
+                String[] f = line.split("\t");
+                if (f.length == 2) was.put(f[0], Integer.parseInt(f[1]));
+            }
+        noContact.forEach((f, n) -> {
+            if (n > was.getOrDefault(f, 0)) fails.add("noContactDelta " + f + " " + was.getOrDefault(f, 0) + " -> " + n);
+        });
+        System.out.println("CityBuilder self-check: joint checks failing (" + fails.size() + "): " + fails);
+        check(fails.isEmpty(), "joint checks: " + fails.size() + " failing (listed above)");
+        check(passingAllowed.isEmpty(), "baselined joint cases now passing (drop them from joint-baseline.txt): " + passingAllowed);
     }
 
     private static void continuity() throws Exception {
