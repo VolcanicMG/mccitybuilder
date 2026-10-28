@@ -14,7 +14,8 @@ import javax.imageio.ImageIO;
  * Top-down pictures of real road / wall joints as the planner lays them out ({@link JointCases}): every column coloured by
  * its highest block (lighter = higher), the joint's box yellow, the runs' boxes green, and under it one strip per run
  * showing the contact: the run's end face (blue), the joint layer it butts on (grey), both (green), run cells with
- * nothing in front (red). {@code ./gradlew wallJoints [-Pout=dir] [-Ponly=file name regex]}.
+ * nothing in front (red). {@code ./gradlew wallJoints [-Pout=dir] [-Ponly=file name regex]}; {@code -Dplan=file} lays out a saved
+ * plan's joints instead ({@link JointCases#fromPlan}).
  */
 public final class WallJoints {
     private static final int CELL = 14, R = 16;
@@ -27,7 +28,9 @@ public final class WallJoints {
         File dir = new File(args.length > 0 ? args[0] : "build/wall-joints");
         dir.mkdirs();
         int n = 0;
-        for (var cs : Boolean.getBoolean("allLevels") ? JointCases.allLevels() : JointCases.all()) {
+        String plan = System.getProperty("plan");
+        for (var cs : plan != null ? JointCases.fromPlan(java.nio.file.Files.readString(java.nio.file.Path.of(plan)))
+                : Boolean.getBoolean("allLevels") ? JointCases.allLevels() : JointCases.all()) {
             File f = new File(dir, (cs.family().replace(' ', '_').replace('/', '_') + "_" + cs.name() + ".png"));
             if (!f.getName().matches(System.getProperty("only", ".*"))) continue;
             ImageIO.write(render(cs), "png", f);

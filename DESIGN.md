@@ -444,6 +444,13 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Snap feedback (`LineView.renderSnap`, cyan = snap target): a marker on the snapped cell and a thin line from the
   cursor to it; the target outlined: the joint piece there (joint, tower, a moved end), the segment a T splits, seam
   ticks along the run for a whole-pieces length; the joint's snap points; the label stays short ("snap: T").
+- Direction-free joints (`PieceLayout.frameRot`, `rotBox`, `fitBack`): a joint is laid out in its configuration's own
+  frame (an L with its arms west and north, a T open to the north, a free end's tower pointing west, a cross with its
+  odd straight west, else the key's rotation) and turned back, piece box included, so a shape drawn any way round lays
+  out the same, turned (the boxes' centring and the search's ties aren't symmetric; 1,034 cases differed by direction,
+  0 now: SelfCheck's direction pass, `JointCases.rot`). Built-in settings apply in that frame. Player alignments saved
+  before `#v2` (world shifts) are read in the joint's frame, so on a turned joint they may land a cell off until re-saved.
+  `wallJoints -Dplan=<plan file>` lays out a saved plan's joints (`JointCases.fromPlan`).
 - Gaps between two joints (`PieceLayout.overlapFill`): a run the straights miss by 1-2 cells uses straights that
   long and reaches that far into a joint when that breaks nothing (the start's joint, then the end's; checked again at
   the final levels against the joint and every piece in its box, unknown blocks counting as a clash, else the layout

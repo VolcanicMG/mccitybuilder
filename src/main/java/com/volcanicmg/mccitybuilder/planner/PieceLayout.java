@@ -99,6 +99,65 @@ public final class PieceLayout {
         return best;
     }
 
+    /**
+     * The frame a joint is laid out in: an L turned so its arms point west and north, a T so its open side is north, a
+     * free end's tower so its arm points west, a cross so the arm whose straight runs unlike the other three's points
+     * west (the orientations the self-check pictures were reviewed in); anything else by its key's rotation.
+     *
+     * @param kinds per arm, its straight's turns less its direction out (rotation-free); null for none
+     * @param keyRot {@link #jointKey}'s rotation for the configuration
+     * @return the quarter turns from that frame to the world
+     */
+    public static int frameRot(int[] outs, int[] kinds, int keyRot) {
+        if (outs.length == 2 && outs[0] % 2 != outs[1] % 2)
+            for (int r = 0; r < 4; r++) {
+                int a = Math.floorMod(outs[0] - r, 4), b = Math.floorMod(outs[1] - r, 4);
+                if (a + b == 5 && a * b == 6) return r;
+            }
+        if (outs.length == 1) return Math.floorMod(outs[0] - 2, 4);
+        if (outs.length == 3) {
+            int missing = 0 + 1 + 2 + 3;
+            for (int o : outs) missing -= o;
+            return Math.floorMod(missing - 3, 4);
+        }
+        if (outs.length == 4 && kinds != null)
+            for (int q = 0; q < 4; q++) {
+                int same = 0;
+                for (int k : kinds) if (Math.floorMod(k - kinds[q], 4) == 0) same++;
+                if (same == 1) {
+                    boolean restAlike = true;
+                    for (int a = 0; a < 4; a++) for (int b = 0; b < 4; b++) if (a != q && b != q) restAlike &= Math.floorMod(kinds[a] - kinds[b], 4) == 0;
+                    if (restAlike) return Math.floorMod(outs[q] - 2, 4);
+                }
+            }
+        return keyRot;
+    }
+
+    /** @return box {x0, z0, x1, z1} turned {@code r} quarter turns clockwise about cell {@code c} (like Structurize) */
+    public static int[] rotBox(int[] c, int[] b, int r) {
+        int x0 = b[0] - c[0], z0 = b[1] - c[1], x1 = b[2] - c[0], z1 = b[3] - c[1];
+        for (int i = 0; i < Math.floorMod(r, 4); i++) {
+            int nx0 = -z1, nx1 = -z0;
+            z0 = x0;
+            z1 = x1;
+            x0 = nx0;
+            x1 = nx1;
+        }
+        return new int[]{c[0] + x0, c[1] + z0, c[0] + x1, c[1] + z1};
+    }
+
+    /**
+     * Joints are laid out in their configuration's own frame ({@link #jointKey}'s rotation), so a shape lays out the same
+     * whichever way it is drawn (the boxes' centring and the search's ties aren't symmetric): a run's fit made there
+     * ({@code dC}, the direction in that frame) back in the world, turned {@code r}.
+     */
+    public static Fit fitBack(int[] c, int dC, Fit f, int width, int run, int r) {
+        if (Math.floorMod(r, 4) == 0) return f;
+        int d = Math.floorMod(dC + r, 4), lat = d % 2 == 0 ? 1 : 0;
+        int[] bw = rotBox(c, boxes(c, dC, f.off(), List.of(run), width, f.shift()).get(0), r);
+        return new Fit(f.off(), bw[lat] - c[lat] + (width - 1) / 2, f.match(), f.depth());
+    }
+
     /** @return the box of a joint piece (sx by sz after turning) centred on cell {@code c} */
     public static int[] centred(int[] c, int sx, int sz) {
         return new int[]{c[0] - (sx - 1) / 2, c[1] - (sz - 1) / 2, c[0] + sx / 2, c[1] + sz / 2};

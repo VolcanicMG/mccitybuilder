@@ -6,4 +6,3 @@ throughArmsAligned incan infrastructure/roads/path|T-cross|infrastructure/roads/
 throughArmsAligned incan infrastructure/roads/path|T-flipped-cross|infrastructure/roads/path/pathintersection.blueprint|9867522ax6|2:2035727b:3,1,0|0:2035727b:4,0,0|1:146f0657:4,0,0	throughArmsAligned incan infrastructure/roads/path L0|T-flipped-cross
 throughArmsAligned original infrastructure/roads/poor|T-cross|infrastructure/roads/poor/poorintersectionodd.blueprint|6ab550a9x11|2:7c6f167:6,-1,0|0:7c6f167:6,0,0|1:689122eb:6,0,0	throughArmsAligned original infrastructure/roads/poor L0|T-cross
 wallCornerTurns birch walls|L-left-inner|walls/wallinnercorner.blueprint|564a5f85x10|2:27290451:5,-2,0|3:6f5765d1:5,4,0	wallCornerTurns birch walls L0|L-left-inner
-wallCornerTurns birch walls|L-right-flipped-inner|walls/wallinnercorner.blueprint|df8fb285x10|2:ef615b51:5,3,0|1:6f5765d1:6,4,0	wallCornerTurns birch walls L0|L-right-flipped-inner

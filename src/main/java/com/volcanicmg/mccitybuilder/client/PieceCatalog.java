@@ -398,6 +398,7 @@ final class PieceCatalog {
         jointMatch.clear();
         jointGapAir.clear();
         jointFixes.clear();
+        jointRots.clear();
         List<List<Placed>> out = new ArrayList<>();
         List<Integer> shortened = new ArrayList<>(), need = new ArrayList<>();
         List<int[]> gaps = new ArrayList<>();
@@ -603,7 +604,12 @@ final class PieceCatalog {
                     PieceLayout.Grid jg = grid(l.pack(), joint.path(), joint.turns()), sg = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()));
                     if (sg == null && !failed(l.pack(), primary.path())) ok = false;
                     if (jg != null && sg != null) {
-                        PieceLayout.Fit ft = PieceLayout.fit(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width), jointFixes.getOrDefault(Plan.cell(c[0], c[1]), Map.of()).get(d));
+                        // In the joint's own frame (as it was chosen), turned back.
+                        int rot = jointRots.getOrDefault(Plan.cell(c[0], c[1]), 0), dC = Math.floorMod(d - rot, 4);
+                        PieceLayout.Grid jgC = grid(l.pack(), joint.path(), joint.turns() - rot), sgC = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()) - rot);
+                        PieceLayout.Fit ft = jgC == null || sgC == null ? PieceLayout.fit(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width), jointFixes.getOrDefault(Plan.cell(c[0], c[1]), Map.of()).get(d))
+                                : PieceLayout.fitBack(c, dC, PieceLayout.fit(c, dC, PieceLayout.rotBox(c, jb, -rot), jgC, sgC, width, primary.run(), Math.max(3, width),
+                                jointFixes.getOrDefault(Plan.cell(c[0], c[1]), Map.of()).get(d)), width, primary.run(), rot);
                         noteFit(Plan.cell(c[0], c[1]), ft);
                         off[end] = ft.off();
                         if (end == 0 || !aligned) {
@@ -954,6 +960,8 @@ final class PieceCatalog {
     static final Map<Long, int[]> jointNotes = new HashMap<>();
     // Per joint cell from the last layout: its configuration's set run alignments by direction out ({@link PieceLayout.JointFix}).
     private static final Map<Long, Map<Integer, int[]>> jointFixes = new HashMap<>();
+    // Per joint cell from the last layout: the quarter turns from its configuration's frame to the world.
+    private static final Map<Long, Integer> jointRots = new HashMap<>();
     /** Per joint cell from the last layout: the least match of the runs meeting it ({@link PieceLayout.Fit#match}, 1 = continuous). */
     static final Map<Long, Double> jointMatch = new HashMap<>();
     /** Per joint cell from the last layout: a run stops at the joint's box (its ring is air an overlap would clear). */
@@ -1016,6 +1024,10 @@ final class PieceCatalog {
         int level = lvs[li];
         // The joint's piece shares the number of that line's straight (its level, or its variant).
         PieceSets.Piece like = primary(at.get(li), 0);
+        // Laid out in the configuration's own frame (turned back after), so the drawing direction never changes it.
+        int rot = jointRot(outs, at);
+        List<Integer> oc = new ArrayList<>();
+        for (int o : outs) oc.add(Math.floorMod(o - rot, 4));
         List<PieceSets.Piece> cands = new ArrayList<>();
         List<PieceSets.Role> roles = new ArrayList<>();
         int primaries = 0;
@@ -1044,35 +1056,35 @@ final class PieceCatalog {
                 }
                 int[] jb = PieceLayout.centred(c, jg.sx(), jg.sz());
                 double score = 0;
-                for (int o = 0; o < outs.size(); o++) {
+                for (int o = 0; o < oc.size(); o++) {
                     // Each line's straight as it is really placed: turned for that line's own direction and flip (a line
                     // arriving at the joint runs the other way from one leaving it).
                     Plan.Line ln = at.get(o);
                     PieceSets.Piece st = primary(ln, 0);
                     if (st == null) continue;
                     int ldir = PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()});
-                    PieceLayout.Grid sg = grid(ln.pack(), st.path(), sturn(st, ldir, ln.flip()));
+                    PieceLayout.Grid sg = grid(ln.pack(), st.path(), sturn(st, ldir, ln.flip()) - rot);
                     if (sg == null) {
                         jointLoading = !failed(ln.pack(), st.path());
                         return null;
                     }
                     // By shape and material: a road corner's faces can share a shape, its open sides share the road's blocks.
-                    score += PieceLayout.faceScore(c, outs.get(o), jb, jg, sg, st.across(), st.run());
+                    score += PieceLayout.faceScore(c, oc.get(o), jb, jg, sg, st.across(), st.run());
                     // The floor judges wall corners only, by their weakest run (towers, T's, crosses and roads keep their contact order).
-                    if (outs.size() == 2 && l.isWall() && (roles.get(q) == PieceSets.Role.CORNER || roles.get(q) == PieceSets.Role.INNER)) bestMatch[k] = Math.min(bestMatch[k], PieceLayout.fit(c, outs.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across())).match());
+                    if (outs.size() == 2 && l.isWall() && (roles.get(q) == PieceSets.Role.CORNER || roles.get(q) == PieceSets.Role.INNER)) bestMatch[k] = Math.min(bestMatch[k], PieceLayout.fit(c, oc.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across())).match());
                 }
                 contact[k] = score;
                 // Ties (no run touches, or symmetric faces): the turn whose arms look like the line's straight.
                 PieceSets.Piece st0 = primary(l, 0);
                 PieceLayout.Grid sg0 = st0 == null ? null : grid(l.pack(), st0.path(), 0);
                 if (sg0 != null) {
-                    double[] ac = PieceLayout.armClosed(jg, outs, sg0, l.flip());
+                    double[] ac = PieceLayout.armClosed(jg, oc, sg0, l.flip());
                     shape[k] = ac[0] - ac[1];
                 }
             }
             int best = PieceLayout.pickTurn(contact, bestMatch, shape);
             fixes[q] = jointFix(l.pack(), p.path(), outs, at);
-            if (fixes[q] != null) best = fixes[q].turn();
+            if (fixes[q] != null) best = Math.floorMod(fixes[q].turn() - rot, 4);
             turns[q] = best;
             // What the meeting runs keep with this piece: whole straights and uncovered cells (other ends taken as free).
             PieceLayout.Grid jg = grid(l.pack(), p.path(), best);
@@ -1083,9 +1095,9 @@ final class PieceCatalog {
                 PieceSets.Piece st = primary(ln, 0);
                 if (st == null) continue;
                 int ldir = PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()});
-                PieceLayout.Grid sg = grid(ln.pack(), st.path(), sturn(st, ldir, ln.flip()));
+                PieceLayout.Grid sg = grid(ln.pack(), st.path(), sturn(st, ldir, ln.flip()) - rot);
                 if (sg == null) continue;
-                int off = PieceLayout.fit(c, outs.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across()), fixes[q] == null ? null : fixes[q].runs()[o]).off();
+                int off = PieceLayout.fit(c, oc.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across()), fixes[q] == null ? null : fixes[q].runs()[o]).off();
                 int cells = Math.max(Math.abs(ln.x1() - ln.x0()), Math.abs(ln.z1() - ln.z0())) + 1 - off;
                 int[] fit = PieceLayout.runFit(cells, runLengths(ln));
                 pieces += fit[0];
@@ -1102,9 +1114,29 @@ final class PieceCatalog {
             for (int o = 0; o < outs.size(); o++) if (fixes[q].runs()[o] != null) byOut.put(outs.get(o), fixes[q].runs()[o]);
             jointFixes.put(Plan.cell(c[0], c[1]), byOut);
         }
-        Blueprint jbp = rotated(l.pack(), cands.get(q).path(), turns[q]);
-        if (jbp == null) return null;
-        return place(l.pack(), cands.get(q).path(), turns[q], PieceLayout.centred(c, jbp.getSizeX(), jbp.getSizeZ()), roles.get(q));
+        jointRots.put(Plan.cell(c[0], c[1]), rot);
+        PieceLayout.Grid jc = grid(l.pack(), cands.get(q).path(), turns[q]);
+        Blueprint jbp = rotated(l.pack(), cands.get(q).path(), turns[q] + rot);
+        if (jbp == null || jc == null) return null;
+        return place(l.pack(), cands.get(q).path(), Math.floorMod(turns[q] + rot, 4), PieceLayout.rotBox(c, PieceLayout.centred(c, jc.sx(), jc.sz()), rot), roles.get(q));
+    }
+
+    /** @return the quarter turns from a joint configuration's own frame to the world ({@link PieceLayout#jointKey}) */
+    private static int jointRot(List<Integer> outs, List<Plan.Line> at) {
+        int[] o = new int[outs.size()], st = new int[outs.size()];
+        String[] sp = new String[outs.size()];
+        boolean[] sym = new boolean[outs.size()];
+        for (int q = 0; q < o.length; q++) {
+            Plan.Line ln = at.get(q);
+            PieceSets.Piece p = primary(ln, 0);
+            o[q] = outs.get(q);
+            sp[q] = p == null ? "" : p.path();
+            st[q] = p == null ? 0 : Math.floorMod(sturn(p, PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()}), ln.flip()), 4);
+            sym[q] = p != null && symmetric(ln.pack(), p.path());
+        }
+        int[] kinds = new int[o.length];
+        for (int q = 0; q < o.length; q++) kinds[q] = Math.floorMod(st[q] - o[q], 4);
+        return PieceLayout.frameRot(o, kinds, PieceLayout.jointKey("", o, sp, st, sym).rot());
     }
 
 

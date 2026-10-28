@@ -113,6 +113,47 @@ final class JointCases {
     }
 
     /**
+     * A saved plan's joints laid out as the planner would (real directions, lengths and end cells): every cell where two
+     * or more segments of one family end, with the plan's joint type there. Named "x,z".
+     *
+     * @param text a plan file ({@link Plan#readLines}, {@link Plan#readJoints})
+     */
+    static List<Case> fromPlan(String text) throws Exception {
+        List<Plan.Line> lines = Plan.readLines(text);
+        Map<Long, Integer> types = Plan.readJoints(text);
+        Map<String, String> folders = new HashMap<>();
+        for (String f : packs().keySet()) folders.put(PackPieces.packName(f), f);
+        Map<String, List<Plan.Line>> at = new TreeMap<>();
+        for (Plan.Line l : lines) for (int[] e : l.ends()) at.computeIfAbsent(l.pack() + "|" + l.family() + "|" + e[0] + "," + e[1], k -> new ArrayList<>()).add(l);
+        List<Case> out = new ArrayList<>();
+        try {
+            for (var en : at.entrySet()) {
+                List<Plan.Line> ls = en.getValue();
+                if (ls.size() < 2) continue;
+                Plan.Line l0 = ls.get(0);
+                String folder = folders.get(l0.pack()), xz = en.getKey().substring(en.getKey().lastIndexOf('|') + 1);
+                PieceSets.Family fam = folder == null ? null : PieceSets.classify(packs().get(folder)).get(l0.family());
+                if (fam == null || fam.straights().isEmpty()) continue;
+                int[] c = {Integer.parseInt(xz.split(",")[0]), Integer.parseInt(xz.split(",")[1])};
+                int[] outs = new int[ls.size()], dirs = new int[ls.size()];
+                for (int q = 0; q < ls.size(); q++) {
+                    Plan.Line l = ls.get(q);
+                    dirs[q] = PieceLayout.dir(new int[]{l.x0(), l.z0()}, new int[]{l.x1(), l.z1()});
+                    outs[q] = l.x0() == c[0] && l.z0() == c[1] ? dirs[q] : (dirs[q] + 2) % 4;
+                }
+                level = l0.level();
+                PieceSets.Piece st = pickTop(fam.straights().get(0));
+                boolean collinear = ls.size() == 2 && outs[0] % 2 == outs[1] % 2;
+                add(out, folder, l0.family(), xz, fam, PieceLayout.jointRoles(types.getOrDefault(Plan.cell(c[0], c[1]), Plan.J_AUTO), ls.size(), collinear, l0.towers()),
+                        PackPieces.grid(folder + "/" + st.path()), st, outs, dirs, l0.flip());
+            }
+        } finally {
+            level = 0;
+        }
+        return out;
+    }
+
+    /**
      * @param pack the style pack; @param famKey a family key ("wall:walls")
      * @return every case the family has pieces for
      */
@@ -222,6 +263,22 @@ final class JointCases {
         PieceLayout.Grid jg = PackPieces.grid(pack + "/" + jp.path());
         int[] c = {0, 0};
         int width = st.across(), run = st.run();
+        // The configuration's frame (joints only; a cap stays along its line): laid out there, turned back.
+        int[] sts = new int[outs.length];
+        String[] sps = new String[outs.length];
+        for (int q = 0; q < outs.length; q++) {
+            sts[q] = Math.floorMod(PieceLayout.turns(sg.sx(), sg.sz(), dirs[q]) + (flip ? 2 : 0), 4);
+            sps[q] = st.path();
+        }
+        PieceLayout.Grid s2 = sg.turned(2);
+        boolean[] sym = new boolean[outs.length];
+        java.util.Arrays.fill(sym, s2.sx() == sg.sx() && java.util.Arrays.equals(s2.ids(), sg.ids()));
+        int rot = role == PieceSets.Role.END ? 0 : PieceLayout.frameRot(outs, kinds(outs, sts), PieceLayout.jointKey(jp.path(), outs, sps, sts, sym).rot());
+        int[] oc = new int[outs.length], dc = new int[outs.length];
+        for (int q = 0; q < outs.length; q++) {
+            oc[q] = Math.floorMod(outs[q] - rot, 4);
+            dc[q] = Math.floorMod(dirs[q] - rot, 4);
+        }
         // The turn whose faces best continue the straights, as the planner picks it: any for a joint, along the line for a cap.
         int best = 0, from = 0, step = 1;
         if (role == PieceSets.Role.END) {
@@ -229,15 +286,15 @@ final class JointCases {
             step = 2;
         }
         List<Integer> ks = new ArrayList<>(), outList = new ArrayList<>();
-        for (int o : outs) outList.add(o);
+        for (int o : oc) outList.add(o);
         double[] contact = new double[4 / step], shape = new double[4 / step], bestMatch = new double[4 / step];
         for (int k = from; k < from + 4; k += step) {
             PieceLayout.Grid t = jg.turned(k);
             double sc = 0, bm = 1;
             for (int q = 0; q < outs.length; q++) {
-                int[] tb = box(c, outs[0], t, role, jp);
-                sc += PieceLayout.faceScore(c, outs[q], tb, t, straight(sg, dirs[q], flip), width, run);
-                bm = Math.min(bm, PieceLayout.fit(c, outs[q], tb, t, straight(sg, dirs[q], flip), width, run, Math.max(3, width)).match());
+                int[] tb = box(c, oc[0], t, role, jp);
+                sc += PieceLayout.faceScore(c, oc[q], tb, t, straight(sg, dc[q], flip), width, run);
+                bm = Math.min(bm, PieceLayout.fit(c, oc[q], tb, t, straight(sg, dc[q], flip), width, run, Math.max(3, width)).match());
             }
             // The floor judges wall corners only (towers, T's, crosses and roads keep their contact order).
             bestMatch[ks.size()] = outs.length == 2 && famKey.startsWith("wall:") && (role == PieceSets.Role.CORNER || role == PieceSets.Role.INNER) ? bm : 1;
@@ -250,27 +307,22 @@ final class JointCases {
         PieceLayout.JointFix fix = null;
         if (role != PieceSets.Role.END) {
             // The mod's built-in setting for this configuration, as the planner reads it.
-            int[] sts = new int[outs.length];
-            String[] sps = new String[outs.length];
-            for (int q = 0; q < outs.length; q++) {
-                sts[q] = Math.floorMod(PieceLayout.turns(sg.sx(), sg.sz(), dirs[q]) + (flip ? 2 : 0), 4);
-                sps[q] = st.path();
-            }
-            PieceLayout.Grid s2 = sg.turned(2);
-            boolean[] sym = new boolean[outs.length];
-            java.util.Arrays.fill(sym, s2.sx() == sg.sx() && java.util.Arrays.equals(s2.ids(), sg.ids()));
             fix = PieceLayout.jointFix(PieceSets.builtIn(PackPieces.packName(pack))::get, k -> false, jp.path(), outs, sps, sts, sym);
-            if (fix != null) best = fix.turn();
+            if (fix != null) best = Math.floorMod(fix.turn() - rot, 4);
         }
-        PieceLayout.Grid t = jg.turned(best);
-        int[] jb = box(c, outs[0], t, role, jp);
+        PieceLayout.Grid tc = jg.turned(best);
+        int[] jbc = box(c, oc[0], tc, role, jp);
+        PieceLayout.Grid t = jg.turned(best + rot);
+        int[] jb = PieceLayout.rotBox(c, jbc, rot);
         List<Run> runs = new ArrayList<>();
         for (int q = 0; q < outs.length; q++) {
             int o = outs[q];
             PieceLayout.Grid s = straight(sg, dirs[q], flip);
-            PieceLayout.Fit f = PieceLayout.fit(c, o, jb, t, s, width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
+            PieceLayout.Fit fc = PieceLayout.fit(c, oc[q], jbc, tc, straight(sg, dc[q], flip), width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
+            PieceLayout.Fit f = PieceLayout.fitBack(c, oc[q], fc, width, run, rot);
             runs.add(new Run(o, s, f, PieceLayout.boxes(c, o, f.off(), List.of(run), width, f.shift()).get(0)));
         }
+        best = Math.floorMod(best + rot, 4);
         Case cs = new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name, jp.path(), t, jb, runs, false, fix != null);
         if (fix == null && role != PieceSets.Role.END) PINS.put(cs, pin(pack, jp.path(), t, best, jb, runs, sg, st, dirs, flip));
         out.add(cs);
@@ -296,6 +348,13 @@ final class JointCases {
             v.append(' ').append(Math.floorMod(outs[q] - k.rot(), 4)).append(':')
                     .append(PieceLayout.alignShift(new int[]{0, 0}, outs[q], jb, st.across(), runs.get(q).fit().shift())).append(',').append(runs.get(q).fit().depth());
         return PackPieces.packName(pack) + "\t" + k.key() + "\t" + v;
+    }
+
+    /** @return per arm, its straight's turns less its direction out ({@link PieceLayout#frameRot}) */
+    static int[] kinds(int[] outs, int[] sts) {
+        int[] k = new int[outs.length];
+        for (int q = 0; q < k.length; q++) k[q] = Math.floorMod(sts[q] - outs[q], 4);
+        return k;
     }
 
     /** @return the joint's box: centred on the joint cell; a cap lies along the line from the free end (shift 0) */
