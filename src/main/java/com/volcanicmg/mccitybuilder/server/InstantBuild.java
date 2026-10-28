@@ -913,16 +913,29 @@ public final class InstantBuild {
         gone.sort((a, b) -> b.getY() - a.getY());
         int top = groundAround(level, origin, far);
         // Liquids first, without neighbour updates: the decoration's own water can't spill out while its walls go.
-        for (BlockPos w : gone) if (!level.getFluidState(w).isEmpty()) level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
+        List<BlockPos> drained = new ArrayList<>();
+        for (BlockPos w : gone)
+            if (!level.getFluidState(w).isEmpty()) {
+                level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
+                drained.add(w);
+            }
         for (BlockPos w : gone) level.setBlock(w, ground(w.getY(), top), 3);
-        // Hollows under the ground around it (a basin, a cellar) fill too, unless something living is in them.
-        for (int y = origin.getY(); y <= Math.min(top, far.getY()); y++)
-            for (int z = origin.getZ(); z <= far.getZ(); z++)
-                for (int x = origin.getX(); x <= far.getX(); x++) {
-                    BlockPos w = new BlockPos(x, y, z);
-                    if (level.getBlockState(w).isAir() && !entityKept.contains(w)
-                            && level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class, new net.minecraft.world.phys.AABB(w)).isEmpty())
-                        level.setBlock(w, ground(y, top), 3);
+        for (BlockPos w : drained) if (w.getY() > top) level.updateNeighborsAt(w, net.minecraft.world.level.block.Blocks.AIR);
+        // The blueprint's own hollows under the ground around it (a basin, a cellar) fill too; never a cell with an
+        // entity in it, and only where placing is allowed (one place event per chunk, as the paste does).
+        java.util.Set<BlockPos> occupied = new java.util.HashSet<>(entityKept);
+        for (Entity e : level.getEntities((Entity) null, new net.minecraft.world.phys.AABB(origin.getX(), origin.getY(), origin.getZ(), far.getX() + 1, far.getY() + 1, far.getZ() + 1), e -> true))
+            BlockPos.betweenClosedStream(e.getBoundingBox().deflate(0.01)).forEach(b -> occupied.add(b.immutable()));
+        java.util.Map<Long, Boolean> placeOk = new HashMap<>();
+        for (int y = 0; y < bp.getSizeY() && origin.getY() + y <= top; y++)
+            for (int z = 0; z < bp.getSizeZ(); z++)
+                for (int x = 0; x < bp.getSizeX(); x++) {
+                    BlockPos w = origin.offset(x, y, z);
+                    if (!palette[st[y][z][x]].isAir() || !level.getBlockState(w).isAir() || occupied.contains(w)) continue;
+                    BlockState fill = ground(w.getY(), top);
+                    if (!placeOk.computeIfAbsent(w.getX() >> 4 | (long) (w.getZ() >> 4) << 32, k -> !NeoForge.EVENT_BUS.post(
+                            new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, w), level.getBlockState(w.below()), p)).isCanceled())) continue;
+                    level.setBlock(w, fill, 3);
                 }
         if (report) {
             done(p);
