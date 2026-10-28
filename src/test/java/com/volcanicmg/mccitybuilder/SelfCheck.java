@@ -706,6 +706,7 @@ public final class SelfCheck {
 
     /** Road / wall tools: snapping, chaining and branching, wall joints, height, gates, battlements, segments. */
     private static void lines() throws Exception {
+        undoRestore();
         List<int[][]> segs = new java.util.ArrayList<>();
         segs.add(new int[][]{{0, 0}, {20, 0}});
         // Ends snap to an existing endpoint near the cursor; otherwise to 45° steps from the previous direction.
@@ -1489,6 +1490,23 @@ public final class SelfCheck {
                 new com.volcanicmg.mccitybuilder.planner.Overlays.Need("Planks", 0), new com.volcanicmg.mccitybuilder.planner.Overlays.Need("Stone", 30),
                 new com.volcanicmg.mccitybuilder.planner.Overlays.Need("Torch", 4)), 2);
         check(w.size() == 2 && w.get(0).name().equals("Stone") && w.get(1).name().equals("Glass"), "waiting list: missing only, most first, capped: " + w);
+    }
+
+    private static void undoRestore() {
+        // Undo keeps what is built / on its way, drops snapshot runs over it, brings taken-down walls back as plans.
+        Plan.Line a = new Plan.Line("wall", 0, 0, 10, 0, "p", "f", 1, 0, false, false), b = new Plan.Line("wall", 10, 0, 10, 8, "p", "f", 1, 0, false, false);
+        Plan.Line builtB = b.asBuilt(), c = new Plan.Line("wall", 10, 2, 10, 6, "p", "f", 1, 0, false, false);
+        Plan.Line gone = new Plan.Line("wall", 0, 5, 0, 9, "p", "f", 1, 0, false, false).asBuilt();
+        java.util.Set<Plan.Line> sending = java.util.Set.of(a);
+        java.util.function.Predicate<Plan.Line> locked = l -> l.built() || sending.contains(l);
+        // Snapshot: a (now sending), c (its cells now under built b), gone (built, taken down since).
+        List<Plan.Line> r = Plan.restore(List.of(a, c, gone), List.of(a, builtB), locked, l -> l.equals(gone));
+        check(r.equals(List.of(a, gone.asPlanned(), builtB)), "undo restore: " + r);
+        check(Plan.restore(List.of(gone), List.of(), locked, l -> false).equals(List.of(gone)), "built record dropped without a removal: back as built");
+        // Touching a built wall at one joint cell is fine; a run along it is not.
+        Plan.Line touch = new Plan.Line("wall", 10, 8, 20, 8, "p", "f", 1, 0, false, false);
+        check(Plan.restore(List.of(touch), List.of(builtB), locked, l -> false).contains(touch), "joint cell shared: kept");
+        check(Plan.sharedCells(c, builtB) == 5 && Plan.sharedCells(touch, builtB) == 1, "shared cells");
     }
 
     private static void hintsAndLang() throws Exception {

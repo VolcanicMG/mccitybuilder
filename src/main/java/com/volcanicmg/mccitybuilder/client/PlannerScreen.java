@@ -547,7 +547,7 @@ final class PlannerScreen extends Screen {
         boolean server = Planner.serverInstant();
         String[] bkeys = {"done", "undo", "remove", "build", "clear"};
         boolean canRemove = LineView.hoverLine >= 0 || sel != null || !LineView.sel.isEmpty();
-        boolean[] off = {LineView.start == null, LineView.chain.isEmpty() && LineView.removed.isEmpty(), !canRemove,
+        boolean[] off = {LineView.start == null, !LineView.canUndo(), !canRemove,
                 PlanView.lines.isEmpty() && PlanView.entries.isEmpty(), PlanView.lines.stream().noneMatch(l -> l.tool().equals(tool) && !PlanView.locked(l))};
         Runnable[] run = {LineView::finishChain, LineView::undo, () -> {
             if (LineView.removeHovered()) toast(Component.translatable("mccitybuilder.line.removed"));

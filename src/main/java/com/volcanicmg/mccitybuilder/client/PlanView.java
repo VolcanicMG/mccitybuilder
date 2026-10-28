@@ -109,6 +109,7 @@ final class PlanView {
             builtPieces = new HashMap<>();
         }
         PieceCatalog.builtPieces = builtPieces;
+        LineView.resetUndo();
         selected = -1;
         selectedLine = -1;
         linesDirty = true;
@@ -194,6 +195,7 @@ final class PlanView {
     }
 
     static void clear() {
+        LineView.checkpoint();
         entries.clear();
         selected = -1;
         // Segments already on their way to the server stay until it answers.

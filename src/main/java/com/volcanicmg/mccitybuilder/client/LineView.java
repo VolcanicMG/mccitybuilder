@@ -32,11 +32,18 @@ final class LineView {
     static boolean towers, gate, flip;
     // Height for the next segments: mode (Plan.FOLLOW..SMOOTH), blocks added, and the chain's shared level (CHAIN).
     static int heightMode = Plan.FOLLOW, dy, chainBase = Plan.NO_BASE;
-    // The planned segment under the cursor (Del / right-click remove it), and removed segments (Undo restores them).
+    // The planned segment under the cursor (Del / right-click remove it).
     static int hoverLine = -1;
     // The planned piece under the cursor (the preview card shows it).
     static PieceCatalog.Placed hoverPiece;
-    static final java.util.ArrayDeque<List<Plan.Line>> removed = new java.util.ArrayDeque<>();
+    // Undo: the plan's lines, joint types, chain and selection before each user change (newest first).
+    private record Snap(List<Plan.Line> lines, java.util.Map<Long, Integer> joints, List<Plan.Line> chain, int[] start, int[] prevDir, int chainBase,
+                        int selectedLine, int[] selectedJoint) {
+    }
+
+    private static final java.util.ArrayDeque<Snap> undos = new java.util.ArrayDeque<>();
+    // Built segments whose removal went to the server: an undo brings them back as plans.
+    private static final java.util.Set<Plan.Line> takenDown = new java.util.HashSet<>();
     // Snapping feedback: what snapped ("joint", "piece", "axis", "tee", "pieces"), how many pieces, the guide line
     // {x0, z0, x1, z1} along the snapped axis, and a joint's snap points (centre and one per face).
     static String snap;
@@ -499,6 +506,7 @@ final class LineView {
             flash = "mccitybuilder.edit.cant_outside_flash";
             return;
         }
+        checkpoint();
         java.util.Map<Long, int[]> to = Plan.moved(before, moved, dragPoints);
         java.util.Map<Long, Integer> types = new java.util.HashMap<>();
         for (var en : to.entrySet()) {
@@ -576,6 +584,7 @@ final class LineView {
             flashUntil = System.currentTimeMillis() + 2500;
             return false;
         }
+        checkpoint();
         PlanView.jointTypes.clear();
         PlanView.jointTypes.putAll(tr.types());
         PlanView.setLines(tr.lines());
@@ -965,6 +974,7 @@ final class LineView {
     static boolean click(BlockHitResult hit) {
         if (!active() || hit == null || family() == null) return true;
         if (start == null) {
+            checkpoint();
             start = hover != null ? hover : LineSnap.snapStart(hit.getLocation().x, hit.getLocation().z, segments());
             PlanView.splitAt(start);
             start = extendForJoint(start);
@@ -983,6 +993,7 @@ final class LineView {
             flashUntil = System.currentTimeMillis() + 1500;
             return false;
         }
+        checkpoint();
         // The chain's last segment grows for the corner; this segment starts at the grown end.
         if (grow != null && !chain.isEmpty()) {
             Plan.Line prev = chain.get(chain.size() - 1), g2 = grown(prev, grow);
@@ -1084,32 +1095,70 @@ final class LineView {
             int need = i >= 0 && i < PlanView.lineNeed.size() ? PlanView.lineNeed.get(i) : Integer.MAX_VALUE;
             if (left > 0 && endCount(new int[]{l.x1(), l.z1()}) == 1 && cells - left >= need && !PlanView.locked(l)) {
                 int dx = Integer.signum(l.x1() - l.x0()), dz = Integer.signum(l.z1() - l.z0());
+                checkpoint();
                 PlanView.replaceLine(l, l.between(l.x0(), l.z0(), l.x1() - dx * left, l.z1() - dz * left));
             }
         }
         endChain();
     }
 
-    /** Backspace: removes the chain's last segment (found by value, so other edits can't misdirect it). */
+    private static Snap snap() {
+        return new Snap(new ArrayList<>(PlanView.lines), new java.util.HashMap<>(PlanView.jointTypes), new ArrayList<>(chain), start == null ? null : start.clone(),
+                prevDir == null ? null : prevDir.clone(), chainBase, PlanView.selectedLine, selectedJoint == null ? null : selectedJoint.clone());
+    }
+
+    private static boolean same(Snap a, Snap b) {
+        return a.lines().equals(b.lines()) && a.joints().equals(b.joints()) && a.chain().equals(b.chain()) && java.util.Arrays.equals(a.start(), b.start())
+                && java.util.Arrays.equals(a.prevDir(), b.prevDir()) && a.chainBase() == b.chainBase();
+    }
+
+    /** Remembers the plan's lines before a user change, for Undo (a state equal to the last one isn't kept twice). */
+    static void checkpoint() {
+        Snap s = snap();
+        if (!undos.isEmpty() && same(undos.peek(), s)) return;
+        undos.push(s);
+        while (undos.size() > 64) undos.removeLast();
+    }
+
+    /** Forgets the undo history (another plan was loaded). */
+    static void resetUndo() {
+        undos.clear();
+        takenDown.clear();
+    }
+
+    static boolean canUndo() {
+        return !undos.isEmpty();
+    }
+
+    /**
+     * Backspace / Undo: back to the last checkpoint (one that changes nothing is skipped). Built and in-flight segments
+     * stay as they are now ({@link Plan#restore}); right after a click the chain goes on from the previous end.
+     */
     static void undo() {
-        if (chain.isEmpty()) {
-            // Nothing drawn in this chain: bring back the last removed segment, if any.
-            if (!removed.isEmpty()) for (Plan.Line l : removed.pop()) PlanView.addLine(l);
-            else endChain();
+        Snap now = snap();
+        while (!undos.isEmpty()) {
+            Snap s = undos.pop();
+            List<Plan.Line> ls = Plan.restore(s.lines(), PlanView.lines, PlanView::locked, takenDown::contains);
+            List<Plan.Line> ch = new ArrayList<>(s.chain());
+            ch.retainAll(ls);
+            Snap to = new Snap(ls, s.joints(), ch, s.start(), s.prevDir(), s.chainBase(), s.selectedLine(), s.selectedJoint());
+            if (same(to, now)) continue;
+            closeJointMenu(false);
+            PlanView.jointTypes.clear();
+            PlanView.jointTypes.putAll(s.joints());
+            chain.clear();
+            chain.addAll(ch);
+            start = s.start();
+            prevDir = s.prevDir();
+            chainBase = s.chainBase();
+            end = null;
+            select(s.selectedLine() >= 0 && s.selectedLine() < ls.size() ? List.of(s.selectedLine()) : List.of(), false);
+            selectedJoint = s.selectedJoint();
+            PlanView.setLines(ls);
+            clearLive();
             return;
         }
-        Plan.Line l = chain.get(chain.size() - 1);
-        // Built or on its way (or changed by the server's answer): not taken back; the chain just ends.
-        if (PlanView.locked(l) || !PlanView.lines.contains(l)) {
-            endChain();
-            return;
-        }
-        chain.remove(chain.size() - 1);
-        PlanView.removeLineValue(l);
-        start = new int[]{l.x0(), l.z0()};
-        prevDir = chain.isEmpty() ? null : new int[]{chain.get(chain.size() - 1).x1() - chain.get(chain.size() - 1).x0(),
-                chain.get(chain.size() - 1).z1() - chain.get(chain.size() - 1).z0()};
-        liveKey = null;
+        endChain();
     }
 
     static Plan.Line next(int[] a, int[] b) {
@@ -1126,7 +1175,7 @@ final class LineView {
         if (keys == null || keys.isEmpty()) return;
         String cur = s != null ? s.family() : family();
         String nx = keys.get(Math.floorMod(Math.max(0, keys.indexOf(cur)) + d, keys.size()));
-        if (s != null) PlanView.setLine(s.with(nx, s.level(), s.variant(), s.towers(), s.gate()));
+        if (s != null) setSelected(s.with(nx, s.level(), s.variant(), s.towers(), s.gate()));
         else if ("wall".equals(t)) wallFamily = nx;
         else roadFamily = nx;
     }
@@ -1137,7 +1186,7 @@ final class LineView {
         int lv = s != null ? s.level() : level, va = s != null ? s.variant() : variant;
         if (levels) lv = Math.floorMod(lv - 1 + d, Math.max(1, max)) + 1;
         else va = Math.floorMod(va + 1 + d, max + 1) - 1;
-        if (s != null) PlanView.setLine(s.with(s.family(), lv, va, s.towers(), s.gate()));
+        if (s != null) setSelected(s.with(s.family(), lv, va, s.towers(), s.gate()));
         else {
             level = lv;
             variant = va;
@@ -1149,19 +1198,27 @@ final class LineView {
         if (edit && sel.size() > 1) {
             List<Plan.Line> ls = new ArrayList<>(PlanView.lines);
             for (int i : sel) if (i < ls.size() && !PlanView.locked(ls.get(i))) ls.set(i, ls.get(i).withFlip(!ls.get(i).flip()));
+            if (!ls.equals(PlanView.lines)) checkpoint();
             PlanView.setLines(ls);
             return;
         }
         Plan.Line s = PlanView.selectedLine();
-        if (s != null) PlanView.setLine(s.withFlip(!s.flip()));
+        if (s != null) setSelected(s.withFlip(!s.flip()));
         else flip = !flip;
+    }
+
+    /** An option change on the selected segment (undoable; none when it changes nothing). */
+    private static void setSelected(Plan.Line n) {
+        if (n.equals(PlanView.selectedLine())) return;
+        checkpoint();
+        PlanView.setLine(n);
     }
 
     /** Height mode: follow the ground, flat per segment, flat per chain, smooth. */
     static void cycleHeight(int d) {
         Plan.Line s = PlanView.selectedLine();
         int m = Math.floorMod((s != null ? s.height() : heightMode) + d, 4);
-        if (s != null) PlanView.setLine(s.withHeight(m, s.dy(), m == Plan.CHAIN ? s.base() : Plan.NO_BASE));
+        if (s != null) setSelected(s.withHeight(m, s.dy(), m == Plan.CHAIN ? s.base() : Plan.NO_BASE));
         else {
             heightMode = m;
             chainBase = Plan.NO_BASE;
@@ -1171,7 +1228,7 @@ final class LineView {
     /** PgUp / PgDn: raise or lower (blocks added to the mode's height). */
     static void raise(int d) {
         Plan.Line s = PlanView.selectedLine();
-        if (s != null) PlanView.setLine(s.withHeight(s.height(), Math.max(-64, Math.min(64, s.dy() + d)), s.base()));
+        if (s != null) setSelected(s.withHeight(s.height(), Math.max(-64, Math.min(64, s.dy() + d)), s.base()));
         else dy = Math.max(-64, Math.min(64, dy + d));
     }
 
@@ -1188,15 +1245,18 @@ final class LineView {
         if (gone.isEmpty()) return false;
         // Built records: with the server part their pieces are taken down too (creative: matching blocks removed at
         // once; survival: a builder's REMOVE order per piece, which clears whatever stands where its blocks are).
+        checkpoint();
         int sent = 0;
-        for (Plan.Line l : gone) if (l.built() && PlanView.sendRemoval(l)) sent++;
+        for (Plan.Line l : gone)
+            if (l.built() && PlanView.sendRemoval(l)) {
+                sent++;
+                takenDown.add(l);
+            }
         if (sent > 0) {
             flash = Planner.creative() ? "mccitybuilder.line.built_deleted" : "mccitybuilder.line.built_remove_ordered";
             flashArg = sent;
             flashUntil = System.currentTimeMillis() + 4000;
         }
-        removed.push(gone);
-        while (removed.size() > 32) removed.removeLast();
         List<Plan.Line> keep = new ArrayList<>(PlanView.lines);
         keep.removeAll(gone);
         PlanView.setLines(keep);
@@ -1229,9 +1289,7 @@ final class LineView {
             return;
         }
         clearArmed = 0;
-        List<Plan.Line> gone = new ArrayList<>(PlanView.lines);
-        gone.removeAll(keep);
-        removed.push(gone);
+        checkpoint();
         endChain();
         select(List.of(), false);
         PlanView.setLines(keep);
@@ -1246,7 +1304,7 @@ final class LineView {
     /** Gate in the selected wall segment, or in the next one drawn. */
     static void toggleGate() {
         Plan.Line s = PlanView.selectedLine();
-        if (s != null && s.isWall()) PlanView.setLine(s.with(s.family(), s.level(), s.variant(), s.towers(), !s.gate()));
+        if (s != null && s.isWall()) setSelected(s.with(s.family(), s.level(), s.variant(), s.towers(), !s.gate()));
         else if (s == null && wall()) gate = !gate;
     }
 

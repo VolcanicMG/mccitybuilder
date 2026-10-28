@@ -125,6 +125,11 @@ public final class Plan {
             return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, true);
         }
 
+        /** @return this segment as a plain planned one (its built blocks were taken down) */
+        public Line asPlanned() {
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, false);
+        }
+
         public int[][] ends() {
             return new int[][]{{x0, z0}, {x1, z1}};
         }
@@ -433,6 +438,45 @@ public final class Plan {
         }
         java.util.Collections.sort(out);
         return out;
+    }
+
+    /**
+     * Undo: the segments of a snapshot, without un-building or re-planning what is built or on its way now. Every
+     * currently locked segment stays as it is; a snapshot segment sharing a run of cells with one is dropped. A built
+     * snapshot segment that is gone now comes back as a plain planned one when its blocks were taken down, else as the
+     * built record it was (its blocks still stand).
+     *
+     * @param takenDown built segments whose removal was sent to the server
+     */
+    public static List<Line> restore(List<Line> snap, List<Line> now, java.util.function.Predicate<Line> locked, java.util.function.Predicate<Line> takenDown) {
+        List<Line> held = new ArrayList<>();
+        for (Line l : now) if (locked.test(l)) held.add(l);
+        List<Line> out = new ArrayList<>();
+        for (Line s : snap) {
+            if (held.contains(s)) {
+                if (!out.contains(s)) out.add(s);
+                continue;
+            }
+            Line r = s;
+            if (s.built()) {
+                if (takenDown.test(s)) r = s.asPlanned();
+            } else if (locked.test(s)) continue;
+            boolean clash = false;
+            for (Line h : held) clash |= sharedCells(r, h) >= Math.min(2, cells(r));
+            if (!clash) out.add(r);
+        }
+        for (Line h : held) if (!out.contains(h)) out.add(h);
+        return out;
+    }
+
+    /** @return how many cells two straight (axis or 45°) segments share */
+    public static int sharedCells(Line a, Line b) {
+        java.util.Set<Long> on = new java.util.HashSet<>();
+        int n = cells(a), dx = Integer.signum(a.x1() - a.x0()), dz = Integer.signum(a.z1() - a.z0());
+        for (int i = 0; i < n; i++) on.add(cell(a.x0() + dx * i, a.z0() + dz * i));
+        int m = cells(b), ex = Integer.signum(b.x1() - b.x0()), ez = Integer.signum(b.z1() - b.z0()), k = 0;
+        for (int i = 0; i < m; i++) if (on.contains(cell(b.x0() + ex * i, b.z0() + ez * i))) k++;
+        return k;
     }
 
     /** @return a segment's length in cells, both ends included */
