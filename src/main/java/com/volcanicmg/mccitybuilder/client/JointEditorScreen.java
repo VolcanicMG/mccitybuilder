@@ -107,16 +107,23 @@ final class JointEditorScreen extends Screen {
             PieceCatalog.clearDrafts();
         });
         iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.role", Component.translatable("mccitybuilder.line.role." + ROLES[role].name().toLowerCase(java.util.Locale.ROOT))).getString(),
-                mx, my, d -> role = Math.floorMod(role + d, ROLES.length));
+                mx, my, d -> {
+                    role = Math.floorMod(role + d, ROLES.length);
+                    dropDrafts();
+                });
         iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.case", CASES[kase] + (flipped ? " (flipped)" : "")).getString(), mx, my, d -> {
             int k = Math.floorMod(kase * 2 + (flipped ? 1 : 0) + d, CASES.length * 2);
             kase = k / 2;
             flipped = k % 2 == 1;
             runSel = 0;
+            dropDrafts();
         });
         Layout lay = layout();
         iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.turn", turn < 0 ? "auto (" + (lay == null ? "-" : lay.turn) + ")" : "" + turn).getString(), mx, my,
-                d -> turn = Math.floorMod(turn + 1 + d, 5) - 1);
+                d -> {
+                    turn = Math.floorMod(turn + 1 + d, 5) - 1;
+                    dropDrafts();
+                });
         if (lay == null) {
             g.drawString(font, Component.translatable("mccitybuilder.align.missing"), ix, iy + 4, 0xFFA02020, false);
             return;
@@ -280,7 +287,16 @@ final class JointEditorScreen extends Screen {
         PieceCatalog.draftAlignment(pack, r.key(), bad ? null : n);
     }
 
-    /** Save: every adjusted run, unless one would clear or replace blocks (then nothing is saved). */
+    /**
+     * A different role, case or turn shows other runs: the drafts made for the old ones go (they couldn't be checked
+     * or saved from here).
+     */
+    private void dropDrafts() {
+        drafts.clear();
+        PieceCatalog.clearDrafts();
+    }
+
+    /** Save: every adjusted run except those that would clear or replace blocks (they stay unsaved drafts, and the note says how many). */
     private void save(Layout lay) {
         java.util.Set<String> bad = new java.util.HashSet<>();
         for (Run r : lay.runs) if (r.bad()) bad.add(r.key());
