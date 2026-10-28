@@ -959,7 +959,7 @@ final class PieceCatalog {
         int[] turns = new int[cands.size()];
         for (int q = 0; q < cands.size(); q++) {
             PieceSets.Piece p = cands.get(q);
-            double[] contact = new double[4], shape = new double[4];
+            double[] contact = new double[4], shape = new double[4], bestMatch = new double[4];
             for (int k = 0; k < 4; k++) {
                 PieceLayout.Grid jg = grid(l.pack(), p.path(), k);
                 // Every turn must be scored, or the pick could change once the rest loads.
@@ -983,6 +983,7 @@ final class PieceCatalog {
                     }
                     // By shape and material: a road corner's faces can share a shape, its open sides share the road's blocks.
                     score += PieceLayout.faceScore(c, outs.get(o), jb, jg, sg, st.across(), st.run());
+                    bestMatch[k] = Math.max(bestMatch[k], PieceLayout.fit(c, outs.get(o), jb, jg, sg, st.across(), st.run(), Math.max(3, st.across())).match());
                 }
                 contact[k] = score;
                 // Ties (no run touches, or symmetric faces): the turn whose arms look like the line's straight.
@@ -993,7 +994,7 @@ final class PieceCatalog {
                     shape[k] = ac[0] - ac[1];
                 }
             }
-            int best = PieceLayout.pickTurn(contact, shape);
+            int best = PieceLayout.pickTurn(contact, bestMatch, shape);
             turns[q] = best;
             // What the meeting runs keep with this piece: whole straights and uncovered cells (other ends taken as free).
             PieceLayout.Grid jg = grid(l.pack(), p.path(), best);

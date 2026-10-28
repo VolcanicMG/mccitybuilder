@@ -530,21 +530,25 @@ public final class PieceLayout {
         return new double[]{na == 0 ? 0 : arm / na, nc == 0 ? 0 : closed / nc};
     }
 
+    /** Below this best run match no turn is trusted to touch well: the corner's shape decides ({@link #pickTurn}). */
+    public static double contactFloor = 0;
+
     /**
-     * @param contact per turn, the summed {@link #faceScore} (runs that touch); @param shape per turn, arm minus closed
-     *                ({@link #armClosed})
-     * @return the turn to use: the most contact, the first on a tie; only when no turn touches any run at all, the one
-     * whose arms look most like the straight's end against its closed sides (a contact always ranks first, and ties
-     * between touching turns keep the order the fits were tuned with)
+     * @param contact per turn, the summed {@link #faceScore} (runs that touch); @param bestMatch per turn, its best run
+     *                match; @param shape per turn, arm minus closed ({@link #armClosed})
+     * @return the turn to use: the most contact, the first on a tie; but when no turn has a run matching at least
+     * {@link #contactFloor} (or none touches at all), the one whose arms look most like the straight's end against its
+     * closed sides
      */
-    public static int pickTurn(double[] contact, double[] shape) {
+    public static int pickTurn(double[] contact, double[] bestMatch, double[] shape) {
         int best = 0;
-        boolean none = true;
+        boolean weak = true;
         for (int k = 0; k < contact.length; k++) {
-            none &= contact[k] < 1e-9;
+            weak &= contact[k] < 1e-9 || bestMatch[k] < contactFloor;
             if (contact[k] > contact[best] + 1e-9) best = k;
         }
-        if (!none) return best;
+        if (!weak) return best;
+        best = 0;
         for (int k = 1; k < shape.length; k++) if (shape[k] > shape[best] + 1e-9) best = k;
         return best;
     }
