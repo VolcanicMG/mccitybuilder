@@ -436,7 +436,7 @@ final class PlannerScreen extends Screen {
         String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
         String status = sel != null ? null : LineView.status();
         String fam = sel != null ? sel.family() : status == null ? LineView.family() : null;
-        int w = 220, h = status != null ? 40 : 276, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = height - h - 4;
+        int w = 220, h = status != null ? 40 : 276, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = height - h - 4;
         stackTop = y - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
@@ -881,7 +881,7 @@ final class PlannerScreen extends Screen {
     /** Plan mode: the plan's state and its Build all / Build selected / Clear buttons. */
     private void planPanel(GuiGraphics g, int mx, int my) {
         if (!PlanView.on) return;
-        int w = 200, h = 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - Hints.WIDTH - 4 - w), y = stackTop - h;
+        int w = 200, h = 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
         if (Planner.selected != null) y -= 62;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
@@ -1498,6 +1498,11 @@ final class PlannerScreen extends Screen {
     }
 
     // ---- controls guide ----
+
+    /** @return the width the controls guide takes at the right edge (just its "?" button while closed) */
+    private static int guideRoom() {
+        return Config.SHOW_HINTS.get() ? Hints.WIDTH : 20;
+    }
 
     private void guide(GuiGraphics g, int mx, int my) {
         int w = Hints.WIDTH, x = width - 4 - w;
