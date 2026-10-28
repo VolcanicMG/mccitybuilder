@@ -1430,6 +1430,20 @@ public final class SelfCheck {
                     }
             }
         }
+        // An L turning left and one turning right need the corner turned differently (its arms face other ways):
+        // the same turn for both, of a piece that isn't the same a quarter turn on, has one of them backwards.
+        Map<String, JointCases.Case> lefts = new java.util.HashMap<>();
+        for (var cs : all) if (cs.name().startsWith("L-left") && !cs.butt()) lefts.put(cs.family() + "|" + cs.name().substring("L-left".length()), cs);
+        java.util.Set<String> sameTurn = new java.util.TreeSet<>();
+        for (var cs : all) {
+            if (!cs.name().startsWith("L-right") || cs.butt()) continue;
+            var l = lefts.get(cs.family() + "|" + cs.name().substring("L-right".length()));
+            PieceLayout.Grid j = cs.joint(), t1 = j.turned(1);
+            if (l == null || !l.jointPath().equals(cs.jointPath()) || (t1.sx() == j.sx() && java.util.Arrays.equals(t1.ids(), j.ids()))) continue;
+            if (l.joint().sx() == j.sx() && java.util.Arrays.equals(l.joint().ids(), j.ids())) sameTurn.add(cs.family() + "|L-left/L-right" + cs.name().substring("L-right".length()));
+        }
+        System.out.println("CityBuilder self-check: L-left and L-right with one joint turn (not gating) (" + sameTurn.size() + "):");
+        for (String r : sameTurn) System.out.println("  same turn " + r);
         for (String n : notes) System.out.println("CityBuilder self-check: through arms, " + n);
         System.out.println("CityBuilder self-check: wallCornerTurns review (both runs meet it well, closed sides look like the straight; not gating) (" + review.size() + "):");
         for (String r : review) System.out.println("  review " + r);
@@ -1550,7 +1564,7 @@ public final class SelfCheck {
             for (var cs : JointCases.all()) {
                 if (!cs.name().contains("tower")) continue;
                 var rep = JointCases.report(cs);
-                check(rep.match() >= rep.best() - 1e-9, "joint-first layout optimal: " + cs.family() + " " + cs.name());
+                if (!cs.fixed()) check(rep.match() >= rep.best() - 1e-9, "joint-first layout optimal: " + cs.family() + " " + cs.name());
                 boolean gap = false;
                 for (var r : cs.runs()) gap |= r.fit().depth() < 0;
                 (gap ? still : closed).add(cs.family() + " " + cs.name() + String.format(" %.2f", rep.match()));
@@ -1662,8 +1676,8 @@ public final class SelfCheck {
         m.put("wall:walls|CORNER", "corner");
         String key = PieceLayout.alignKey("walls/tower/tower5.blueprint", 3, "walls/segment/segment5.blueprint", 1, 2);
         m.put(key, "1,2");
-        var back = com.volcanicmg.mccitybuilder.planner.PieceSets.readOverrides(com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(m) + "junk\n");
-        check(back.equals(m) && java.util.Arrays.equals(PieceLayout.parseAlign(back.get(key)), new int[]{1, 2}) && PieceLayout.parseAlign("x,1") == null
+        var back = com.volcanicmg.mccitybuilder.planner.PieceSets.loadOverrides(com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(m) + "junk\n");
+        check(com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(m).startsWith("#v2\n") && back.equals(m) && java.util.Arrays.equals(PieceLayout.parseAlign(back.get(key)), new int[]{1, 2}) && PieceLayout.parseAlign("x,1") == null
                 && PieceLayout.parseAlign("99,1") == null, "alignment overrides round trip");
         check(key.equals(PieceLayout.alignKey("walls/tower/tower5.blueprint", 0, "walls/segment/segment5.blueprint", 2, 3)), "key relative to the run's direction");
         // Drafts: read before the saved value, never part of what is written; Save skips drafts that would break blocks.
@@ -1676,14 +1690,26 @@ public final class SelfCheck {
         // A joint configuration's setting holds however the shape is turned (the whole shape a quarter turn on: same
         // key, turn + 1, each run's setting following its line); a mirrored shape is another key.
         String[] sp = {"walls/s.blueprint", "walls/s.blueprint"};
-        var jk = PieceLayout.jointKey("walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1});
+        var jk = PieceLayout.jointKey("walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, null);
+        java.util.function.Predicate<String> none = k -> false;
         java.util.function.Function<String, String> one = k -> k.equals(jk.key())
                 ? Math.floorMod(3 - jk.rot(), 4) + " " + Math.floorMod(2 - jk.rot(), 4) + ":1,0 " + Math.floorMod(1 - jk.rot(), 4) + ":-2,1" : null;
-        var f0 = PieceLayout.jointFix(one, "walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1});
-        var f1 = PieceLayout.jointFix(one, "walls/c.blueprint", new int[]{3, 2}, sp, new int[]{1, 2});
+        var f0 = PieceLayout.jointFix(one, none, "walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, null);
+        var f1 = PieceLayout.jointFix(one, none, "walls/c.blueprint", new int[]{3, 2}, sp, new int[]{1, 2}, null);
         check(f0 != null && f0.turn() == 3 && java.util.Arrays.equals(f0.runs()[0], new int[]{1, 0}) && java.util.Arrays.equals(f0.runs()[1], new int[]{-2, 1})
                 && f1 != null && f1.turn() == 0 && java.util.Arrays.equals(f1.runs()[0], new int[]{1, 0}) && java.util.Arrays.equals(f1.runs()[1], new int[]{-2, 1})
-                && PieceLayout.jointFix(one, "walls/c.blueprint", new int[]{2, 3}, sp, new int[]{0, 1}) == null, "joint setting relative to the shape");
+                && PieceLayout.jointFix(one, none, "walls/c.blueprint", new int[]{2, 3}, sp, new int[]{0, 1}, null) == null, "joint setting relative to the shape");
+        // A player's run alignment under turn 1 keeps turn 1 and drops the setting's runs.
+        String mine = PieceLayout.alignKey("walls/c.blueprint", 1, sp[1], 1, 1);
+        var fp = PieceLayout.jointFix(one, mine::equals, "walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, null);
+        check(fp != null && fp.turn() == 1 && fp.runs()[0] == null && fp.runs()[1] == null, "player alignments keep their turn over a built-in");
+        // A straight that is the same turned 180°: both its turns give one key.
+        check(PieceLayout.jointKey("walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, new boolean[]{true, true}).key()
+                .equals(PieceLayout.jointKey("walls/c.blueprint", new int[]{2, 1}, sp, new int[]{2, 3}, new boolean[]{true, true}).key()), "symmetric straights share a key");
+        // A file saved before the version line holds world shifts: marked and used as saved; re-saved, the mark stays until the editor writes it.
+        var legacy = com.volcanicmg.mccitybuilder.planner.PieceSets.loadOverrides("wall:walls|CORNER\tcorner\n" + key + "\t1,2\n");
+        check("1,2,w".equals(legacy.get(key)) && "corner".equals(legacy.get("wall:walls|CORNER")) && java.util.Arrays.equals(PieceLayout.parseAlign("1,2,w"), new int[]{1, 2, 1})
+                && "1,2,w".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.loadOverrides(com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(legacy)).get(key)) && "1,2".equals(back.get(key)), "legacy alignments load as world shifts");
         String file = com.volcanicmg.mccitybuilder.planner.PieceSets.writeOverrides(saved);
         check(!file.contains("3,1") && !file.contains("align|x|0|y|0"), "drafts are never written");
         var ok = com.volcanicmg.mccitybuilder.planner.PieceSets.saveable(java.util.Map.of("a", new int[]{1, 0}, "b", new int[]{0, 2}), java.util.Set.of("b"));
@@ -1709,6 +1735,9 @@ public final class SelfCheck {
         int si = sg.inset(2), edge = PieceLayout.reach(c, d, jb);
         check(f.shift() == safe[0] && f.depth() == safe[1] && f.off() == (safe[1] < 0 ? edge : edge - safe[1] - si), "override used exactly as set: " + f);
         check(java.util.Arrays.equals(PieceLayout.attach(c, d, jb, tw, sg, 6, 9, 6), new int[]{f.off(), f.shift()}), "attach follows the override");
+        set[0] = new int[]{safe[0], safe[1], 1};
+        check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(PieceLayout.fitAt(c, d, jb, tw, sg, 6, 9, safe[0], safe[1])), "a legacy world shift is used as saved");
+        set[0] = new int[]{PieceLayout.alignShift(c, d, jb, 6, safe[0]), safe[1]};
         if (bad != null) {
             set[0] = new int[]{PieceLayout.alignShift(c, d, jb, 6, bad[0]), bad[1]};
             check(PieceLayout.fit(c, d, jb, tw, sg, 6, 9, 6).equals(auto), "a destructive override is refused (auto is used)");

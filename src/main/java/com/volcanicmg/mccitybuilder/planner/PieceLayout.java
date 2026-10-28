@@ -373,7 +373,8 @@ public final class PieceLayout {
         // A player-set alignment wins over the search (it is looked up every time, so a change shows at once).
         for (int[] o : new int[][]{align.get(joint, straight, d), builtIn}) {
             if (o == null) continue;
-            int os = worldShift(c, d, jb, width, o[0]);
+            // A legacy world shift is used as it was saved (exactly what the player saw then).
+            int os = o.length > 2 && o[2] == 1 ? o[0] : worldShift(c, d, jb, width, o[0]);
             if (!destructiveAt(c, d, jb, joint, straight, width, run, os, o[1])) return fitAt(c, d, jb, joint, straight, width, run, os, o[1]);
         }
         // The result depends only on the pieces and the joint box relative to the joint cell, never on where it is.
@@ -404,7 +405,7 @@ public final class PieceLayout {
 
     /** Player-set alignments (the joint alignment editor): for a joint and a straight as placed and the run's direction. */
     public interface AlignSource {
-        /** @return {shift ({@link #worldShift}), depth} to use instead of the search, or null */
+        /** @return {shift ({@link #worldShift}), depth}, {world shift, depth, 1} for a legacy one ({@link #parseAlign}), or null */
         int[] get(Grid joint, Grid straight, int d);
     }
 
@@ -457,15 +458,17 @@ public final class PieceLayout {
 
     /**
      * @param outs each line's direction out of the joint; @param straightTurns each line's straight as placed
+     * @param symmetric per line, its straight is the same turned 180° (its turns then count modulo 2), or null
      * @return the override key of a joint configuration: the joint piece and every line's out and straight (path,
      * turns), relative to the rotation whose key sorts first, so it holds however the shape is turned
      */
-    public static JointKey jointKey(String jointPath, int[] outs, String[] straightPaths, int[] straightTurns) {
+    public static JointKey jointKey(String jointPath, int[] outs, String[] straightPaths, int[] straightTurns, boolean[] symmetric) {
         String best = null;
         int rot = 0;
         for (int r = 0; r < 4; r++) {
             List<String> e = new java.util.ArrayList<>();
-            for (int q = 0; q < outs.length; q++) e.add(Math.floorMod(outs[q] - r, 4) + ":" + straightPaths[q] + ":" + Math.floorMod(straightTurns[q] - r, 4));
+            for (int q = 0; q < outs.length; q++)
+                e.add(Math.floorMod(outs[q] - r, 4) + ":" + straightPaths[q] + ":" + Math.floorMod(straightTurns[q] - r, 4) % (symmetric != null && symmetric[q] ? 2 : 4));
             e.sort(null);
             String k = "joint|" + jointPath + "|" + String.join(",", e);
             if (best == null || k.compareTo(best) < 0) {
@@ -482,14 +485,21 @@ public final class PieceLayout {
 
     /**
      * Only the exact configuration is affected (the per-run settings never reach other joints or the turn search).
-     * Value: the turn in the key's rotation, then per run "out:shift,depth" with the out in that rotation.
+     * Value: the turn in the key's rotation, then per run "out:shift,depth" with the out in that rotation. A player's
+     * run alignment ({@link #alignKey}) for this configuration under some turn keeps that turn (it was set for it) and
+     * the setting's runs step aside.
      *
+     * @param playerAligned whether the player has an alignment saved (or drafted) under a key
      * @return the joint's setting ({@code lookup} by {@link #jointKey}), or null
      */
-    public static JointFix jointFix(java.util.function.Function<String, String> lookup, String jointPath, int[] outs, String[] straightPaths, int[] straightTurns) {
-        JointKey k = jointKey(jointPath, outs, straightPaths, straightTurns);
+    public static JointFix jointFix(java.util.function.Function<String, String> lookup, java.util.function.Predicate<String> playerAligned, String jointPath,
+                                    int[] outs, String[] straightPaths, int[] straightTurns, boolean[] symmetric) {
+        JointKey k = jointKey(jointPath, outs, straightPaths, straightTurns, symmetric);
         String v = lookup.apply(k.key());
         if (v == null) return null;
+        for (int t = 0; t < 4; t++)
+            for (int q = 0; q < outs.length; q++)
+                if (playerAligned.test(alignKey(jointPath, t, straightPaths[q], straightTurns[q], outs[q]))) return new JointFix(t, new int[outs.length][]);
         try {
             String[] f = v.trim().split("\\s+");
             int[][] runs = new int[outs.length][];
@@ -503,12 +513,17 @@ public final class PieceLayout {
         }
     }
 
-    /** @return {shift, depth} from an override value "shift,depth", or null when damaged */
+    /**
+     * @return {shift, depth} from an override value "shift,depth", {shift, depth, 1} from "shift,depth,w" (a world shift
+     * saved before shifts were stored relative to the joint box, {@link PieceSets#loadOverrides}), or null when damaged
+     */
     public static int[] parseAlign(String v) {
         try {
             String[] f = v.split(",");
             int s = Integer.parseInt(f[0].trim()), dp = Integer.parseInt(f[1].trim());
-            return f.length == 2 && Math.abs(s) <= 16 && dp >= -1 && dp <= 32 ? new int[]{s, dp} : null;
+            if (Math.abs(s) > 16 || dp < -1 || dp > 32) return null;
+            if (f.length == 3 && f[2].trim().equals("w")) return new int[]{s, dp, 1};
+            return f.length == 2 ? new int[]{s, dp} : null;
         } catch (RuntimeException e) {
             return null;
         }

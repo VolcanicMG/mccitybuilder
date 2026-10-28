@@ -243,7 +243,9 @@ final class JointEditorScreen extends Screen {
             sps[q] = sp.path();
         }
         // The configuration's built-in setting holds for its own turn only.
-        PieceLayout.JointFix fix = PieceLayout.jointFix(PieceCatalog.jointLookup(pack), jp.path(), outs, sps, sts);
+        boolean[] sym = new boolean[outs.length];
+        java.util.Arrays.fill(sym, PieceCatalog.symmetric(pack, sp.path()));
+        PieceLayout.JointFix fix = PieceLayout.jointFix(PieceCatalog.jointLookup(pack), PieceCatalog.playerAligned(pack), jp.path(), outs, sps, sts, sym);
         if (t < 0 && fix != null) t = fix.turn();
         if (fix != null && fix.turn() != t) fix = null;
         if (t < 0) {

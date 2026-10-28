@@ -175,9 +175,12 @@ public final class PieceSets {
         return p.isEmpty() || role(p) != Role.OTHER || ROLE_FOLDERS.contains(p) ? "" : p;
     }
 
-    /** @return a pack's overrides file text: one "key TAB value" line each (role groups, joint alignments) */
+    /** First line of an overrides file whose alignment shifts are relative to the joint box ({@link PieceLayout#worldShift}). */
+    public static final String VERSION = "#v2";
+
+    /** @return a pack's overrides file text: the version line, then one "key TAB value" line each (role groups, joint alignments) */
     public static String writeOverrides(Map<String, String> m) {
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder(VERSION + "\n");
         m.forEach((k, v) -> sb.append(k).append('\t').append(v).append('\n'));
         return sb.toString();
     }
@@ -190,6 +193,16 @@ public final class PieceSets {
                 String[] kv = line.split("\t");
                 if (kv.length == 2) m.put(kv[0], kv[1].trim());
             }
+        return m;
+    }
+
+    /**
+     * @return the overrides in a saved file's text: a file without the {@link #VERSION} line holds world shifts in its
+     * alignments, so they are marked ",w" ({@link PieceLayout#parseAlign}) and used as they were until re-saved
+     */
+    public static Map<String, String> loadOverrides(String text) {
+        Map<String, String> m = readOverrides(text);
+        if (text != null && !text.startsWith(VERSION)) m.replaceAll((k, v) -> k.startsWith("align|") && v.split(",").length == 2 ? v + ",w" : v);
         return m;
     }
 

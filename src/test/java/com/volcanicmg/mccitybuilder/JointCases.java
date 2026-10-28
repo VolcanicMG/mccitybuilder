@@ -249,7 +249,10 @@ final class JointCases {
                 sts[q] = Math.floorMod(PieceLayout.turns(sg.sx(), sg.sz(), dirs[q]) + (flip ? 2 : 0), 4);
                 sps[q] = st.path();
             }
-            fix = PieceLayout.jointFix(PieceSets.builtIn(PackPieces.packName(pack))::get, jp.path(), outs, sps, sts);
+            PieceLayout.Grid s2 = sg.turned(2);
+            boolean[] sym = new boolean[outs.length];
+            java.util.Arrays.fill(sym, s2.sx() == sg.sx() && java.util.Arrays.equals(s2.ids(), sg.ids()));
+            fix = PieceLayout.jointFix(PieceSets.builtIn(PackPieces.packName(pack))::get, k -> false, jp.path(), outs, sps, sts, sym);
             if (fix != null) best = fix.turn();
         }
         PieceLayout.Grid t = jg.turned(best);

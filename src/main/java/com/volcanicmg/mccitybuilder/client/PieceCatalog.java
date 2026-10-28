@@ -190,7 +190,7 @@ final class PieceCatalog {
             Map<String, String> m = new LinkedHashMap<>();
             try {
                 Path f = overridesFile(pack);
-                if (Files.exists(f)) m.putAll(PieceSets.readOverrides(Files.readString(f)));
+                if (Files.exists(f)) m.putAll(PieceSets.loadOverrides(Files.readString(f)));
             } catch (Exception e) {
                 CityBuilder.LOGGER.warn("City Builder: can't read piece set overrides for {}", pack, e);
             }
@@ -1053,6 +1053,7 @@ final class PieceCatalog {
     static PieceLayout.JointFix jointFix(String pack, String jointPath, List<Integer> outs, List<Plan.Line> at) {
         int[] o = new int[outs.size()], st = new int[outs.size()];
         String[] sp = new String[outs.size()];
+        boolean[] sym = new boolean[outs.size()];
         for (int q = 0; q < o.length; q++) {
             Plan.Line ln = at.get(q);
             PieceSets.Piece p = primary(ln, 0);
@@ -1060,8 +1061,20 @@ final class PieceCatalog {
             o[q] = outs.get(q);
             sp[q] = p.path();
             st[q] = Math.floorMod(sturn(p, PieceLayout.dir(new int[]{ln.x0(), ln.z0()}, new int[]{ln.x1(), ln.z1()}), ln.flip()), 4);
+            sym[q] = symmetric(ln.pack(), p.path());
         }
-        return PieceLayout.jointFix(jointLookup(pack), jointPath, o, sp, st);
+        return PieceLayout.jointFix(jointLookup(pack), playerAligned(pack), jointPath, o, sp, st, sym);
+    }
+
+    /** @return whether the player has an alignment saved or drafted under a key of the pack */
+    static java.util.function.Predicate<String> playerAligned(String pack) {
+        return k -> overrides(pack).containsKey(k) || drafts.getOrDefault(pack, Map.of()).containsKey(k);
+    }
+
+    /** @return true when the piece is the same turned 180° (false while it loads) */
+    static boolean symmetric(String pack, String path) {
+        PieceLayout.Grid a = grid(pack, path, 0), b = grid(pack, path, 2);
+        return a != null && b != null && a.sx() == b.sx() && java.util.Arrays.equals(a.ids(), b.ids());
     }
 
     /** @return a pack's joint configuration overrides: the player's, else the built-in ones */
