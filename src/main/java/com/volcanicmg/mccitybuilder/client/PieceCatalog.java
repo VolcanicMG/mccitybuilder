@@ -443,6 +443,18 @@ final class PieceCatalog {
             out.add(placed);
             if (frozenLines.containsKey(i)) {
                 placed.addAll(frozenLines.get(i));
+                // Its run pieces nearest each end, as built: a new joint there stands at their level.
+                List<Integer> idx = new ArrayList<>();
+                List<int[]> rb = new ArrayList<>();
+                for (int q = 0; q < placed.size(); q++)
+                    if (!placed.get(q).joint()) {
+                        idx.add(q);
+                        rb.add(placed.get(q).box());
+                    }
+                for (int[] e : l.ends()) {
+                    int n = PieceLayout.nearest(rb, e);
+                    if (n >= 0) jointNext.computeIfAbsent(key(e[0], e[1]), x -> new ArrayList<>()).add(new int[]{i, idx.get(n), 0, PieceLayout.BUILT});
+                }
                 lineComplete.add(true);
                 heights.add(new int[]{Integer.MIN_VALUE, Integer.MIN_VALUE});
                 offs.add(new int[2]);
@@ -714,7 +726,8 @@ final class PieceCatalog {
             if (lv.length > 0)
                 for (int end = 0; end < 2; end++) {
                     long k = end == 0 ? key(a[0], a[1]) : key(b[0], b[1]);
-                    if (joints.containsKey(k)) jointNext.computeIfAbsent(k, x -> new ArrayList<>()).add(new int[]{i, run.get(end == 0 ? 0 : run.size() - 1), flat || l.built() ? 0 : 1});
+                    if (joints.containsKey(k)) jointNext.computeIfAbsent(k, x -> new ArrayList<>()).add(new int[]{i, run.get(end == 0 ? 0 : run.size() - 1), flat || l.built() ? 0 : 1,
+                            flat || l.built() ? PieceLayout.FLAT : PieceLayout.FOLLOWS});
                 }
             lineComplete.add(ok);
             complete &= ok;
@@ -724,34 +737,45 @@ final class PieceCatalog {
         // A built joint keeps its level (the world has its blocks); the new runs' first pieces take it, up or down.
         for (long k : fixed) {
             int level = joints.get(k).level();
-            for (int[] n : jointNext.getOrDefault(k, List.of())) if (n[2] == 1) setTo(out, lines, n, level);
+            for (int[] n : jointNext.getOrDefault(k, List.of())) if (n[2] == 1) setTo(out, lines, lineRun, lineLv, n, level);
         }
         for (var en : jointAt.entrySet()) {
             int[] where = en.getValue();
             List<Placed> ps = out.get(where[0]);
             Placed j = ps.get(where[1]);
             List<int[]> next = jointNext.getOrDefault(en.getKey(), List.of());
-            int[] nb = new int[next.size()];
-            boolean[] built = new boolean[next.size()];
+            int[] nb = new int[next.size()], kinds = new int[next.size()];
             boolean anyBuilt = false;
             for (int q = 0; q < nb.length; q++) {
                 nb[q] = out.get(next.get(q)[0]).get(next.get(q)[1]).level();
-                built[q] = lines.get(next.get(q)[0]).built();
-                anyBuilt |= built[q];
+                kinds[q] = next.get(q)[3];
+                anyBuilt |= kinds[q] == PieceLayout.BUILT;
             }
             // Next to a built segment: its level, so the new joint and runs join it flush.
-            int level = PieceLayout.jointLevel(j.level(), nb, built);
+            int level = PieceLayout.jointLevel(j.level(), nb, kinds);
             ps.set(where[1], relevel(lines.get(where[0]).pack(), j, level));
             for (int[] n : next)
-                if (n[2] == 1 && anyBuilt) setTo(out, lines, n, level);
+                if (n[2] == 1 && anyBuilt) setTo(out, lines, lineRun, lineLv, n, level);
                 else if (n[2] == 1) raiseTo(out, lines, lineRun, lineLv, n, level);
         }
         return new Layout(out, shortened, gaps, need, lineComplete, heights, offs, complete);
     }
 
-    /** Sets a run's first piece {@code n} = {line, index} to a built joint's level; the rest of the run keeps its own. */
-    private static void setTo(List<List<Placed>> out, List<Plan.Line> lines, int[] n, int level) {
-        out.get(n[0]).set(n[1], relevel(lines.get(n[0]).pack(), out.get(n[0]).get(n[1]), level));
+    /**
+     * Sets a run's first piece {@code n} = {line, index} to a built joint's level, up or down: a follow run's other
+     * pieces keep their own (it steps back to the terrain), a smoothed run follows outward one block per piece.
+     */
+    private static void setTo(List<List<Placed>> out, List<Plan.Line> lines, Map<Integer, List<Integer>> lineRun, Map<Integer, int[]> lineLv, int[] n, int level) {
+        Plan.Line l = lines.get(n[0]);
+        List<Integer> run = lineRun.get(n[0]);
+        int[] lv = lineLv.get(n[0]);
+        if (run == null || lv == null || l.height() != Plan.SMOOTH) {
+            out.get(n[0]).set(n[1], relevel(l.pack(), out.get(n[0]).get(n[1]), level));
+            return;
+        }
+        int[] set = PieceLayout.setSmooth(lv, run.indexOf(n[1]), level);
+        for (int q = 0; q < run.size(); q++) if (set[q] != lv[q]) out.get(n[0]).set(run.get(q), relevel(l.pack(), out.get(n[0]).get(run.get(q)), set[q]));
+        lineLv.put(n[0], set);
     }
 
     /**

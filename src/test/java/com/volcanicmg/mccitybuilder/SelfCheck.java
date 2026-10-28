@@ -1511,9 +1511,20 @@ public final class SelfCheck {
     }
 
     private static void groundOffsets() throws Exception {
-        // A joint next to built segments takes their level (built one lower by an older rule), not the highest.
-        check(PieceLayout.jointLevel(65, new int[]{64, 65, 66}, new boolean[]{true, false, false}) == 64, "joint at the built neighbour's level");
-        check(PieceLayout.jointLevel(65, new int[]{64, 66}, new boolean[]{false, false}) == 66, "no built neighbour: the highest");
+        // A joint next to built segments takes their level (built one lower by an older rule), not the highest...
+        int F = PieceLayout.FOLLOWS, FL = PieceLayout.FLAT, B = PieceLayout.BUILT;
+        check(PieceLayout.jointLevel(65, new int[]{64, 65, 66}, new int[]{B, F, F}) == 64, "joint at the built neighbour's level");
+        check(PieceLayout.jointLevel(65, new int[]{64, 66}, new int[]{F, F}) == 66, "no built neighbour: the highest");
+        // ...unless a flat run (which doesn't move) is higher: then the joint meets it.
+        check(PieceLayout.jointLevel(65, new int[]{64, 67}, new int[]{B, FL}) == 67 && PieceLayout.jointLevel(65, new int[]{64, 63}, new int[]{B, FL}) == 64,
+                "a higher flat run wins over the built level");
+        // A smoothed run set down to a built joint follows one block per piece both ways; a follow run isn't smoothed.
+        check(java.util.Arrays.equals(PieceLayout.setSmooth(new int[]{70, 70, 69, 66}, 1, 66), new int[]{67, 66, 67, 66}), "smooth run set down: "
+                + java.util.Arrays.toString(PieceLayout.setSmooth(new int[]{70, 70, 69, 66}, 1, 66)));
+        // A built segment's run piece nearest each end feeds the joint there.
+        List<int[]> rb = List.of(new int[]{0, 0, 3, 2}, new int[]{4, 0, 7, 2}, new int[]{8, 0, 11, 2});
+        check(PieceLayout.nearest(rb, new int[]{13, 1}) == 2 && PieceLayout.nearest(rb, new int[]{-2, 1}) == 0 && PieceLayout.nearest(List.of(), new int[]{0, 0}) == -1,
+                "nearest run piece to a segment end");
         int A = PieceLayout.Grid.AIR;
         // A road: substitution layer, then its surface, then a lamp cell: the surface replaces the terrain's top block.
         int[] road = {0, 0, 0, 5, 5, 5, A, 7, A};

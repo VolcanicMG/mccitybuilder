@@ -615,16 +615,50 @@ public final class PieceLayout {
         return best;
     }
 
+    /** Neighbour kinds for {@link #jointLevel(int, int[], int[])}: a run that follows the joint, a flat / chain run, a built run. */
+    public static final int FOLLOWS = 0, FLAT = 1, BUILT = 2;
+
     /**
      * A joint touching built segments stands at their level (the world has their blocks, maybe from an older height
-     * rule): the highest built neighbour; otherwise {@link #jointLevel(int, int[])}.
+     * rule): the highest built neighbour, unless a flat / chain run is higher still (it doesn't move, so the joint
+     * meets it instead, as {@link #jointLevel(int, int[])} does); with no built neighbour, that rule.
      *
-     * @param built per neighbour, whether its segment is built
+     * @param kinds per neighbour, {@link #FOLLOWS}, {@link #FLAT} or {@link #BUILT}
      */
-    public static int jointLevel(int own, int[] neighbours, boolean[] built) {
-        int best = Integer.MIN_VALUE;
-        for (int q = 0; q < neighbours.length; q++) if (built[q]) best = Math.max(best, neighbours[q]);
-        return best != Integer.MIN_VALUE ? best : jointLevel(own, neighbours);
+    public static int jointLevel(int own, int[] neighbours, int[] kinds) {
+        int built = Integer.MIN_VALUE, flat = Integer.MIN_VALUE;
+        for (int q = 0; q < neighbours.length; q++) {
+            if (kinds[q] == BUILT) built = Math.max(built, neighbours[q]);
+            if (kinds[q] == FLAT) flat = Math.max(flat, neighbours[q]);
+        }
+        return built != Integer.MIN_VALUE && flat <= built ? built : jointLevel(own, neighbours);
+    }
+
+    /**
+     * @return the levels with piece {@code idx} set to {@code level} (up or down) and the rest following outward, each
+     * within one block of the piece before it and otherwise as it was: a smoothed run meeting a built joint
+     */
+    public static int[] setSmooth(int[] lv, int idx, int level) {
+        int[] out = lv.clone();
+        out[idx] = level;
+        for (int k = idx + 1; k < out.length; k++) out[k] = Math.max(out[k - 1] - 1, Math.min(out[k - 1] + 1, lv[k]));
+        for (int k = idx - 1; k >= 0; k--) out[k] = Math.max(out[k + 1] - 1, Math.min(out[k + 1] + 1, lv[k]));
+        return out;
+    }
+
+    /** @return the index of the box {x0, z0, x1, z1} nearest the cell (Chebyshev distance, 0 inside), or -1 with none */
+    public static int nearest(List<int[]> boxes, int[] c) {
+        int best = -1, bestD = Integer.MAX_VALUE;
+        for (int i = 0; i < boxes.size(); i++) {
+            int[] b = boxes.get(i);
+            int d = Math.max(Math.max(b[0] - c[0], c[0] - b[2]), Math.max(b[1] - c[1], c[1] - b[3]));
+            d = Math.max(0, d);
+            if (d < bestD) {
+                bestD = d;
+                best = i;
+            }
+        }
+        return best;
     }
 
     /**
