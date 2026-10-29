@@ -1637,7 +1637,7 @@ final class LineView {
             return;
         }
         PlanView.outline(pose, lines, live, liveBad, false);
-        if (liveGap != null) PlanView.gap(pose, lines, liveGap, live.isEmpty() ? groundY(liveGap[0], liveGap[1]) : live.get(0).anchor().getY());
+        if (liveGap != null) PlanView.gap(pose, lines, liveGap, live.isEmpty() ? groundY(liveGap[0], liveGap[1]) : PlanView.gapY(live, liveGap));
         int[] c = start != null ? start : hover;
         if (c != null) {
             int y = groundY(c[0], c[1]);

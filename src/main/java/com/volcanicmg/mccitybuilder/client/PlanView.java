@@ -290,7 +290,7 @@ final class PlanView {
                 }
                 if (hover) outline(pose, lines, linePieces.get(i), List.of(), false, 1f, 0.9f, 0.5f, 0.8f);
                 else outline(pose, lines, linePieces.get(i), bs, i == selectedLine);
-                if (i < lineGaps.size() && lineGaps.get(i) != null && !linePieces.get(i).isEmpty()) gap(pose, lines, lineGaps.get(i), linePieces.get(i).get(0).anchor().getY());
+                if (i < lineGaps.size() && lineGaps.get(i) != null && !linePieces.get(i).isEmpty()) gap(pose, lines, lineGaps.get(i), gapY(linePieces.get(i), lineGaps.get(i)));
                 floating(pose, lines, linePieces.get(i));
             }
         if (!on) return;
@@ -802,6 +802,21 @@ final class PlanView {
             int[] bx = p.box();
             LevelRenderer.renderLineBox(pose, out, bx[0] + 0.2, p.low(), bx[1] + 0.2, bx[2] + 0.8, p.level(), bx[3] + 0.8, 1f, 0.6f, 0.1f, 0.8f);
         }
+    }
+
+    /** @return a gap's height: the level its nearest piece stands at (an anchor can sit high in its piece) */
+    static int gapY(List<PieceCatalog.Placed> ps, int[] box) {
+        PieceCatalog.Placed near = ps.get(0);
+        int best = Integer.MAX_VALUE;
+        for (PieceCatalog.Placed p : ps) {
+            int[] b = p.box();
+            int d = Math.max(0, Math.max(b[0] - box[2], box[0] - b[2])) + Math.max(0, Math.max(b[1] - box[3], box[1] - b[3]));
+            if (d < best) {
+                best = d;
+                near = p;
+            }
+        }
+        return near.level();
     }
 
     /** An amber box over cells a segment leaves uncovered (no piece fits there). */
