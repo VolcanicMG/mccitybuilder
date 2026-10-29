@@ -62,9 +62,26 @@ final class PieceView {
         BlockState at(int x, int y, int z);
     }
 
-    /** Bakes the piece's blocks around its own origin, in blueprint coordinates. */
+    /**
+     * Bakes the piece's blocks around its own origin, in blueprint coordinates. Blocks whose model is drawn from their
+     * block entity's data (Domum Ornamentum's materially textured walls, posts, slabs...) get that data from the
+     * blueprint, or they bake to nothing.
+     */
     private static Map<RenderType, VertexBuffer> bake(Blueprint bp) {
-        return bake(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), (x, y, z) -> bp.getBlockState(new BlockPos(x, y, z)), MAX_BLOCKS);
+        return bake(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), (x, y, z) -> bp.getBlockState(new BlockPos(x, y, z)), MAX_BLOCKS, (x, y, z) -> {
+            try {
+                var be = bp.getBlockEntity(new BlockPos(x, y, z));
+                return be == null ? ModelData.EMPTY : be.getModelData();
+            } catch (RuntimeException e) {
+                // Block entity data that doesn't load: the block's plain model.
+                return ModelData.EMPTY;
+            }
+        });
+    }
+
+    /** A block's model data for {@link #bake} (its block entity's, else empty). */
+    private interface Data {
+        ModelData at(int x, int y, int z);
     }
 
     /** @return the face shading the world gives a face this way (up full, down half, north / south 0.8, east / west 0.6) */
@@ -81,7 +98,7 @@ final class PieceView {
      * Bakes blocks of a box: each face shaded the way the world shades it, faces against a neighbouring opaque block
      * left out (they never show).
      */
-    private static Map<RenderType, VertexBuffer> bake(int sx, int sy, int sz, Blocks blocks, int max) {
+    private static Map<RenderType, VertexBuffer> bake(int sx, int sy, int sz, Blocks blocks, int max, Data data) {
         Minecraft mc = Minecraft.getInstance();
         var br = mc.getBlockRenderer();
         Map<RenderType, ByteBufferBuilder> memory = new LinkedHashMap<>();
@@ -98,12 +115,13 @@ final class PieceView {
                     if (st.isAir() || st.getRenderShape() != RenderShape.MODEL || st.getBlock() == com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get())
                         continue;
                     BakedModel model = br.getBlockModel(st);
+                    ModelData md = data == null ? ModelData.EMPTY : data.at(x, y, z);
                     int c = mc.getBlockColors().getColor(st, null, null, 0);
                     float r = (c >> 16 & 255) / 255f, g = (c >> 8 & 255) / 255f, b = (c & 255) / 255f;
                     pose.pushPose();
                     pose.translate(x, y, z);
                     rand.setSeed(42);
-                    for (RenderType chunk : model.getRenderTypes(st, rand, ModelData.EMPTY)) {
+                    for (RenderType chunk : model.getRenderTypes(st, rand, md)) {
                         // The block render types: lit by the lightmap and the baked face shading, like blocks in the world (the entity
                         // types' directional lights darkened everything); translucent stays an entity type (its world target isn't drawn here).
                         RenderType rt = chunk == RenderType.translucent() ? RenderTypeHelper.getEntityRenderType(chunk, false) : chunk;
@@ -119,7 +137,7 @@ final class PieceView {
                                 if (nb != null && nb.canOcclude() && nb.getRenderShape() == RenderShape.MODEL) continue;
                             }
                             rand.setSeed(42);
-                            for (var q : model.getQuads(st, d, rand, ModelData.EMPTY, chunk)) {
+                            for (var q : model.getQuads(st, d, rand, md, chunk)) {
                                 float f = q.isShade() ? shade(q.getDirection()) : 1f;
                                 float tr = q.isTinted() ? r : 1f, tg = q.isTinted() ? g : 1f, tb = q.isTinted() ? b : 1f;
                                 bb.putBulkData(pose.last(), q, tr * f, tg * f, tb * f, 1f, 0xF000F0, OverlayTexture.NO_OVERLAY);
@@ -165,7 +183,7 @@ final class PieceView {
     static void bakeBlocks(String key, int sx, int sy, int sz, Blocks blocks) {
         if (baked.containsKey(key)) return;
         try {
-            baked.put(key, bake(sx, sy, sz, blocks, 60000));
+            baked.put(key, bake(sx, sy, sz, blocks, 60000, null));
         } catch (RuntimeException e) {
             CityBuilder.LOGGER.warn("City Builder: can't bake {}", key, e);
             baked.put(key, Map.of());

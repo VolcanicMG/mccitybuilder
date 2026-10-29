@@ -621,9 +621,10 @@ final class PonderScreen extends Screen {
                 ring(g, (int) px, (int) py, (int) (3 + 12 * easeOut(u)), alpha(0xFFFFFFFF, 1 - u));
                 ring(g, (int) px, (int) py, (int) (2 + 6 * easeOut(u)), alpha(0xFF40E6FF, 1 - u));
             }
-            // The pointer's tip pixel sits on the target; pressed while it clicks, a hand while it drags a node.
-            boolean down = st.click && t > 0.5f && t < 0.7f;
-            pointer(g, st.nodes ? "hand" : down ? "pressed" : "arrow", Math.round(px), Math.round(py));
+            // The pointer's tip pixel sits on the target; pressed while it clicks or drags; a drag has the move badge.
+            boolean down = st.click && t > 0.5f && (st.nodes || t < 0.7f);
+            pointer(g, down ? "pressed" : "arrow", Math.round(px), Math.round(py));
+            if (st.nodes) icon(g, Ponder.BADGES.get("move"), Math.round(px) + 8, Math.round(py) + 9);
         }
     }
 
@@ -814,13 +815,15 @@ final class PonderScreen extends Screen {
 
     /** A {@link Ponder#CURSORS} pointer, 1 GUI pixel per pixel, its top left (the tip) at (x, y). */
     private static void pointer(GuiGraphics g, String kind, int x, int y) {
-        String[] rows = Ponder.CURSORS.get(kind);
-        // The hand's fingertip is its top middle.
-        int ox = kind.equals("hand") ? 4 : 0;
+        icon(g, Ponder.CURSORS.get(kind), x, y);
+    }
+
+    /** Pixel art rows ({@link Ponder#iconColor}), 1 GUI pixel per pixel, top left at (x, y). */
+    private static void icon(GuiGraphics g, String[] rows, int x, int y) {
         for (int r = 0; r < rows.length; r++)
             for (int c = 0; c < rows[r].length(); c++) {
                 int col = Ponder.iconColor(rows[r].charAt(c));
-                if (col != 0) g.fill(x - ox + c, y + r, x - ox + c + 1, y + r + 1, col);
+                if (col != 0) g.fill(x + c, y + r, x + c + 1, y + r + 1, col);
             }
     }
 

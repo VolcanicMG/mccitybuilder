@@ -135,8 +135,10 @@ public final class Ponder {
 
     /** Pixel icons: 16x16 per topic, 12x12 for the player's buttons; {@link #iconColor} palette, '.' clear. */
     public static final java.util.Map<String, String[]> ICONS = new java.util.HashMap<>();
-    /** The stage's mouse pointer, 10x16 (its tip the top left pixel): arrow, pressed, hand. */
+    /** The stage's mouse pointer, 10x16 (its tip the top left pixel): arrow, pressed. */
     public static final java.util.Map<String, String[]> CURSORS = new java.util.HashMap<>();
+    /** Badges, 9x9, drawn at the pointer's lower right: move (a drag). */
+    public static final java.util.Map<String, String[]> BADGES = new java.util.HashMap<>();
 
     static {
         // Topic icons and stage cursors: generated pixel art (see the repo's tools/ponder_icons.py), light from the top left.
@@ -150,7 +152,7 @@ public final class Ponder {
         ICONS.put("roads", new String[]{"................", "ooooooo..ooo.ooo", "olswsSo..olo.olo", "olswsSo..olooolo", "olsssSo..ollllSo", "olsssSo..olssSSo", "olswsSo..olsSsso", "olswsSo..olssSSo", "olsssSo..olSssso", "olsssSo..olssSSo", "olswsSo..olsSsso", "olswsSo..olssSSo", "olsssSo..olsssso", "oSsssSo..oSSSSSo", "ooooooo..ooooooo", "................"});
         CURSORS.put("arrow", new String[]{"o.........", "oo........", "owo.......", "owwo......", "owwwo.....", "owwwwo....", "owwwwwo...", "owwwwwwo..", "owwwwwwwo.", "owwwwwoooo", "owwowwo...", "owo.owwo..", "oo..owwo..", "o....owwo.", ".....owwo.", "......oo.."});
         CURSORS.put("pressed", new String[]{"..........", "o.........", "oo........", "olo.......", "ollo......", "olllo.....", "ollllo....", "olllllo...", "ollllllo..", "olllllllo.", "ollllloooo", "ollolllo..", "olo.ollo..", "oo..ollo..", "o....ollo.", ".....oo..."});
-        CURSORS.put("hand", new String[]{"....oo....", "...owwo...", "...owwo...", "...owwooo.", "...owwowwo", ".ooowwowwo", "owwowwwwwo", "owwwwwwwwo", ".owwwwwwwo", ".owwwwwwwo", "..owwwwwwo", "..owwwwwo.", "...owwwwo.", "...owwwwo.", "...oooooo.", ".........."});
+        BADGES.put("move", new String[]{"....o....", "...owo...", "..owwwo..", ".owowowo.", "owwwwwwwo", ".owowowo.", "..owwwo..", "...owo...", "....o...."});
         ICONS.put("play", new String[]{
                 "............", "...oo.......", "...owo......", "...owwo.....", "...owwwo....", "...owwwwo...",
                 "...owwwwo...", "...owwwo....", "...owwo.....", "...owo......", "...oo.......", "............"});
