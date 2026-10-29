@@ -120,11 +120,30 @@ public final class DevBridge {
             });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
+            // The player's colony's buildings (server side): position, type, level, pack, path, rotation, corners.
+            case "/buildings" -> {
+                var server = Minecraft.getInstance().getSingleplayerServer();
+                yield server.submit(() -> {
+                    StringBuilder sb = new StringBuilder();
+                    for (var c : com.minecolonies.api.colony.IColonyManager.getInstance().getAllColonies())
+                        for (var b : c.getServerBuildingManager().getBuildings().values()) {
+                            var te = b.getTileEntity();
+                            sb.append(b.getID().toShortString()).append(' ').append(b.getBuildingType().getRegistryName()).append(" lv").append(b.getBuildingLevel())
+                                    .append(" pack=").append(b.getStructurePack()).append(" path=").append(b.getBlueprintPath())
+                                    .append(" rot=").append(te == null ? "?" : te.getRotationMirror()).append(" brot=").append(b.getRotationMirror())
+                                    .append(" corners=").append(b.getCorners() == null ? "-" : b.getCorners().getA().toShortString() + ".." + b.getCorners().getB().toShortString()).append('\n');
+                        }
+                    return sb.toString();
+                }).get();
+            }
             // <mode> <pack (spaces as _)> <path> <x y z> <rot>: an InstantBuild request as the planner sends it.
+            // ... [level] [from x y z] [fromRot]: also a hut's level, a move's source.
             case "/deco" -> client(() -> {
+                BlockPos from = a.length > 10 ? new BlockPos(Integer.parseInt(a[8]), Integer.parseInt(a[9]), Integer.parseInt(a[10])) : BlockPos.ZERO;
+                var rms = com.ldtteam.structurize.api.RotationMirror.values();
                 net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.volcanicmg.mccitybuilder.server.InstantBuild.Request(Integer.parseInt(a[0]),
-                        new BlockPos(Integer.parseInt(a[3]), Integer.parseInt(a[4]), Integer.parseInt(a[5])), 0, a[1].replace('_', ' '), a[2],
-                        com.ldtteam.structurize.api.RotationMirror.values()[Integer.parseInt(a[6])]));
+                        new BlockPos(Integer.parseInt(a[3]), Integer.parseInt(a[4]), Integer.parseInt(a[5])), a.length > 7 ? Integer.parseInt(a[7]) : 0, a[1].replace('_', ' '), a[2],
+                        rms[Integer.parseInt(a[6])], 0, from, a.length > 11 ? rms[Integer.parseInt(a[11])] : com.ldtteam.structurize.api.RotationMirror.NONE));
                 return "ok";
             });
             // yaw pitch zoom: the 3D views held still at that view (dragging stops the turning); "free" lets go.

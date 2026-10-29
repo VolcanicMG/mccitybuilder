@@ -306,7 +306,7 @@
   "mccitybuilder.deleted": "Removed %s blocks (only those still as the blueprint had them)",
   "mccitybuilder.restored": "Put %s blocks back as they were before it was placed",
   "mccitybuilder.moved_kept": "A claim refused clearing the old site: its blocks were kept",
-  "mccitybuilder.moved": "Building moved: %s containers copied, %s stacks to you; module settings weren't carried over",
+  "mccitybuilder.moved": "Building moved: %s containers copied, %s stacks to you, %s old blocks cleared; module settings weren't carried over",
   "mccitybuilder.deco_moved": "Decoration moved: %s containers copied, %s stacks to you, %s old blocks removed",
   "mccitybuilder.move": "Move",
   "mccitybuilder.move.tip": "Rebuild this building elsewhere (creative, server part): place its ghost, confirm; inventories and citizens come along, the old one is taken down. Module settings aren't kept",

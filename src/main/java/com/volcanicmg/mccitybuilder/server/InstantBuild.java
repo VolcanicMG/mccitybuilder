@@ -929,6 +929,16 @@ public final class InstantBuild {
         // The old site: the blueprint turned as it stood there (the paste is done with it); back as it was before it
         // stood there when a snapshot exists.
         bp.setRotationMirror(srcRot, level);
+        // A hut built up level by level stands as all of its levels: what a higher level leaves as it was (its
+        // placeholders) is still the lower levels' blocks, so the old site is cleared against all of them.
+        if (r.mode == MOVE) {
+            Blueprint all = levels(level, pack, path, r.level, srcRot, bp);
+            if (all != bp) {
+                bp = all;
+                srcOrigin = r.from.subtract(bp.getPrimaryBlockOffset());
+                srcFar = srcOrigin.offset(bp.getSizeX() - 1, bp.getSizeY() - 1, bp.getSizeZ() - 1);
+            }
+        }
         String rk = r.mode == DECO_MOVE ? PasteRules.recordKey(colonyId, pack, path, r.from.getX(), r.from.getY(), r.from.getZ(), r.fromRot.ordinal()) : "";
         String sk = r.mode == MOVE ? Snapshots.hutKey(level, colonyId, r.from) : Snapshots.decoKey(level, colonyId, pack, path, r.from, r.fromRot.ordinal());
         int removed = restoreOrDelete(p, r, level, colony, bp, srcOrigin, srcFar, sk, rk, r.mode == MOVE ? r.from : null, false);
@@ -936,6 +946,54 @@ public final class InstantBuild {
         // A claim refusing the clean-up after the move is done: the move stands, the old site is partly kept.
         if (removed < 0) p.displayClientMessage(Component.translatable("mccitybuilder.moved_kept"), false);
         if (r.mode == MOVE) nu.markDirty();
+    }
+
+    /**
+     * @param top the hut's blueprint at {@code upTo}, turned {@code rot}
+     * @return levels 1 to {@code upTo} of a hut's blueprint as one, turned {@code rot}: per cell the highest level's
+     * block, a lower level's where a higher one leaves the world as it is (a placeholder) or clears it; anchored at
+     * the hut block. {@code top} itself for a level 1 hut or when a level's file is missing.
+     */
+    private static Blueprint levels(ServerLevel level, String pack, String path, int upTo, RotationMirror rot, Blueprint top) {
+        if (upTo <= 1) return top;
+        List<Blueprint> bps = new ArrayList<>();
+        for (int l = 1; l < upTo; l++) {
+            String lp = HutCatalog.levelPath(path, l);
+            // ponytail: loaded on the server thread at the end of a move (a few small files); load ahead if moves get big.
+            Blueprint b = lp == null ? null : StructurePacks.getBlueprint(pack, lp, true, level.registryAccess());
+            if (b == null) return top;
+            b.setRotationMirror(rot, level);
+            bps.add(b);
+        }
+        bps.add(top);
+        // The union of their boxes around the hut block (each anchored by its primary offset).
+        int[] lo = {Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE}, hi = {Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE};
+        for (Blueprint b : bps) {
+            BlockPos o = b.getPrimaryBlockOffset();
+            int[] mn = {-o.getX(), -o.getY(), -o.getZ()}, sz = {b.getSizeX(), b.getSizeY(), b.getSizeZ()};
+            for (int k = 0; k < 3; k++) {
+                lo[k] = Math.min(lo[k], mn[k]);
+                hi[k] = Math.max(hi[k], mn[k] + sz[k] - 1);
+            }
+        }
+        Blueprint out = new Blueprint((short) (hi[0] - lo[0] + 1), (short) (hi[1] - lo[1] + 1), (short) (hi[2] - lo[2] + 1), level.registryAccess());
+        for (Blueprint b : bps) {
+            BlockPos o = b.getPrimaryBlockOffset();
+            short[][][] st = b.getStructure();
+            BlockState[] pal = b.getPalette();
+            for (int y = 0; y < b.getSizeY(); y++)
+                for (int z = 0; z < b.getSizeZ(); z++)
+                    for (int x = 0; x < b.getSizeX(); x++) {
+                        BlockState want = pal[st[y][z][x]];
+                        if (isPlaceholder(want)) continue;
+                        BlockPos at = new BlockPos(x - o.getX() - lo[0], y - o.getY() - lo[1], z - o.getZ() - lo[2]);
+                        // A higher level's air doesn't hide a lower level's block (it may still stand there).
+                        if (want.isAir() && !isPlaceholder(out.getBlockState(at)) && !out.getBlockState(at).isAir()) continue;
+                        out.addBlockState(at, want);
+                    }
+        }
+        out.setCachePrimaryOffset(new BlockPos(-lo[0], -lo[1], -lo[2]));
+        return out;
     }
 
     /**
@@ -1106,6 +1164,12 @@ public final class InstantBuild {
         if (n >= 0) {
             Snapshots.handOver(level, snap, newer);
             Snapshots.delete(level, snapKey);
+        }
+        // A retired hut's upgrades built where its first level left the world as it was (the snapshot doesn't hold
+        // those cells): what still matches any of its levels goes too, down to the ground around it.
+        if (n >= 0 && retired != null) {
+            int m = delete(p, r, level, bp, origin, far, report);
+            return m < 0 ? m : n + m;
         }
         return n;
     }
