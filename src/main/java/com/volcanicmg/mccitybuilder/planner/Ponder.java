@@ -94,7 +94,7 @@ public final class Ponder {
         topic("draw", null,
                 s("draw", 1).cursor("0", "0", true),
                 s("draw", 2).line("0 0 2L-1 0").cursor("2L-1", "0", true).call("2L-1", "0", 5, "mccitybuilder.ponder.call.snap"),
-                s("draw", 3).line("0 0 2L+2 0").keys("#shift").cursor("2L+2", "0", true),
+                s("draw", 3).line("0 0 2L-1 0", "0 " + d + " 2L+2 " + d).keys("#shift").cursor("2L+2", d, true),
                 s("draw", 4).line("0 0 2L 0 ~", "2L 0 2L L ~").cursor("2L", "L", true).call("2L", "0", 6, "mccitybuilder.ponder.call.corner"));
         topic("joints", null,
                 s("joints", 1).line("0 0 2L 0", "2L 0 2L L ~").call(c, "0", 6, "mccitybuilder.ponder.call.corner"),

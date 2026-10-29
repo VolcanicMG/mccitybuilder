@@ -91,7 +91,7 @@
   "mccitybuilder.ponder.roads.title": "Roads vs walls",
   "mccitybuilder.ponder.draw.1": "Click where the segment should start.",
   "mccitybuilder.ponder.draw.2": "Click again to drop it: its end snaps to a length the pieces fill exactly (the label says how many).",
-  "mccitybuilder.ponder.draw.3": "Hold Shift for any length: cells no piece covers show as an amber box.",
+  "mccitybuilder.ponder.draw.3": "Hold Shift while you draw for any length: cells no piece covers show as an amber box.",
   "mccitybuilder.ponder.draw.4": "Each click starts the next segment from the last end. At a turn a corner piece goes in, and the last segment grows a little so its pieces stay whole.",
   "mccitybuilder.ponder.joints.1": "Where segments meet, a joint piece goes in: a corner for an L.",
   "mccitybuilder.ponder.joints.2": "Three segments meeting make a T.",

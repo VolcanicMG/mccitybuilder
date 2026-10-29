@@ -45,6 +45,8 @@ final class PonderScreen extends Screen {
     private static int lastTopic;
     private static final float ZOOM = 1.0f;
     private static final int DROP_MS = 450, STAGGER_MS = 70;
+    /** Where in a step the cursor clicks, and how fast it glides there (it arrives at 1 / GLIDE). */
+    private static final float CLICK_T = 0.5f, GLIDE = 2.2f;
 
     private final List<Hit> hits = new ArrayList<>();
     private final String pack;
@@ -406,19 +408,27 @@ final class PonderScreen extends Screen {
         lifts.add(0f);
         grows.add(1f);
         // New pieces drop in one after another with a little overshoot; the ones going sink out.
-        float[] land = new float[s.parts().size()];
+        float[] land = new float[s.parts().size()], ghost = new float[s.parts().size()];
+        // A click step: until the click its new pieces are the planner's outline, growing behind the cursor; then they drop.
+        long wait = st.click && !st.nodes ? (long) (CLICK_T * Ponder.STEP_MS) : 0;
+        int fresh0 = 0;
+        for (PieceView.Part q : s.parts()) if (!before.contains(id(q))) fresh0++;
+        float glide = easeInOut(t * GLIDE);
         int k = 0;
         List<float[]> landed = new ArrayList<>();
         for (int i = 0; i < s.parts().size(); i++) {
             PieceView.Part q = s.parts().get(i);
             boolean fresh = !before.contains(id(q));
-            float u = fresh ? clamp01((el - k * STAGGER_MS) / (float) DROP_MS) : 1;
+            long at = el - wait - k * STAGGER_MS;
+            float u = fresh ? clamp01(at / (float) DROP_MS) : 1;
+            if (fresh && at <= 0) ghost[i] = glide >= (k + 1) / (float) fresh0 - 0.02f ? 1 : 0;
             if (fresh) k++;
             land[i] = u;
+            if (fresh && at <= 0) continue;
             parts.add(q);
             lifts.add(fresh ? 5 * (1 - easeOutBack(u)) : 0f);
             grows.add(fresh ? 0.85f + 0.15f * easeOut(u) : 1f);
-            if (fresh && u >= 1 && el - (k - 1) * STAGGER_MS - DROP_MS < 350) landed.add(new float[]{i, (el - (k - 1) * STAGGER_MS - DROP_MS) / 350f});
+            if (fresh && u >= 1 && at - DROP_MS < 350) landed.add(new float[]{i, (at - DROP_MS) / 350f});
         }
         if (prev != null && el < 450)
             for (PieceView.Part q : prev.parts())
@@ -427,7 +437,7 @@ final class PonderScreen extends Screen {
                     lifts.add(-6 * easeOut(el / 450f));
                     grows.add(1f);
                 }
-        if (k > 0 && !sounded && el > DROP_MS * 0.8f) {
+        if (k > 0 && !sounded && el > wait + DROP_MS * 0.8f) {
             sounded = true;
             minecraft.getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(net.minecraft.sounds.SoundEvents.STONE_PLACE, 1.0f, 0.25f));
         }
@@ -442,7 +452,7 @@ final class PonderScreen extends Screen {
             gr[i] = grows.get(i);
         }
         float pulse = 0.7f + 0.3f * (float) Math.sin(System.currentTimeMillis() / 260.0);
-        Matrix4f m = PieceView.renderScene(g, parts, cam, (pose, buf) -> boxes(pose, buf, s, pb, land, el, pulse), lf, gr, sx + 1, sy + 1, sw - 2, sh - 2);
+        Matrix4f m = PieceView.renderScene(g, parts, cam, (pose, buf) -> boxes(pose, buf, s, pb, land, ghost, el, pulse), lf, gr, sx + 1, sy + 1, sw - 2, sh - 2);
         // Overlays in front of the scene (it was drawn deep in z).
         g.pose().pushPose();
         g.pose().translate(0, 0, 900);
@@ -516,7 +526,7 @@ final class PonderScreen extends Screen {
     }
 
     /** The plate's soft shadow, then the boxes that teach something: gap and air (amber), red, cyan, white, grey (fading in as their piece lands, pulsing). */
-    private void boxes(PoseStack pose, net.minecraft.client.renderer.MultiBufferSource buf, Scene s, int[] pb, float[] land, long el, float pulse) {
+    private void boxes(PoseStack pose, net.minecraft.client.renderer.MultiBufferSource buf, Scene s, int[] pb, float[] land, float[] ghost, long el, float pulse) {
         VertexConsumer q = buf.getBuffer(RenderType.gui());
         Matrix4f m = pose.last().pose();
         for (int r = 3; r >= 1; r--) {
@@ -535,6 +545,12 @@ final class PonderScreen extends Screen {
         VertexConsumer l = buf.getBuffer(RenderType.lines());
         for (float[] b : s.boxes()) {
             int c = (int) b[6], pi = (int) b[7];
+            if (pi >= 0 && pi < ghost.length && ghost[pi] > 0) {
+                LevelRenderer.renderLineBox(pose, l, b[0] + 0.05, b[1] + 0.02, b[2] + 0.05, b[3] - 0.05, b[4] - 0.02, b[5] - 0.05,
+                        (c >> 16 & 255) / 255f, (c >> 8 & 255) / 255f, (c & 255) / 255f, pulse);
+                continue;
+            }
+            if (pi >= 0 && pi < land.length && land[pi] <= 0) continue;
             float a = clamp01((el - 250) / 300f);
             if (pi >= 0 && pi < land.length) a = Math.min(a, clamp01((land[pi] - 0.6f) / 0.4f));
             // Only outlines that teach something: plain green pieces (and the plate) have none.
@@ -620,16 +636,16 @@ final class PonderScreen extends Screen {
             int cx = Ponder.coord(st.cursor[0], longest), cz = Ponder.coord(st.cursor[1], longest);
             float[] to = project(m, cx + 0.5f, Ponder.ground(s.ground(), cx, cz) + 1, cz + 0.5f);
             float[] from = cursorFrom != null ? cursorFrom : new float[]{vx + vw * 0.75f, vy + vh * 0.8f};
-            float k = easeInOut(t * 2.2f);
+            float k = easeInOut(t * GLIDE);
             float px = from[0] + (to[0] - from[0]) * k, py = from[1] + (to[1] - from[1]) * k;
             cursorAt = new float[]{px, py};
-            if (st.click && t > 0.5f && t < 0.9f) {
-                float u = (t - 0.5f) / 0.4f;
+            if (st.click && t > CLICK_T && t < 0.9f) {
+                float u = (t - CLICK_T) / 0.4f;
                 ring(g, (int) px, (int) py, (int) (3 + 12 * easeOut(u)), alpha(0xFFFFFFFF, 1 - u));
                 ring(g, (int) px, (int) py, (int) (2 + 6 * easeOut(u)), alpha(0xFF40E6FF, 1 - u));
             }
             // The pointer's tip pixel sits on the target; pressed while it clicks or drags; a drag has the move badge.
-            boolean down = st.click && t > 0.5f && (st.nodes || t < 0.7f);
+            boolean down = st.click && t > CLICK_T && (st.nodes || t < 0.7f);
             pointer(g, down ? "pressed" : "arrow", Math.round(px), Math.round(py));
             if (st.nodes) icon(g, Ponder.BADGES.get("move"), Math.round(px) + 8, Math.round(py) + 9);
         }
