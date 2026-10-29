@@ -979,7 +979,8 @@ public final class InstantBuild {
                 for (int z = 0; z < b.getSizeZ(); z++)
                     for (int x = 0; x < b.getSizeX(); x++) {
                         BlockState want = pal[st[y][z][x]];
-                        if (isPlaceholder(want)) continue;
+                        // Only "leave as is" lets a lower level show through; a ground or fluid fill is what this level put there.
+                        if (want.getBlock() == ModBlocks.blockSubstitution.get() || want.getBlock() == com.minecolonies.api.blocks.ModBlocks.blockWayPoint) continue;
                         BlockPos at = new BlockPos(x - o.getX() - lo[0], y - o.getY() - lo[1], z - o.getZ() - lo[2]);
                         if (at.getX() < 0 || at.getY() < 0 || at.getZ() < 0 || at.getX() >= out.getSizeX() || at.getY() >= out.getSizeY() || at.getZ() >= out.getSizeZ()) continue;
                         // A higher level's air cleared it: whatever stands there now isn't the hut's.
@@ -1054,12 +1055,15 @@ public final class InstantBuild {
      *               removed, -1 when a claim refused (after a move, only the clean-up is lost)
      */
     private static int delete(ServerPlayer p, Request r, ServerLevel level, Blueprint bp, BlockPos origin, BlockPos far, boolean report) {
-        return delete(p, r, level, bp, origin, far, report, w -> false);
+        return delete(p, r, level, bp, origin, far, report, w -> false, w -> false);
     }
 
-    /** {@link #delete}, never touching the cells {@code keep} names (neither removing nor filling them) */
+    /**
+     * {@link #delete}, never touching the cells {@code keep} names (neither removing nor filling them), and leaving the
+     * exposed dirt {@code keepTop} names as it is
+     */
     private static int delete(ServerPlayer p, Request r, ServerLevel level, Blueprint bp, BlockPos origin, BlockPos far, boolean report,
-                              java.util.function.Predicate<BlockPos> keep) {
+                              java.util.function.Predicate<BlockPos> keep, java.util.function.Predicate<BlockPos> keepTop) {
         java.util.Set<BlockPos> entityKept = entityProtected(level, origin, far);
         short[][][] st = bp.getStructure();
         BlockState[] palette = bp.getPalette();
@@ -1089,7 +1093,13 @@ public final class InstantBuild {
         for (BlockPos w : gone)
             if (!level.getFluidState(w).isEmpty()) level.setBlock(w, net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 2);
         // No drops and no shape updates mid-way (a door's or bed's other half would pop off as an item); neighbours after.
-        for (BlockPos w : gone) level.setBlock(w, ground(w.getY(), top), 2 | 16 | 32);
+        BlockState surface = surfaceAround(level, origin, far, top);
+        java.util.Set<BlockPos> filled = new java.util.HashSet<>();
+        for (BlockPos w : gone) {
+            BlockState g = ground(w.getY(), top, surface);
+            level.setBlock(w, g, 2 | 16 | 32);
+            if (!g.isAir()) filled.add(w);
+        }
         settle(level, gone);
         // The blueprint's own hollows under the ground around it (a basin, a cellar) fill too; never a cell with an
         // entity in it, and only where placing is allowed (one place event per chunk, as the paste does).
@@ -1102,11 +1112,27 @@ public final class InstantBuild {
                 for (int x = 0; x < bp.getSizeX(); x++) {
                     BlockPos w = origin.offset(x, y, z);
                     if (!palette[st[y][z][x]].isAir() || !level.getBlockState(w).isAir() || occupied.contains(w) || keep.test(w)) continue;
-                    BlockState fill = ground(w.getY(), top);
+                    BlockState fill = ground(w.getY(), top, surface);
                     if (!placeOk.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(w.getX() >> 4, w.getZ() >> 4), k -> !NeoForge.EVENT_BUS.post(
                             new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, w), level.getBlockState(w.below()), p)).isCanceled())) continue;
                     level.setBlock(w, fill, 3);
+                    filled.add(w);
                 }
+        // Each column's exposed top under the footprint: dirt there (a refill, or grass the placement smothered) takes
+        // the surface block around it; never under water or another block, never a kept cell.
+        for (int x = origin.getX(); x <= far.getX(); x++)
+                for (int z = origin.getZ(); z <= far.getZ(); z++)
+                    // Down to the column's top, under the box too (ground lower than the floor, smothered under it).
+                    for (int y = far.getY(); y >= origin.getY() - 16; y--) {
+                        BlockPos w = new BlockPos(x, y, z);
+                        BlockState have = level.getBlockState(w);
+                        // Grass, flowers, snow and the placement's own water still running off don't make a column's top.
+                        if (have.isAir() || have.canBeReplaced() && !have.getFluidState().isSource()) continue;
+                        BlockPos up = w.above();
+                        if (have.is(net.minecraft.world.level.block.Blocks.DIRT) && !keepTop.test(w) && !level.getFluidState(up).isSource())
+                            level.setBlock(w, surface, 3);
+                        break;
+                    }
         if (report) {
             done(p);
             p.displayClientMessage(Component.translatable("mccitybuilder.deleted", gone.size()), false);
@@ -1171,6 +1197,10 @@ public final class InstantBuild {
             int m = delete(p, r, level, bp, origin, far, report, w -> {
                 int i = snap.at(w);
                 return i >= 0 && snap.cells()[i] >= 0 || covered.test(w);
+            }, w -> {
+                // Smothered grass the snapshot held comes back as grass; dirt the snapshot says was dirt stays.
+                int i = snap.at(w);
+                return covered.test(w) || i >= 0 && snap.cells()[i] >= 0 && snap.palette()[snap.cells()[i]].is(net.minecraft.world.level.block.Blocks.DIRT);
             });
             return m < 0 ? m : n + m;
         }
@@ -1264,9 +1294,33 @@ public final class InstantBuild {
     }
 
     /** @return the refill for height y: dirt under the surrounding ground's top, grass at it, air above */
-    private static BlockState ground(int y, int top) {
-        return (y < top ? net.minecraft.world.level.block.Blocks.DIRT : y == top ? net.minecraft.world.level.block.Blocks.GRASS_BLOCK
-                : net.minecraft.world.level.block.Blocks.AIR).defaultBlockState();
+    private static BlockState ground(int y, int top, BlockState surface) {
+        return y < top ? net.minecraft.world.level.block.Blocks.DIRT.defaultBlockState() : y == top ? surface : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+    }
+
+    /**
+     * @return the most common top block of the natural ground just outside the footprint at {@code top} (grass, sand,
+     * podzol...), grass when there's none; the block a refill's exposed top takes
+     */
+    private static BlockState surfaceAround(ServerLevel level, BlockPos origin, BlockPos far, int top) {
+        java.util.Map<BlockState, Integer> n = new HashMap<>();
+        for (int x = origin.getX() - 1; x <= far.getX() + 1; x++)
+            for (int z = origin.getZ() - 1; z <= far.getZ() + 1; z++) {
+                if (x >= origin.getX() && x <= far.getX() && z >= origin.getZ() && z <= far.getZ()) continue;
+                int h = level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z) - 1;
+                BlockState t = level.getBlockState(new BlockPos(x, h, z));
+                // Plain dirt doesn't count: it is mostly grass the placement shaded (and would be the patch itself).
+                if (!t.is(net.minecraft.world.level.block.Blocks.DIRT) && (t.is(net.minecraft.tags.BlockTags.DIRT) || t.is(net.minecraft.tags.BlockTags.SAND)
+                        || t.is(net.minecraft.world.level.block.Blocks.GRAVEL))) n.merge(t.getBlock().defaultBlockState(), 1, Integer::sum);
+            }
+        BlockState best = net.minecraft.world.level.block.Blocks.GRASS_BLOCK.defaultBlockState();
+        int most = 0;
+        for (var en : n.entrySet())
+            if (en.getValue() > most) {
+                most = en.getValue();
+                best = en.getKey();
+            }
+        return best;
     }
 
     /**
@@ -1334,6 +1388,8 @@ public final class InstantBuild {
 
     /** @return true for entities with items: a filled item frame, an armour stand with gear, or any entity inventory */
     private static boolean holdsItems(Entity e) {
+        // Citizens, villagers and mobs carry their things with them (and walk off): only things that stay put count.
+        if (e instanceof net.minecraft.world.entity.LivingEntity && !(e instanceof net.minecraft.world.entity.decoration.ArmorStand)) return false;
         if (e instanceof net.minecraft.world.entity.decoration.ItemFrame f) return !f.getItem().isEmpty();
         if (e instanceof net.minecraft.world.entity.decoration.ArmorStand a) {
             for (var st : a.getAllSlots()) if (!st.isEmpty()) return true;
