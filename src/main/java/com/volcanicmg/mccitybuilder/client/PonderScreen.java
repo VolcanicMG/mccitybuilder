@@ -141,6 +141,7 @@ final class PonderScreen extends Screen {
         if (lens.length == 0) return null;
         int longest = 0;
         for (int l : lens) longest = Math.max(longest, l);
+        if (!fitLoop(tool, fam, longest)) return null;
         List<Scene> out = new ArrayList<>();
         for (Ponder.Step st : topic().steps()) {
             Scene sc = scene(st, tool, fam, lens, longest);
@@ -160,13 +161,59 @@ final class PonderScreen extends Screen {
         return out;
     }
 
+    // The connect topic's loop (W x H cells) for the current topic's family.
+    private int loopW, loopH;
+
+    /**
+     * Sizes the connect topic's loop: the smallest W, then H, for which the closed loop leaves no cell uncovered, so the
+     * topic shows no gap (gaps have their own topic).
+     *
+     * @return false while pieces load
+     */
+    private boolean fitLoop(String tool, String fam, int longest) {
+        loopW = 2 * longest;
+        loopH = longest + 2;
+        boolean uses = false;
+        for (Ponder.Step st : topic().steps()) for (String l : st.lines) uses |= l.contains("W") || l.contains("H");
+        if (!uses) return true;
+        PieceCatalog.groundOverride = (x, z) -> 0;
+        try {
+            // The closed loop's sides: W first, then H (the open chain's end caps are closed by Fill gaps).
+            for (int w = 2 * longest; w <= 4 * longest; w++) {
+                PieceCatalog.Layout closed = PieceCatalog.layout(loopLines(tool, fam, w, loopH), new HashMap<>());
+                if (!closed.complete()) return false;
+                if (closed.shortened().get(0) == 0 && closed.shortened().get(2) == 0) {
+                    loopW = w;
+                    break;
+                }
+            }
+            for (int h = longest + 2; h <= 3 * longest + 2; h++) {
+                PieceCatalog.Layout closed = PieceCatalog.layout(loopLines(tool, fam, loopW, h), new HashMap<>());
+                if (!closed.complete()) return false;
+                if (closed.shortened().get(1) == 0 && closed.shortened().get(3) == 0) {
+                    loopH = h;
+                    break;
+                }
+            }
+        } finally {
+            PieceCatalog.groundOverride = null;
+        }
+        return true;
+    }
+
+    private List<Plan.Line> loopLines(String tool, String fam, int w, int h) {
+        List<Ponder.Seg> segs = new ArrayList<>(List.of(new Ponder.Seg(w, 0, 0, 0, false, false, Plan.FOLLOW, 0, false), new Ponder.Seg(0, 0, 0, h, false, false, Plan.FOLLOW, 0, false),
+                new Ponder.Seg(0, h, w, h, false, false, Plan.FOLLOW, 0, false), new Ponder.Seg(w, h, w, 0, false, false, Plan.FOLLOW, 0, false)));
+        return lines(segs, tool, fam, "flat");
+    }
+
     private Scene scene(Ponder.Step st, String tool, String fam, int[] lens, int longest) {
         List<Ponder.Seg> segs = new ArrayList<>();
-        for (String spec : st.lines) segs.add(Ponder.seg(spec, longest));
+        for (String spec : st.lines) segs.add(Ponder.seg(spec, longest, loopW, loopH));
         Map<Long, Integer> types = new HashMap<>();
         for (var en : st.joints.entrySet()) {
             String[] c = en.getKey().split(" ");
-            types.put(Plan.cell(Ponder.coord(c[0], longest), Ponder.coord(c[1], longest)), en.getValue());
+            types.put(Plan.cell(Ponder.coord(c[0], longest, loopW, loopH), Ponder.coord(c[1], longest, loopW, loopH)), en.getValue());
         }
         String ground = st.ground;
         PieceCatalog.groundOverride = (x, z) -> Ponder.ground(ground, x, z);
@@ -176,7 +223,7 @@ final class PonderScreen extends Screen {
                 Ponder.Seg s = segs.get(i);
                 for (int k = 0; s.gap() && k < 2 * longest; k++) {
                     List<Ponder.Seg> plain = new ArrayList<>(segs);
-                    plain.set(i, new Ponder.Seg(s.x0(), s.z0(), s.x1(), s.z1(), s.fit(), false, s.height(), s.dy(), true));
+                    plain.set(i, new Ponder.Seg(s.x0(), s.z0(), s.x1(), s.z1(), s.fit(), false, s.height(), s.dy(), true, s.ghost()));
                     if (PieceCatalog.layout(lines(plain, tool, fam, ground), types).shortened().get(i) >= 1) break;
                     int dx = Integer.signum(s.x1() - s.x0()), dz = Integer.signum(s.z1() - s.z0());
                     for (int q = 0; q < segs.size(); q++) segs.set(q, moveEnd(segs.get(q), s.x1(), s.z1(), dx, dz));
@@ -204,8 +251,25 @@ final class PonderScreen extends Screen {
             }
             List<PieceView.Part> parts = new ArrayList<>();
             List<float[]> boxes = new ArrayList<>();
+            // Ghost segments (the planner's preview): only their outlines, appearing in order along them.
+            int ghosts = 0, gk = 0;
+            for (int i = 0; i < lines.size(); i++) if (segs.get(i).ghost()) ghosts += lay.lines().get(i).size();
             for (int i = 0; i < lines.size(); i++) {
                 int col = colour(st.colours.getOrDefault(i, "green"));
+                if (segs.get(i).ghost()) {
+                    List<PieceCatalog.Placed> ps = new ArrayList<>(lay.lines().get(i));
+                    int[] a = {lines.get(i).x0(), lines.get(i).z0()};
+                    // From the segment's start out (the cursor draws it that way).
+                    ps.sort(java.util.Comparator.comparingInt(p -> Math.abs((p.box()[0] + p.box()[2]) / 2 - a[0]) + Math.abs((p.box()[1] + p.box()[3]) / 2 - a[1])));
+                    for (PieceCatalog.Placed p : ps) {
+                        var bp = PieceCatalog.rotated(pack, p.path(), p.turns());
+                        if (bp == null) return new Scene(List.of(), List.of(), List.of(), ground, false);
+                        int[] b = p.box(), sb = solid("ponder|" + pack + "|" + p.path() + "|" + Math.floorMod(p.turns(), 4), bp);
+                        boxes.add(new float[]{b[0] + sb[0], Math.max(p.y0() + sb[1], p.level()), b[1] + sb[2], b[0] + sb[3] + 1, p.y0() + sb[4] + 1, b[1] + sb[5] + 1, col, -2,
+                                ++gk / (float) ghosts});
+                    }
+                    continue;
+                }
                 for (PieceCatalog.Placed p : lay.lines().get(i)) {
                     var bp = PieceCatalog.rotated(pack, p.path(), p.turns());
                     if (bp == null) return new Scene(List.of(), List.of(), List.of(), ground, false);
@@ -218,7 +282,8 @@ final class PonderScreen extends Screen {
                     if (p.level() - p.low() >= 2) boxes.add(new float[]{b[0] + 0.1f, p.low(), b[1] + 0.1f, b[2] + 0.9f, p.level(), b[3] + 0.9f, 0xFFFFB31A, parts.size() - 1});
                 }
                 int[] gp = lay.gaps().get(i);
-                if (gp != null && !lay.lines().get(i).isEmpty()) {
+                // A step with a preview (ghosts) shows the live layout: its gaps aren't what it teaches.
+                if (gp != null && !lay.lines().get(i).isEmpty() && ghosts == 0) {
                     int gy = lay.lines().get(i).get(0).level();
                     boxes.add(new float[]{gp[0], gy, gp[1], gp[2] + 1, gy + 1.5f, gp[3] + 1, 0xFFFFB31A, -1});
                 }
@@ -272,8 +337,8 @@ final class PonderScreen extends Screen {
     }
 
     private static Ponder.Seg moveEnd(Ponder.Seg s, int x, int z, int dx, int dz) {
-        if (s.x1() == x && s.z1() == z) return new Ponder.Seg(s.x0(), s.z0(), x + dx, z + dz, s.fit(), s.fill(), s.height(), s.dy(), s.gap());
-        if (s.x0() == x && s.z0() == z) return new Ponder.Seg(x + dx, z + dz, s.x1(), s.z1(), s.fit(), s.fill(), s.height(), s.dy(), s.gap());
+        if (s.x1() == x && s.z1() == z) return new Ponder.Seg(s.x0(), s.z0(), x + dx, z + dz, s.fit(), s.fill(), s.height(), s.dy(), s.gap(), s.ghost());
+        if (s.x0() == x && s.z0() == z) return new Ponder.Seg(x + dx, z + dz, s.x1(), s.z1(), s.fit(), s.fill(), s.height(), s.dy(), s.gap(), s.ghost());
         return s;
     }
 
@@ -434,11 +499,13 @@ final class PonderScreen extends Screen {
             grows.add(fresh ? 0.85f + 0.15f * easeOut(u) : 1f);
             if (fresh && u >= 1 && at - DROP_MS < 350) landed.add(new float[]{i, (at - DROP_MS) / 350f});
         }
-        if (prev != null && el < 450)
+        // The pieces going sink out (in a click step at the click: an end cap stays until its corner drops).
+        long gone = el - wait;
+        if (prev != null && gone < 450)
             for (PieceView.Part q : prev.parts())
                 if (!now.contains(id(q))) {
                     parts.add(q);
-                    lifts.add(-6 * easeOut(el / 450f));
+                    lifts.add(gone <= 0 ? 0f : -6 * easeOut(gone / 450f));
                     grows.add(1f);
                 }
         if (k > 0 && !sounded && el > wait + DROP_MS * 0.8f) {
@@ -456,7 +523,7 @@ final class PonderScreen extends Screen {
             gr[i] = grows.get(i);
         }
         float pulse = 0.7f + 0.3f * (float) Math.sin(System.currentTimeMillis() / 260.0);
-        Matrix4f m = PieceView.renderScene(g, parts, cam, (pose, buf) -> boxes(pose, buf, s, pb, land, ghost, el, pulse), lf, gr, sx + 1, sy + 1, sw - 2, sh - 2);
+        Matrix4f m = PieceView.renderScene(g, parts, cam, (pose, buf) -> boxes(pose, buf, s, st, pb, land, ghost, glide, el, pulse), lf, gr, sx + 1, sy + 1, sw - 2, sh - 2);
         // Overlays in front of the scene (it was drawn deep in z).
         g.pose().pushPose();
         g.pose().translate(0, 0, 900);
@@ -480,7 +547,8 @@ final class PonderScreen extends Screen {
         for (boolean fresh : new boolean[]{true, false}) {
             for (float[] bx : s.boxes()) {
                 int pi = (int) bx[7];
-                if (fresh && (pi < 0 || before.contains(id(s.parts().get(pi))))) continue;
+                // A preview's outlines (pi -2) are new in their step too.
+                if (fresh && pi != -2 && (pi < 0 || before.contains(id(s.parts().get(pi))))) continue;
                 any = true;
                 for (int i = 0; i < 3; i++) b[i] = Math.min(b[i], bx[i]);
                 for (int i = 3; i < 6; i++) b[i] = Math.max(b[i], bx[i]);
@@ -531,7 +599,8 @@ final class PonderScreen extends Screen {
     }
 
     /** The plate's soft shadow, then the boxes that teach something: gap and air (amber), red, cyan, white, grey (fading in as their piece lands, pulsing). */
-    private void boxes(PoseStack pose, net.minecraft.client.renderer.MultiBufferSource buf, Scene s, int[] pb, float[] land, float[] ghost, long el, float pulse) {
+    private void boxes(PoseStack pose, net.minecraft.client.renderer.MultiBufferSource buf, Scene s, Ponder.Step st, int[] pb, float[] land, float[] ghost, float glide,
+                       long el, float pulse) {
         VertexConsumer q = buf.getBuffer(RenderType.gui());
         Matrix4f m = pose.last().pose();
         for (int r = 3; r >= 1; r--) {
@@ -548,8 +617,24 @@ final class PonderScreen extends Screen {
             q.addVertex(m, pb[0] - e, yy, pb[2] - e).setColor(c);
         }
         VertexConsumer l = buf.getBuffer(RenderType.lines());
+        // End markers as the line tool draws them: the live end green, an open end faint cyan, the connect target cyan.
+        int longest = longest();
+        for (String[] mk : st.marks) {
+            int x = Ponder.coord(mk[0], longest, loopW, loopH), z = Ponder.coord(mk[1], longest, loopW, loopH), y = Ponder.ground(s.ground(), x, z);
+            float a = clamp01(el / 300f) * (mk[2].equals("open") ? 0.5f : 1f);
+            float[] rgb = mk[2].equals("end") ? new float[]{0.3f, 1f, 0.3f} : new float[]{0.3f, 0.9f, 1f};
+            double e = mk[2].equals("target") ? 0.1 + 0.06 * pulse : 0.1;
+            LevelRenderer.renderLineBox(pose, l, x + e, y, z + e, x + 1 - e, y + 1.2, z + 1 - e, rgb[0], rgb[1], rgb[2], a);
+        }
         for (float[] b : s.boxes()) {
             int c = (int) b[6], pi = (int) b[7];
+            if (pi == -2) {
+                // A ghost segment's piece: once the cursor has drawn that far.
+                if (glide >= b[8] - 0.02f)
+                    LevelRenderer.renderLineBox(pose, l, b[0] + 0.05, b[1] + 0.02, b[2] + 0.05, b[3] - 0.05, b[4] - 0.02, b[5] - 0.05,
+                            (c >> 16 & 255) / 255f, (c >> 8 & 255) / 255f, (c & 255) / 255f, pulse);
+                continue;
+            }
             if (pi >= 0 && pi < ghost.length && ghost[pi] > 0) {
                 LevelRenderer.renderLineBox(pose, l, b[0] + 0.05, b[1] + 0.02, b[2] + 0.05, b[3] - 0.05, b[4] - 0.02, b[5] - 0.05,
                         (c >> 16 & 255) / 255f, (c >> 8 & 255) / 255f, (c & 255) / 255f, pulse);
@@ -599,7 +684,7 @@ final class PonderScreen extends Screen {
         }
         List<int[]> placed = new ArrayList<>();
         for (Ponder.Callout c : st.callouts) {
-            int cx = Ponder.coord(c.x(), longest), cz = Ponder.coord(c.z(), longest);
+            int cx = Ponder.coord(c.x(), longest, loopW, loopH), cz = Ponder.coord(c.z(), longest, loopW, loopH);
             float[] an = project(m, cx + 0.5f, Ponder.ground(s.ground(), cx, cz) + c.y(), cz + 0.5f);
             // A gap callout points at the gap's own box (where the layout left it).
             if (c.text().endsWith(".gap"))
@@ -638,7 +723,7 @@ final class PonderScreen extends Screen {
             }
         }
         if (st.cursor != null) {
-            int cx = Ponder.coord(st.cursor[0], longest), cz = Ponder.coord(st.cursor[1], longest);
+            int cx = Ponder.coord(st.cursor[0], longest, loopW, loopH), cz = Ponder.coord(st.cursor[1], longest, loopW, loopH);
             float[] to = project(m, cx + 0.5f, Ponder.ground(s.ground(), cx, cz) + 1, cz + 0.5f);
             float[] from = cursorFrom != null ? cursorFrom : new float[]{vx + vw * 0.75f, vy + vh * 0.8f};
             float k = easeInOut(t * GLIDE);

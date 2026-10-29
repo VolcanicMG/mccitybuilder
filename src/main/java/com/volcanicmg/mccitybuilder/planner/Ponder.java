@@ -11,7 +11,8 @@ import java.util.List;
  * <p>
  * Coordinates are cells; a coordinate may use {@code L}, the family's longest straight ({@code 2L-1}, {@code L+3}).
  * A segment spec is {@code "x0 z0 x1 z1"} plus options: {@code ~} its far end moves out until its pieces fit exactly,
- * {@code gap} its far end moves out until some cells stay uncovered (shown without Fill gaps), {@code fill} (Fill gaps), a height mode {@code follow|flat|chain|smooth}, {@code dy=N}.
+ * {@code gap} its far end moves out until some cells stay uncovered (shown without Fill gaps), {@code fill} (Fill gaps), {@code ghost} (the planner's preview: outlines only, not built), a height mode {@code follow|flat|chain|smooth}, {@code dy=N}.
+ * {@code W} / {@code H}: the connect topic's loop, fitted so its pieces leave no gap.
  */
 public final class Ponder {
     /** How long a step plays by default (ms). */
@@ -36,6 +37,8 @@ public final class Ponder {
         public boolean click, nodes;
         /** The plate: "flat" or "slope" (rising one block every three cells east). */
         public String ground = "flat";
+        /** End markers, LineView's looks: {x, z, kind}, kind {@code end} (the live end), {@code open} (an open end), {@code target} (the connect target). */
+        public final List<String[]> marks = new ArrayList<>();
 
         Step(String caption) {
             this.caption = caption;
@@ -72,6 +75,11 @@ public final class Ponder {
             return this;
         }
 
+        Step mark(String x, String z, String kind) {
+            marks.add(new String[]{x, z, kind});
+            return this;
+        }
+
         Step nodes() {
             nodes = true;
             return this;
@@ -101,12 +109,16 @@ public final class Ponder {
                 s("joints", 2).line("0 0 2L 0", "2L 0 2L L ~", "2L 0 3L 0 ~").call(c, "0", 6, "mccitybuilder.ponder.call.tee"),
                 s("joints", 3).line("0 0 2L 0", "2L 0 2L L ~", "2L 0 3L 0 ~", "2L 0 2L -L ~").call(c, "0", 6, "mccitybuilder.ponder.call.cross"),
                 s("joints", 4).line("0 0 2L 0", "2L 0 2L L ~").joint("2L 0", Plan.J_TOWER).keys("C").call(c, "0", 7, "mccitybuilder.ponder.call.type"));
+        // A loop of W x H cells (the screen fits the closed loop to whole pieces; while open, Fill gaps closes what its
+        // end caps leave). Once the connect snaps, the planner lays the chain out closed (corners for end caps), as here.
+        String c1 = "W 0 0 0 fill", c2 = "0 0 0 H fill";
         topic("connect", null,
-                s("connect", 1).line("2L 0 0 0", "0 0 0 L+2").cursor("2L", "0", false).call("2L", "0", 5, "mccitybuilder.ponder.call.open_end"),
-                s("connect", 2).line("2L 0 0 0", "0 0 0 L+2", "0 L+2 2L L+2", "2L L+2 2L 0").colour(2, "cyan").colour(3, "cyan").cursor("2L", "0", false)
-                        .call("2L", d, 5, "mccitybuilder.ponder.call.connect"),
-                s("connect", 3).line("2L 0 0 0", "0 0 0 L+2", "0 L+2 2L L+2", "2L L+2 2L 0").colour(2, "cyan").colour(3, "cyan").keys("R").cursor("2L", "0", false),
-                s("connect", 4).line("2L 0 0 0", "0 0 0 L+2", "0 L+2 2L L+2", "2L L+2 2L 0").cursor("2L", "0", true));
+                s("connect", 1).line(c1, c2).mark("0", "H", "end").mark("W", "0", "open").cursor("0", "H", false)
+                        .call("0", "H", 4, "mccitybuilder.ponder.call.live_end").call("W", "0", 4, "mccitybuilder.ponder.call.open_end"),
+                s("connect", 2).line(c1, c2, "0 H W H ghost").mark("0", "H", "end").mark("W", "0", "open").cursor("W", "2", false),
+                s("connect", 3).line(c1, c2, "0 H W H ghost", "W H W 0 ghost").colour(2, "cyan").colour(3, "cyan").mark("W", "0", "target")
+                        .cursor("W", "0", false).call("W", "H", 5, "mccitybuilder.ponder.call.connect"),
+                s("connect", 4).line(c1, c2, "0 H W H", "W H W 0").cursor("W", "0", true));
         topic("height", null,
                 s("height", 1).slope().line("0 0 3L 0 follow").keys("H"),
                 s("height", 2).slope().line("0 0 3L 0 flat").keys("H").call("0", "0", 3, "mccitybuilder.ponder.call.air"),
@@ -150,6 +162,9 @@ public final class Ponder {
         ICONS.put("edit", new String[]{"....o...........", "...oyo..........", "..oyyao.........", ".oyyaaao........", "oyyaaaAAo.......", ".oaaawAo........", "..oaAwwo........", "...oAwwwo..o....", "....owwwwoowo...", "....owwooowwwo..", ".....oo.owowowo.", ".......owwwwwwwo", "........owowowo.", ".........owwwo..", "..........owo...", "...........o...."});
         ICONS.put("building", new String[]{"................", ".oooooooooooooo.", ".owwwwwwwwwwwlo.", ".owlllllllllllS.", ".olllllllllllSo.", ".oSSSSSSSSSSSSo.", ".ooooobbBBooooo.", "......obbBo.....", "......obbBo.....", "......obbBo.....", "......obbBo.....", "oooooooooooooooo", "olllllllllllllSo", "olssSssssssSsssS", "oSSSSSSSSSSSSSSo", "oooooooooooooooo"});
         ICONS.put("roads", new String[]{"................", "ooooooo..ooo.ooo", "olswsSo..olo.olo", "olswsSo..olooolo", "olsssSo..ollllSo", "olsssSo..olssSSo", "olswsSo..olsSsso", "olswsSo..olssSSo", "olsssSo..olSssso", "olsssSo..olssSSo", "olswsSo..olsSsso", "olswsSo..olssSSo", "olsssSo..olsssso", "oSsssSo..oSSSSSo", "ooooooo..ooooooo", "................"});
+        // Toolbar icons (not topics): Plan's blueprint sheet, Road in the wall icon's framing.
+        ICONS.put("tb_plan", new String[]{".ooooooooooo....", "oCCcCCCCcCClo...", "oCCcCCCCcCCllo..", "occcccccccccllo.", "oCCcCCCwcCCCCllo", "oCCcCCwCwCCCCcCo", "oCCcCwCCcwCCCcCo", "oCCcwwwwwwwCCcCo", "occcwcccccwcccco", "oCCcwCCCcCwCCcCo", "oCCcwCCwcCwCCcCo", "oCCcwCCwcCwCCcCo", "oCCcwwwwwwwCCcCo", "occcccccccccccco", "oCCcCCCCcCCCCcCo", ".oooooooooooooo."});
+        ICONS.put("tb_road", new String[]{"................", "................", "................", "oooooooooooooooo", "ollllllllllllllo", "oSSSSSSSSSSSSSSo", "osssssssssssssso", "osssssssssssssso", "osswwwsssswwwsso", "osssssssssssssso", "osssssssssssssso", "ollllllllllllllo", "oSSSSSSSSSSSSSSo", "oooooooooooooooo", "GgggggGgggggGggg", "................"});
         CURSORS.put("arrow", new String[]{"o.........", "oo........", "owo.......", "owwo......", "owwwo.....", "owwwwo....", "owwwwwo...", "owwwwwwo..", "owwwwwwwo.", "owwwwwoooo", "owwowwo...", "owo.owwo..", "oo..owwo..", "o....owwo.", ".....owwo.", "......oo.."});
         CURSORS.put("pressed", new String[]{"..........", "o.........", "oo........", "olo.......", "ollo......", "olllo.....", "ollllo....", "olllllo...", "ollllllo..", "olllllllo.", "ollllloooo", "ollolllo..", "olo.ollo..", "oo..ollo..", "o....ollo.", ".....oo..."});
         BADGES.put("move", new String[]{"....o....", "...owo...", "..owwwo..", ".owowowo.", "owwwwwwwo", ".owowowo.", "..owwwo..", "...owo...", "....o...."});
@@ -214,31 +229,46 @@ public final class Ponder {
 
     /** @return a coordinate's cells: a number, or terms of {@code L} (the longest straight) and numbers ({@code 2L-1}) */
     public static int coord(String s, int longest) {
+        return coord(s, longest, 2 * longest, longest + 2);
+    }
+
+    /** {@link #coord}, with the connect topic's loop (fitted by the screen): {@code W} its width, {@code H} its depth */
+    public static int coord(String s, int longest, int w, int h) {
         int sum = 0;
         for (String t : s.replace("-", "+-").split("\\+")) {
             if (t.isEmpty()) continue;
-            if (t.endsWith("L")) {
+            if (t.endsWith("L") || t.endsWith("W") || t.endsWith("H")) {
                 String k = t.substring(0, t.length() - 1);
-                sum += (k.isEmpty() ? 1 : k.equals("-") ? -1 : Integer.parseInt(k)) * longest;
+                int unit = t.endsWith("L") ? longest : t.endsWith("W") ? w : h;
+                sum += (k.isEmpty() ? 1 : k.equals("-") ? -1 : Integer.parseInt(k)) * unit;
             } else sum += Integer.parseInt(t);
         }
         return sum;
     }
 
     /** A segment spec read: ends in cells, its options. */
-    public record Seg(int x0, int z0, int x1, int z1, boolean fit, boolean fill, int height, int dy, boolean gap) {
+    public record Seg(int x0, int z0, int x1, int z1, boolean fit, boolean fill, int height, int dy, boolean gap, boolean ghost) {
+        public Seg(int x0, int z0, int x1, int z1, boolean fit, boolean fill, int height, int dy, boolean gap) {
+            this(x0, z0, x1, z1, fit, fill, height, dy, gap, false);
+        }
     }
 
     /** @return the spec ({@link Ponder} class doc) with {@code longest} for L */
     public static Seg seg(String spec, int longest) {
+        return seg(spec, longest, 2 * longest, longest + 2);
+    }
+
+    /** {@link #seg} with the loop's W / H ({@link #coord(String, int, int, int)}) */
+    public static Seg seg(String spec, int longest, int w, int h) {
         String[] t = spec.trim().split(" +");
-        boolean fit = false, fill = false, gap = false;
+        boolean fit = false, fill = false, gap = false, ghost = false;
         int height = Plan.FOLLOW, dy = 0;
         for (int i = 4; i < t.length; i++)
             switch (t[i]) {
                 case "~" -> fit = true;
                 case "fill" -> fill = true;
                 case "gap" -> gap = true;
+                case "ghost" -> ghost = true;
                 case "follow" -> height = Plan.FOLLOW;
                 case "flat" -> height = Plan.FLAT;
                 case "chain" -> height = Plan.CHAIN;
@@ -248,7 +278,7 @@ public final class Ponder {
                     dy = Integer.parseInt(t[i].substring(3));
                 }
             }
-        return new Seg(coord(t[0], longest), coord(t[1], longest), coord(t[2], longest), coord(t[3], longest), fit, fill, height, dy, gap);
+        return new Seg(coord(t[0], longest, w, h), coord(t[1], longest, w, h), coord(t[2], longest, w, h), coord(t[3], longest, w, h), fit, fill, height, dy, gap, ghost);
     }
 
     /** @return the plate's ground level at a cell: 0, or one block up every three cells east on a slope */

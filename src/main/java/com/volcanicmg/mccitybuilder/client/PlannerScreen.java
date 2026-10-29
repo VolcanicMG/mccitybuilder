@@ -582,7 +582,7 @@ final class PlannerScreen extends Screen {
             int bx = ix + i * (bw + 2);
             boolean over = mx >= bx && mx < bx + bw && my >= iy && my < iy + 20;
             VanillaUi.button(g, bx, iy, bw, 20, false, off[i], over);
-            // Clear waiting for its second click: red "Confirm?" and the time left draining along the bottom.
+            // Clear waiting for its second click: red "Sure?" (fits the button) and the time left draining along the bottom.
             float arm = i == 4 && !off[i] ? LineView.clearArm() : 0;
             String bl = Component.translatable(arm > 0 ? "mccitybuilder.line.clear_sure" : "mccitybuilder.line." + bkeys[i]).getString();
             VanillaUi.buttonLabel(g, font, bl, bx, iy, bw, 20, off[i] ? VanillaUi.INK_DISABLED : arm > 0 ? 0xFFFF5555 : VanillaUi.INK);
@@ -973,23 +973,25 @@ final class PlannerScreen extends Screen {
     /** The toolbar under the banner: the Plan toggle and the Road / Wall tools. */
     private void overlayPicker(GuiGraphics g, int mx, int my) {
         // Plan, Road and Wall under the banner, each with the help's pixel icon (the overlay is always on).
-        int y = 20, bh = 22, pw = 82, tw = 74, gap = 4, px = (width - pw - 2 * (tw + gap)) / 2;
-        toolbarButton(g, mx, my, px, y, pw, bh, "building", Component.translatable(PlanView.on ? "mccitybuilder.plan.on_short" : "mccitybuilder.plan.off_short").getString(),
+        // A narrow screen (a large GUI scale): icons only, so the side panels keep clear of it (the tooltips still name them).
+        boolean compact = width < 800;
+        int y = 20, bh = 22, pw = compact ? bh : 82, tw = compact ? bh : 74, gap = 4, px = (width - pw - 2 * (tw + gap)) / 2;
+        toolbarButton(g, mx, my, px, y, pw, bh, "tb_plan", compact ? "" : Component.translatable(PlanView.on ? "mccitybuilder.plan.on_short" : "mccitybuilder.plan.off_short").getString(),
                 PlanView.on, this::togglePlan, Component.translatable("mccitybuilder.plan.tip"));
-        String[] tools = {"road", "wall"}, icons = {"roads", "draw"};
+        String[] tools = {"road", "wall"}, icons = {"tb_road", "draw"};
         for (int i = 0; i < 2; i++) {
             String t = tools[i];
-            toolbarButton(g, mx, my, px + pw + gap + i * (tw + gap), y, tw, bh, icons[i], Component.translatable("mccitybuilder.line.tool." + t).getString(),
+            toolbarButton(g, mx, my, px + pw + gap + i * (tw + gap), y, tw, bh, icons[i], compact ? "" : Component.translatable("mccitybuilder.line.tool." + t).getString(),
                     t.equals(LineView.tool), () -> useTool(t), Component.translatable("mccitybuilder.line.tool." + t + ".tip"));
         }
     }
 
-    /** A toolbar toggle: icon at the left, label centred in the rest. */
+    /** A toolbar toggle: icon at the left, label centred in the rest (no label: the icon centred). */
     private void toolbarButton(GuiGraphics g, int mx, int my, int x, int y, int w, int h, String icon, String label, boolean on, Runnable run, Component tip) {
         panels.add(new int[]{x, y, w, h});
         VanillaUi.button(g, x, y, w, h, on, false, mx >= x && mx < x + w && my >= y && my < y + h);
-        PonderScreen.icon(g, icon, x + 4, y + (h - 16) / 2, 1);
-        VanillaUi.buttonLabel(g, font, label, x + 20, y, w - 22, h, VanillaUi.INK);
+        PonderScreen.icon(g, icon, label.isEmpty() ? x + (w - 16) / 2 : x + 4, y + (h - 16) / 2, 1);
+        if (!label.isEmpty()) VanillaUi.buttonLabel(g, font, label, x + 20, y, w - 22, h, VanillaUi.INK);
         hits.add(new Hit(x, y, w, h, run, tip));
     }
 

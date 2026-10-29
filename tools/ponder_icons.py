@@ -74,6 +74,27 @@ ICONS["edit"] = compose([
     mask(["w", "ww", "www", "wwww", "ww"], 5, 5),
     mask(["...w...", "..www..", ".w.w.w.", "wwwwwww", ".w.w.w.", "..www..", "...w..."], 8, 8),
 ])
+
+# Toolbar icons (not topics): a road in the wall icon's framing, and a blueprint sheet for Plan.
+ICONS["tb_road"] = [
+    "................", "................", "................", "oooooooooooooooo", "ollllllllllllllo", "oSSSSSSSSSSSSSSo",
+    "osssssssssssssso", "osssssssssssssso", "osswwwsssswwwsso", "osssssssssssssso", "osssssssssssssso", "ollllllllllllllo",
+    "oSSSSSSSSSSSSSSo", "oooooooooooooooo", "GgggggGgggggGggg", "................"]
+
+def sheet():
+    px = {}
+    for y in range(1, 15):
+        for x in range(1, 15):
+            if x >= 11 and y <= 4 and (x - 11) + (4 - y) > 3: continue  # the folded corner is gone
+            fold = x >= 11 and y <= 4 and (x - 11) + (4 - y) >= 2
+            px[(y, x)] = 'l' if fold else 'c' if x % 5 == 3 or y % 5 == 3 else 'C'
+    hut = [(4, 7), (5, 6), (5, 8), (6, 5), (6, 9), (7, 4), (7, 10)]
+    hut += [(y, x) for y in range(8, 13) for x in (4, 10)] + [(12, x) for x in range(4, 11)] + [(7, x) for x in range(5, 10)]
+    hut += [(11, 7), (10, 7)]
+    for c in hut: px[c] = 'w'
+    return px
+
+ICONS["tb_plan"] = compose([sheet()])
 import json, struct, zlib
 for name, g in {**ICONS, **CURSORS}.items():
     w = 16 if name in ICONS else 10
@@ -115,7 +136,7 @@ def paint(px, g, ox, oy):
 
 png('build/ponder_cursor_preview.png', px, S)
 # Every topic icon in a row (help order), and the edit icon alone.
-ORDER = ["draw", "joints", "connect", "height", "gaps", "edit", "building", "roads"]
+ORDER = ["draw", "joints", "connect", "height", "gaps", "edit", "building", "roads", "tb_plan", "tb_road"]
 row = stage(len(ORDER) * 18 + 2, 20)
 for i, k in enumerate(ORDER): paint(row, ICONS[k], 2 + 18 * i, 2)
 png('build/ponder_icons_preview.png', row, 10)
