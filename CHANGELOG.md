@@ -2,6 +2,14 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Road / wall tool: Fill gaps (F, opt-in per segment) closes the cells whole pieces leave uncovered with a straight
+  cropped to exactly those cells, cut where its edges carry on the neighbours' pattern; nothing overlaps. The server
+  crops it itself and writes it into its own structure pack, "City Builder Crops" (`blueprints/mccitybuilder_crops/`),
+  so survival builders can load the order. Protocol 6. Known limits: on a dedicated server, players get crops made
+  after they joined only when they rejoin (their client previews of those orders can't load until then; building is
+  unaffected); a crop's file name carries a hash of its straight, so after a style pack updates a straight, removing
+  a crop built from the old one is refused (take it down by hand); plans with cropped pieces don't load in builds
+  older than this one.
 - Controls guide: two aligned columns, one short action per row, an even rhythm; compact by default with an
   All / Less button (remembered).
 - Road / wall tool: "How roads and walls work" (? on the line panel: pages on pieces, joints, height, gaps, edit mode,

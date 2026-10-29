@@ -120,7 +120,8 @@ public final class DevBridge {
             });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
-            default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks");
+            case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
+            default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");
         };
     }
 
@@ -249,6 +250,42 @@ public final class DevBridge {
      * {@code x1 y1 z1 x2 y2 z2 [states]}: the server's blocks in that box, top layer first; rows run north to south,
      * columns west to east, {@code .} is air. With {@code states} the legend keeps each block's properties.
      */
+    /**
+     * {@code <pack (spaces as _)> <straight path>}: every window of the straight along its run, every turn: the crop
+     * read back from its file has the primary offset it had in memory, also once Structurize's cached one is dropped
+     * (an edit); the anchor in or outside the window. @return "ok N" or the first mismatch
+     */
+    private static String cropCheck(String pack, String path) throws Exception {
+        var server = Minecraft.getInstance().getSingleplayerServer();
+        if (server == null) return "no integrated server";
+        return server.submit(() -> {
+            var level = server.overworld();
+            var src = com.ldtteam.structurize.storage.StructurePacks.getBlueprint(pack, path, level.registryAccess());
+            if (src == null) return "no blueprint";
+            int axis = src.getSizeX() >= src.getSizeZ() ? 0 : 1, run = axis == 0 ? src.getSizeX() : src.getSizeZ(), n = 0;
+            for (int len = 1; len < run; len++)
+                for (int from = 0; from + len <= run; from++)
+                    for (int t = 0; t < 4; t++) {
+                        int[] w = {axis, from, len};
+                        var c = com.volcanicmg.mccitybuilder.server.Crops.crop(com.ldtteam.structurize.storage.StructurePacks.getBlueprint(pack, path, level.registryAccess()), w);
+                        var tag = com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(c);
+                        var back = com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(tag, level.registryAccess());
+                        var edited = com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(tag, level.registryAccess());
+                        BlockPos far = new BlockPos(0, edited.getSizeY() - 1, 0);
+                        edited.addBlockState(far, edited.getBlockState(far));
+                        var rm = PieceCatalog.rotation(t);
+                        c.setRotationMirror(rm, level);
+                        back.setRotationMirror(rm, level);
+                        edited.setRotationMirror(rm, level);
+                        if (!c.getPrimaryBlockOffset().equals(back.getPrimaryBlockOffset()) || !c.getPrimaryBlockOffset().equals(edited.getPrimaryBlockOffset()))
+                            return "mismatch " + java.util.Arrays.toString(w) + " turn " + t + ": memory " + c.getPrimaryBlockOffset() + " file " + back.getPrimaryBlockOffset()
+                                    + " edited " + edited.getPrimaryBlockOffset();
+                        n++;
+                    }
+            return "ok " + n + " (anchor " + src.getPrimaryBlockOffset() + ", size " + src.getSizeX() + "x" + src.getSizeZ() + ")";
+        }).get();
+    }
+
     private static String blocks(String[] a) throws Exception {
         var server = Minecraft.getInstance().getSingleplayerServer();
         if (server == null) return "no integrated server";

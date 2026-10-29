@@ -208,9 +208,12 @@ public final class InstantBuild {
      * cropped straight (Fill gaps), its window {axis (0 = X, 1 = Z), from, len} of the unturned blueprint (else null).
      */
     public record Piece(String path, BlockPos pos, int rot, int[] crop) {
-        /** @param path a piece path, a cropped straight's with its window ({@link PieceLayout#cropPath}) */
+        /**
+         * @param path a piece path, a cropped straight's with its window ({@link PieceLayout#cropPath}); one whose
+         *             window doesn't parse is sent as it is, and the server refuses it (not a blueprint path)
+         */
         public Piece(String path, BlockPos pos, int rot) {
-            this(PieceLayout.cropBase(path), pos, rot, PieceLayout.cropOf(path));
+            this(PieceLayout.cropOf(path) == null ? path : PieceLayout.cropBase(path), pos, rot, PieceLayout.cropOf(path));
         }
     }
 
@@ -457,6 +460,8 @@ public final class InstantBuild {
             if (bad == null && (meta == null || !StructurePacks.hasPack(r.pack))) bad = "unknown pack";
             // Client-synced packs live under blueprints/clients/<uuid>/: never trusted.
             if (bad == null && meta.getPath().toAbsolutePath().normalize().startsWith(CLIENT_PACKS)) bad = "client pack";
+            // Crops are only ever made from the real straight (a crop of a crop would let windows multiply).
+            if (bad == null && Crops.PACK.equals(r.pack)) bad = "crop pack";
             if (bad == null && !meta.getPath().resolve(reqPath).normalize().startsWith(meta.getPath().normalize())) bad = "path leaves the pack";
             if (bad == null && r.mode == PLACE && (r.level < 1 || colony.getServerBuildingManager().getBuilding(r.pos) != null)) bad = "level < 1 or a building is already there";
             if (bad != null) {
@@ -489,22 +494,30 @@ public final class InstantBuild {
             boolean started = false;
             try {
                 if (bp == null) reject(p, r, "blueprint not found " + pack + " " + path);
-                else if (r.crop == null) started = start(p, level, colonyId, r, pack, path, rot, bp, now);
+                else if (r.crop == null) started = start(p, level, colonyId, r, pack, path, rot, bp, now, null);
                 else {
                     // A cropped straight: from here on a piece of the crop pack like any other (records, snapshots, orders).
-                    Blueprint c = Crops.crop(bp, r.crop);
+                    // Only a straight, along the side it runs on (its longer one), shorter than it.
+                    String name = path.substring(path.lastIndexOf('/') + 1);
+                    var role = com.volcanicmg.mccitybuilder.planner.PieceSets.role(name);
+                    boolean runAxis = r.crop[0] == (bp.getSizeX() >= bp.getSizeZ() ? 0 : 1);
+                    Blueprint c = (role == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT || role == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.OTHER)
+                            && runAxis ? Crops.crop(bp, r.crop) : null;
                     if (c == null) reject(p, r, "bad crop window for " + pack + " " + path);
                     else {
-                        String cropPath = Crops.packPath(pack, path, r.crop);
-                        try {
-                            Crops.store(c, cropPath);
-                            c.setPackName(Crops.PACK);
-                            started = start(p, level, colonyId, r, Crops.PACK, cropPath, rot, c, now);
-                        } catch (java.io.IOException ex) {
-                            reject(p, r, "can't write crop " + cropPath + ": " + ex);
-                        }
+                        java.nio.file.Path src = StructurePacks.getStructurePack(pack).getPath().resolve(path);
+                        String cropPath = Crops.packPath(pack, path, r.crop, Crops.hash(java.nio.file.Files.readAllBytes(src)));
+                        // Its own name in the crop pack (a pasted anchor block records where it came from).
+                        Crops.ensurePack();
+                        c.setPackName(Crops.PACK);
+                        c.setFilePath(Crops.fileOf(cropPath).getParent());
+                        c.setFileName(Crops.fileOf(cropPath).getFileName().toString().replace(".blueprint", ""));
+                        // Written only by start(), after every check, where a builder will load it (orders).
+                        started = start(p, level, colonyId, r, Crops.PACK, cropPath, rot, c, now, com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(c));
                     }
                 }
+            } catch (java.io.IOException ex) {
+                reject(p, r, "can't read " + pack + " " + path + ": " + ex);
             } catch (RuntimeException ex) {
                 CityBuilder.LOGGER.error("CityBuilder: instant build failed", ex);
                 reject(p, r, "failed: " + ex);
@@ -533,7 +546,8 @@ public final class InstantBuild {
      *
      * @return true when the paste was queued (its completion releases the busy marks)
      */
-    private static boolean start(ServerPlayer p, ServerLevel level, int colonyId, Request r, String pack, String path, RotationMirror rot, Blueprint bp, long stamp) {
+    private static boolean start(ServerPlayer p, ServerLevel level, int colonyId, Request r, String pack, String path, RotationMirror rot, Blueprint bp, long stamp,
+                                 CompoundTag cropFile) {
         IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, level);
         if (colony == null || !p.isCreative() && !survivalMode(r.mode) || p.isRemoved() || !allowed(colony, p, r.mode)) {
             reject(p, r, "player or colony changed");
@@ -646,6 +660,14 @@ public final class InstantBuild {
                 reject(p, r, "the decoration isn't standing at " + r.pos.toShortString());
                 return false;
             }
+            // A cropped straight: its file, for the builder to load (a creative paste only needed it in memory).
+            if (cropFile != null)
+                try {
+                    Crops.store(cropFile, path);
+                } catch (java.io.IOException ex) {
+                    reject(p, r, "can't write crop " + path + ": " + ex.getMessage());
+                    return false;
+                }
             String[] split = path.split("/");
             var order = com.minecolonies.core.colony.workorders.WorkOrderDecoration.create(
                     r.mode == DECO_REMOVE_ORDER ? com.minecolonies.api.colony.workorders.WorkOrderType.REMOVE : com.minecolonies.api.colony.workorders.WorkOrderType.BUILD, pack, path,

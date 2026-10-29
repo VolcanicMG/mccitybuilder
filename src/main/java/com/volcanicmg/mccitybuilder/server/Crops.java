@@ -1,6 +1,7 @@
 package com.volcanicmg.mccitybuilder.server;
 
 import com.ldtteam.structurize.api.BlockPosUtil;
+import com.ldtteam.structurize.blocks.interfaces.IAnchorBlock;
 import com.ldtteam.structurize.blueprints.v1.Blueprint;
 import com.ldtteam.structurize.blueprints.v1.BlueprintUtil;
 import com.ldtteam.structurize.storage.StructurePackMeta;
@@ -51,8 +52,8 @@ public final class Crops {
      * @param src an unturned blueprint (a fresh copy: it is only read)
      * @param w   {axis (0 = X, 1 = Z), from, len}: a window shorter than the blueprint along that axis
      * @return a copy holding only the window's cells; a wall-hung decoration on its edge whose support was cut off
-     * is left out (air); the primary offset stays where it was, moved into the window when it falls outside; null
-     * when the window doesn't fit
+     * is left out (air); the anchor stays where it was, or is copied to the nearest cell of the window when it falls
+     * outside, so the file read back has the same primary offset; null when the window doesn't fit
      */
     public static Blueprint crop(Blueprint src, int[] w) {
         int sx = src.getSizeX(), sy = src.getSizeY(), sz = src.getSizeZ(), size = w[0] == 0 ? sx : sz;
@@ -83,7 +84,24 @@ public final class Crops {
                     outTes.add(te);
                 }
         BlockPos p = src.getPrimaryBlockOffset();
-        BlockPos np = new BlockPos(Math.clamp(p.getX() - dx, 0, nsx - 1), p.getY(), Math.clamp(p.getZ() - dz, 0, nsz - 1));
+        CompoundTag pte = tes[p.getY()][p.getZ()][p.getX()];
+        // A real anchor (Structurize finds it again on load); without one, Structurize's fallback for the crop's size.
+        boolean real = src.getPalette()[st[p.getY()][p.getZ()][p.getX()] & 0xFFFF].getBlock() instanceof IAnchorBlock
+                || pte != null && pte.contains("blueprintDataProvider");
+        BlockPos np = real ? new BlockPos(Math.clamp(p.getX() - dx, 0, nsx - 1), p.getY(), Math.clamp(p.getZ() - dz, 0, nsz - 1))
+                : new BlockPos(nsx / 2, 0, nsz / 2);
+        if (real && !np.equals(p.offset(-dx, 0, -dz))) {
+            // The anchor fell outside the window: the same anchor block (and its data) moves to the nearest cell inside.
+            out[np.getY()][np.getZ()][np.getX()] = st[p.getY()][p.getZ()][p.getX()];
+            outTes.removeIf(te -> te.getInt("x") == np.getX() && te.getInt("y") == np.getY() && te.getInt("z") == np.getZ());
+            if (pte != null) {
+                CompoundTag a = pte.copy();
+                a.putInt("x", np.getX());
+                a.putInt("y", np.getY());
+                a.putInt("z", np.getZ());
+                outTes.add(a);
+            }
+        }
         // The anchor's own data names the blueprint's corners relative to it.
         for (CompoundTag te : outTes)
             if (te.contains("blueprintDataProvider") && te.getInt("x") == np.getX() && te.getInt("y") == np.getY() && te.getInt("z") == np.getZ()) {
@@ -153,36 +171,103 @@ public final class Crops {
     }
 
     /**
+     * @param srcHash a hash of the straight's file: an updated straight gets new crop files, and orders keep theirs
      * @return the crop's path in {@link #PACK}: the straight's own path (so it still reads as a road / wall piece) with
-     * its source pack and window appended; the same crop is always the same file
+     * its source pack, source content and window appended; the same crop is always the same file
      */
-    static String packPath(String pack, String path, int[] w) {
+    static String packPath(String pack, String path, int[] w, String srcHash) {
         String base = path.endsWith(".blueprint") ? path.substring(0, path.length() - ".blueprint".length()) : path;
-        return base + "_crop_" + Integer.toHexString(pack.hashCode()) + "_" + (w[0] == 0 ? "x" : "z") + w[1] + "_" + w[2] + ".blueprint";
+        return base + "_crop_" + hash(pack.getBytes(StandardCharsets.UTF_8)) + "_" + srcHash + "_" + (w[0] == 0 ? "x" : "z") + w[1] + "_" + w[2] + ".blueprint";
     }
 
+    /** @return the first 8 hex digits of the bytes' SHA-256 */
+    static String hash(byte[] b) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(b), 0, 4);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Most crop files / bytes the pack may hold (a client could otherwise ask for endless windows). */
+    static final int MAX_FILES = 2000;
+    static final long MAX_BYTES = 64L << 20;
+
     /**
-     * Writes a crop into {@link #PACK} (unless the same bytes are there) and makes sure Structurize knows the pack. On
-     * the server thread: the file must exist before a work order loads it. Crops are never deleted (a few KB each,
-     * and an open work order or a built record may still name one).
+     * Writes a crop (its unturned blueprint as NBT) into {@link #PACK} unless the same bytes are there, and makes sure
+     * Structurize knows the pack. On the server thread, only once every check passed: the file must exist before a
+     * work order loads it. Crops are never deleted (a few KB each; an open work order or a built record may name one).
+     *
+     * @throws IOException also when the pack is full ({@link #MAX_FILES}, {@link #MAX_BYTES})
      */
-    static void store(Blueprint crop, String subPath) throws IOException {
+    static void store(CompoundTag crop, String subPath) throws IOException {
         Path dir = DIR.toAbsolutePath().normalize(), f = dir.resolve(subPath).normalize();
         if (!f.startsWith(dir)) throw new IOException("crop path leaves the pack: " + subPath);
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        NbtIo.writeCompressed(BlueprintUtil.writeBlueprintToNBT(crop), bo);
+        NbtIo.writeCompressed(crop, bo);
         byte[] bytes = bo.toByteArray();
-        boolean fresh = !Files.exists(f) || !Arrays.equals(Files.readAllBytes(f), bytes);
+        boolean fresh = !Files.exists(f);
         if (fresh) {
+            // ponytail: walks the pack per new file; fine up to MAX_FILES, keep a running count if that grows.
+            long[] n = {0, 0};
+            if (Files.isDirectory(dir))
+                try (var all = Files.walk(dir)) {
+                    all.filter(Files::isRegularFile).forEach(x -> {
+                        n[0]++;
+                        n[1] += x.toFile().length();
+                    });
+                }
+            if (n[0] >= MAX_FILES || n[1] + bytes.length > MAX_BYTES) throw new IOException("the crop pack is full (" + n[0] + " files)");
             Files.createDirectories(f.getParent());
-            Files.write(f, bytes);
+            write(f, bytes);
         }
+        if (fresh) register(true);
+        else ensurePack();
+    }
+
+    /** @return where a crop's file goes (its folder), for the blueprint's own file path */
+    static Path fileOf(String subPath) {
+        return DIR.toAbsolutePath().normalize().resolve(subPath);
+    }
+
+    /**
+     * Makes sure Structurize knows {@link #PACK} (a paste of a crop's anchor looks its pack up), writing only its
+     * pack.json and icon when they're missing.
+     */
+    static void ensurePack() throws IOException {
         StructurePackMeta m = StructurePacks.getStructurePack(PACK);
-        if (!fresh && m != null && m.getPath().toAbsolutePath().normalize().equals(dir)) return;
-        // A new version each time a crop is added: players joining later get the pack again (Structurize syncs by version).
-        String json = "{\"name\": \"" + PACK + "\", \"icon\": \"\", \"authors\": [\"City Builder\"], \"desc\": \"Fill gaps: straights cropped to close a wall or road gap\","
+        if (m == null || !m.getPath().toAbsolutePath().normalize().equals(DIR.toAbsolutePath().normalize())) register(false);
+    }
+
+    /** @param bump true when a crop was added: a new version, so players joining later get the pack again */
+    private static void register(boolean bump) throws IOException {
+        Path dir = DIR.toAbsolutePath().normalize();
+        Files.createDirectories(dir);
+        if (!Files.exists(dir.resolve("icon.png"))) write(dir.resolve("icon.png"), icon());
+        if (!bump && Files.exists(dir.resolve("pack.json"))) {
+            StructurePacks.discoverPackAtPath(dir, false, List.of(), false, "Local");
+            return;
+        }
+        String json = "{\"name\": \"" + PACK + "\", \"icon\": \"icon.png\", \"authors\": [\"City Builder\"], \"desc\": \"Fill gaps: straights cropped to close a wall or road gap\","
                 + " \"mods\": [], \"version\": " + (System.currentTimeMillis() / 1000) + ".0, \"pack-format\": 1}";
-        Files.writeString(dir.resolve("pack.json"), json, StandardCharsets.UTF_8);
+        write(dir.resolve("pack.json"), json.getBytes(StandardCharsets.UTF_8));
         StructurePacks.discoverPackAtPath(dir, false, List.of(), false, "Local");
+    }
+
+    /** Writes a file whole or not at all (a temp file moved over it), so a reader never sees half of one. */
+    private static void write(Path f, byte[] bytes) throws IOException {
+        Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
+        Files.write(tmp, bytes);
+        Files.move(tmp, f, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /** @return the pack's icon: a small grey wall with a filled notch (PNG) */
+    private static byte[] icon() throws IOException {
+        var img = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for (int x = 0; x < 16; x++)
+            for (int y = 5; y < 14; y++) img.setRGB(x, y, x >= 6 && x <= 9 ? 0xFFE0A030 : (x + y) % 4 == 0 ? 0xFF6E6E6E : 0xFF8E8E8E);
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(img, "png", bo);
+        return bo.toByteArray();
     }
 }
