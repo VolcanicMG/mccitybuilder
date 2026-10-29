@@ -950,9 +950,10 @@ public final class InstantBuild {
 
     /**
      * @param top the hut's blueprint at {@code upTo}, turned {@code rot}
-     * @return levels 1 to {@code upTo} of a hut's blueprint as one, turned {@code rot}: per cell the highest level's
-     * block, a lower level's where a higher one leaves the world as it is (a placeholder) or clears it; anchored at
-     * the hut block. {@code top} itself for a level 1 hut or when a level's file is missing.
+     * @return levels 1 to {@code upTo} of a hut's blueprint as one, turned {@code rot}, in the top level's box (what
+     * the move checked and locked): per cell the highest level's block or air, a lower level's where a higher one
+     * leaves the world as it is (a placeholder); anchored at the hut block. {@code top} itself for a level 1 hut or
+     * when a level's file is missing.
      */
     private static Blueprint levels(ServerLevel level, String pack, String path, int upTo, RotationMirror rot, Blueprint top) {
         if (upTo <= 1) return top;
@@ -966,17 +967,10 @@ public final class InstantBuild {
             bps.add(b);
         }
         bps.add(top);
-        // The union of their boxes around the hut block (each anchored by its primary offset).
-        int[] lo = {Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE}, hi = {Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE};
-        for (Blueprint b : bps) {
-            BlockPos o = b.getPrimaryBlockOffset();
-            int[] mn = {-o.getX(), -o.getY(), -o.getZ()}, sz = {b.getSizeX(), b.getSizeY(), b.getSizeZ()};
-            for (int k = 0; k < 3; k++) {
-                lo[k] = Math.min(lo[k], mn[k]);
-                hi[k] = Math.max(hi[k], mn[k] + sz[k] - 1);
-            }
-        }
-        Blueprint out = new Blueprint((short) (hi[0] - lo[0] + 1), (short) (hi[1] - lo[1] + 1), (short) (hi[2] - lo[2] + 1), level.registryAccess());
+        // The top level's box around the hut block: what the move checked and locked (lower levels outside it stay).
+        BlockPos to = top.getPrimaryBlockOffset();
+        int[] lo = {-to.getX(), -to.getY(), -to.getZ()};
+        Blueprint out = new Blueprint((short) top.getSizeX(), top.getSizeY(), (short) top.getSizeZ(), level.registryAccess());
         for (Blueprint b : bps) {
             BlockPos o = b.getPrimaryBlockOffset();
             short[][][] st = b.getStructure();
@@ -987,8 +981,8 @@ public final class InstantBuild {
                         BlockState want = pal[st[y][z][x]];
                         if (isPlaceholder(want)) continue;
                         BlockPos at = new BlockPos(x - o.getX() - lo[0], y - o.getY() - lo[1], z - o.getZ() - lo[2]);
-                        // A higher level's air doesn't hide a lower level's block (it may still stand there).
-                        if (want.isAir() && !isPlaceholder(out.getBlockState(at)) && !out.getBlockState(at).isAir()) continue;
+                        if (at.getX() < 0 || at.getY() < 0 || at.getZ() < 0 || at.getX() >= out.getSizeX() || at.getY() >= out.getSizeY() || at.getZ() >= out.getSizeZ()) continue;
+                        // A higher level's air cleared it: whatever stands there now isn't the hut's.
                         out.addBlockState(at, want);
                     }
         }
@@ -1060,6 +1054,12 @@ public final class InstantBuild {
      *               removed, -1 when a claim refused (after a move, only the clean-up is lost)
      */
     private static int delete(ServerPlayer p, Request r, ServerLevel level, Blueprint bp, BlockPos origin, BlockPos far, boolean report) {
+        return delete(p, r, level, bp, origin, far, report, w -> false);
+    }
+
+    /** {@link #delete}, never touching the cells {@code keep} names (neither removing nor filling them) */
+    private static int delete(ServerPlayer p, Request r, ServerLevel level, Blueprint bp, BlockPos origin, BlockPos far, boolean report,
+                              java.util.function.Predicate<BlockPos> keep) {
         java.util.Set<BlockPos> entityKept = entityProtected(level, origin, far);
         short[][][] st = bp.getStructure();
         BlockState[] palette = bp.getPalette();
@@ -1069,7 +1069,7 @@ public final class InstantBuild {
                 for (int x = 0; x < bp.getSizeX(); x++) {
                     BlockPos world = origin.offset(x, y, z);
                     BlockState have = level.getBlockState(world), want = palette[st[y][z][x]];
-                    if (have.isAir() || isPlaceholder(want)) continue;
+                    if (have.isAir() || isPlaceholder(want) || keep.test(world)) continue;
                     IItemHandler h = handlerAt(level, world);
                     boolean empty = true;
                     if (h != null) for (int i = 0; i < h.getSlots() && empty; i++) empty = h.getStackInSlot(i).isEmpty();
@@ -1101,7 +1101,7 @@ public final class InstantBuild {
             for (int z = 0; z < bp.getSizeZ(); z++)
                 for (int x = 0; x < bp.getSizeX(); x++) {
                     BlockPos w = origin.offset(x, y, z);
-                    if (!palette[st[y][z][x]].isAir() || !level.getBlockState(w).isAir() || occupied.contains(w)) continue;
+                    if (!palette[st[y][z][x]].isAir() || !level.getBlockState(w).isAir() || occupied.contains(w) || keep.test(w)) continue;
                     BlockState fill = ground(w.getY(), top);
                     if (!placeOk.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(w.getX() >> 4, w.getZ() >> 4), k -> !NeoForge.EVENT_BUS.post(
                             new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, w), level.getBlockState(w.below()), p)).isCanceled())) continue;
@@ -1168,7 +1168,10 @@ public final class InstantBuild {
         // A retired hut's upgrades built where its first level left the world as it was (the snapshot doesn't hold
         // those cells): what still matches any of its levels goes too, down to the ground around it.
         if (n >= 0 && retired != null) {
-            int m = delete(p, r, level, bp, origin, far, report);
+            int m = delete(p, r, level, bp, origin, far, report, w -> {
+                int i = snap.at(w);
+                return i >= 0 && snap.cells()[i] >= 0 || covered.test(w);
+            });
             return m < 0 ? m : n + m;
         }
         return n;
