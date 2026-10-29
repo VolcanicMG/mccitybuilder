@@ -592,6 +592,8 @@ public final class InstantBuild {
             return false;
         }
         // A move's source footprint: the same blueprint as it stands there (rotated there first), locked and checked like the target's.
+        // A move's old site is cleared against the blueprint as it is, not as the new paste marks what it keeps.
+        Blueprint pristine = r.mode == MOVE || r.mode == DECO_MOVE ? copy(bp, level) : null;
         RotationMirror srcRot = null;
         BlockPos srcOrigin = null, srcFar = null;
         if (r.mode == MOVE || r.mode == DECO_MOVE) {
@@ -795,7 +797,7 @@ public final class InstantBuild {
                 if (r.mode == DECO || r.mode == DECO_REPAIR || r.mode == DECO_MOVE)
                     records.add(colonyId, fPack, fPath, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
                 if (r.mode == MOVE || r.mode == DECO_MOVE) {
-                    moveFinish(p, level, colonyId, r, fSrcRot, fSrcOrigin, fSrcFar, bp, fPack, fPath);
+                    moveFinish(p, level, colonyId, r, fSrcRot, fSrcOrigin, fSrcFar, pristine, fPack, fPath);
                     if (r.mode == DECO_MOVE) records.remove(colonyId, fPack, fPath, r.from, r.fromRot.ordinal());
                 }
             } finally {
@@ -989,6 +991,15 @@ public final class InstantBuild {
         }
         out.setCachePrimaryOffset(new BlockPos(-lo[0], -lo[1], -lo[2]));
         return out;
+    }
+
+    /** @return an unturned copy of an unturned blueprint (its own block and entity arrays) */
+    private static Blueprint copy(Blueprint bp, ServerLevel level) {
+        Blueprint c = com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(bp), level.registryAccess());
+        c.setPackName(bp.getPackName());
+        if (bp.getFilePath() != null) c.setFilePath(bp.getFilePath());
+        if (bp.getFileName() != null) c.setFileName(bp.getFileName());
+        return c;
     }
 
     /**

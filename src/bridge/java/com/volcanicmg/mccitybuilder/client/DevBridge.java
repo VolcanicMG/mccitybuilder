@@ -120,6 +120,68 @@ public final class DevBridge {
             });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
+            // x y z item count [item count ...]: items into the colony building at x y z (its own and its racks' inventories).
+            case "/stock" -> server(() -> {
+                BlockPos at = new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+                var c = com.minecolonies.api.colony.IColonyManager.getInstance().getColonyByPosFromWorld(level, at);
+                var b = c == null ? null : c.getServerBuildingManager().getBuilding(at);
+                if (b == null) return "no building";
+                var h = b.getItemHandlerCap();
+                StringBuilder sb = new StringBuilder();
+                for (int i = 3; i + 1 < a.length; i += 2) {
+                    var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(a[i]));
+                    var left = net.neoforged.neoforge.items.ItemHandlerHelper.insertItemStacked(h, new net.minecraft.world.item.ItemStack(item, Integer.parseInt(a[i + 1])), false);
+                    sb.append(a[i]).append(" left ").append(left.getCount()).append('\n');
+                }
+                return sb.toString();
+            });
+            // x y z item count: items into the block's own item handler (a rack, a chest); "count" reads it instead.
+            case "/put" -> server(() -> {
+                BlockPos at = new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+                var h = level.getCapability(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK, at, null);
+                if (h == null) return "no item handler";
+                if (a.length > 4) {
+                    var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(a[3]));
+                    var left = net.neoforged.neoforge.items.ItemHandlerHelper.insertItemStacked(h, new net.minecraft.world.item.ItemStack(item, Integer.parseInt(a[4])), false);
+                    return "left " + left.getCount();
+                }
+                java.util.Map<String, Integer> n = new java.util.TreeMap<>();
+                for (int i = 0; i < h.getSlots(); i++)
+                    if (!h.getStackInSlot(i).isEmpty()) n.merge(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(h.getStackInSlot(i).getItem()).toString(), h.getStackInSlot(i).getCount(), Integer::sum);
+                return n.toString();
+            });
+            // The colonies' work orders: id, type, location, path, claimed by. "claim <id> <x y z>" hands one to a builder.
+            case "/orders" -> server(() -> {
+                var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+                StringBuilder sb = new StringBuilder();
+                for (var c : com.minecolonies.api.colony.IColonyManager.getInstance().getAllColonies())
+                    for (var o : c.getWorkManager().getWorkOrders().values()) {
+                        if (a.length >= 5 && a[0].equals("claim") && o.getID() == Integer.parseInt(a[1])) {
+                            o.setClaimedBy(new BlockPos(Integer.parseInt(a[2]), Integer.parseInt(a[3]), Integer.parseInt(a[4])));
+                            c.getWorkManager().setDirty(true);
+                        }
+                        sb.append(o.getID()).append(' ').append(o.getWorkOrderType()).append(' ').append(o.getLocation().toShortString()).append(' ')
+                                .append(o.getStructurePath()).append(" claimed=").append(o.isClaimed() ? o.getClaimedBy().toShortString() : "-").append('\n');
+                    }
+                return sb.toString();
+            });
+            // x y z: a building's container contents (item:count, merged), for move checks.
+            case "/contents" -> server(() -> {
+                BlockPos at = new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+                var c = com.minecolonies.api.colony.IColonyManager.getInstance().getColonyByPosFromWorld(level, at);
+                var b = c == null ? null : c.getServerBuildingManager().getBuilding(at);
+                if (b == null) return "no building";
+                java.util.Map<String, Integer> n = new java.util.TreeMap<>();
+                for (var h : b.getHandlers())
+                    for (int i = 0; i < h.getSlots(); i++) {
+                        var st = h.getStackInSlot(i);
+                        if (!st.isEmpty()) n.merge(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(st.getItem()).toString(), st.getCount(), Integer::sum);
+                    }
+                return n.toString() + " containers=" + b.getContainers().size();
+            });
             // The player's colony's buildings (server side): position, type, level, pack, path, rotation, corners.
             case "/buildings" -> {
                 var server = Minecraft.getInstance().getSingleplayerServer();
@@ -348,6 +410,17 @@ public final class DevBridge {
                     sb.append(x).append(',').append(y).append(',').append(z).append(' ').append(st).append("  ->  ").append(c).append('\n');
                 }
         return n + " connecting blocks, " + diff + " changed\n" + sb;
+    }
+
+    /** Runs on the integrated server thread and waits for its answer. */
+    private static String server(java.util.concurrent.Callable<String> c) throws Exception {
+        return Minecraft.getInstance().getSingleplayerServer().submit(() -> {
+            try {
+                return c.call();
+            } catch (Exception e) {
+                return "error " + e;
+            }
+        }).get();
     }
 
     private static String blocks(String[] a) throws Exception {
