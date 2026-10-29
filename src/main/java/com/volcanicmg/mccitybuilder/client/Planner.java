@@ -621,7 +621,8 @@ public final class Planner {
 
     /**
      * FOLLOW mode, each frame: the anchor goes on the ground under the cursor, like the build tool's default ground
-     * style (the looked-at block raised by the blueprint's ground anchor offset minus one), plus the height offset.
+     * style (the block above the looked-at ground, raised by the blueprint's ground anchor offset minus one), plus the
+     * height offset.
      */
     static void aim(BlockHitResult hit) {
         if (!isPlacing() || place.mode != PlacementState.Mode.FOLLOW) return;
@@ -632,14 +633,20 @@ public final class Planner {
         BlockPos ground = hit.getBlockPos();
         // The ray stops on grass and flowers: the ground is the first real block under the hit.
         int gy = WORLD.settle(ground.getX(), ground.getY(), ground.getZ());
-        int offset = placingHut != null ? groundOffset(placingHut) - 1 : 0;
-        place.follow(ground.getX(), gy + offset, ground.getZ());
+        place.follow(ground.getX(), gy + (placingHut != null ? anchorRise(placingHut) : 0), ground.getZ());
     }
 
-    /** @return the ground anchor offset: a road / wall piece's as the line tools place it (while it loads, its tag), else its tag */
-    private static int groundOffset(Blueprints.Hut h) {
-        Integer o = deco != null && com.volcanicmg.mccitybuilder.planner.PieceSets.tool(h.path()) != null ? PieceCatalog.groundOffset(h.pack(), h.path()) : null;
-        return o != null ? o : BlueprintTagUtils.getGroundAnchorOffset(h.blueprint(), 1);
+    /**
+     * @return how far the anchor sits above the ground block: a road / wall piece's ground offset minus one, as the line
+     * tools place it (while it loads, its tag); a hut or decoration's tag, as Structurize's build tool places it (the
+     * clicked face's neighbour, then offset minus one), so a ground-level anchor sits on the ground and MineColonies
+     * accepts the hut
+     */
+    static int anchorRise(Blueprints.Hut h) {
+        int tag = BlueprintTagUtils.getGroundAnchorOffset(h.blueprint(), 1);
+        if (deco == null || com.volcanicmg.mccitybuilder.planner.PieceSets.tool(h.path()) == null) return tag;
+        Integer o = PieceCatalog.groundOffset(h.pack(), h.path());
+        return (o != null ? o : tag) - 1;
     }
 
     /** First click: drop the ghost where it is and switch to ADJUST. @return true if dropped */
