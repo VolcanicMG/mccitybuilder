@@ -100,7 +100,9 @@ final class PieceView {
                         try {
                             for (net.minecraft.core.Direction d : net.minecraft.core.Direction.values()) {
                                 BlockPos n = p.relative(d);
-                                st = st.updateShape(d, level.getBlockState(n), level, p, n);
+                                BlockState u = st.updateShape(d, level.getBlockState(n), level, p, n);
+                                // Support outside the piece (a torch on its bottom row): keep the block, take only shape changes.
+                                if (u.getBlock() == st.getBlock()) st = u;
                             }
                         } catch (RuntimeException e) {
                             // A block whose update needs more of a world than a blueprint has: as stored.
