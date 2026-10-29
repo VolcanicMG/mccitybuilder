@@ -87,6 +87,20 @@ public final class BuiltRecords extends SavedData {
         return out;
     }
 
+    /**
+     * @return the path of a record of {@code pack} at this anchor and turn whose path starts with {@code prefix} and
+     * ends with {@code suffix} (a crop of a straight that may since have changed: its file name's source hash is
+     * between the two), or null
+     */
+    public String recordedPath(int colony, String pack, String prefix, String suffix, BlockPos pos, int rot) {
+        for (String k : keys) {
+            PasteRules.Rec r = PasteRules.parseKey(k);
+            if (r != null && r.colony() == colony && r.pack().equals(pack) && r.x() == pos.getX() && r.y() == pos.getY() && r.z() == pos.getZ() && r.rot() == rot
+                    && r.path().startsWith(prefix) && r.path().endsWith(suffix)) return r.path();
+        }
+        return null;
+    }
+
     public boolean has(int colony, String pack, String path, BlockPos pos, int rot) {
         return keys.contains(PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot));
     }

@@ -176,8 +176,50 @@ public final class Crops {
      * its source pack, source content and window appended; the same crop is always the same file
      */
     static String packPath(String pack, String path, int[] w, String srcHash) {
+        String[] pp = packPathParts(pack, path, w);
+        return pp[0] + srcHash + pp[1];
+    }
+
+    /** @return {@link #packPath} before and after the source hash: every version of this crop matches both */
+    static String[] packPathParts(String pack, String path, int[] w) {
         String base = path.endsWith(".blueprint") ? path.substring(0, path.length() - ".blueprint".length()) : path;
-        return base + "_crop_" + hash(pack.getBytes(StandardCharsets.UTF_8)) + "_" + srcHash + "_" + (w[0] == 0 ? "x" : "z") + w[1] + "_" + w[2] + ".blueprint";
+        return new String[]{base + "_crop_" + hash(pack.getBytes(StandardCharsets.UTF_8)) + "_", "_" + (w[0] == 0 ? "x" : "z") + w[1] + "_" + w[2] + ".blueprint"};
+    }
+
+    // Per "pack|folder": the paths of the folder's straights as City Builder sorts them (PieceSets.classify).
+    private static final java.util.Map<String, java.util.Set<String>> straights = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Off the server thread: the straights of the road / wall folder a piece is in, sorted into families the way the
+     * planner does (built-in roles; a player's own role overrides aren't known here). Cached per server run.
+     *
+     * @return their paths (empty when the folder can't be read)
+     */
+    static java.util.Set<String> straightsOf(String pack, String path, net.minecraft.core.HolderLookup.Provider regs) {
+        String folder = path.contains("/") ? path.substring(0, path.lastIndexOf('/')) : "";
+        return straights.computeIfAbsent(pack + "|" + folder, k -> {
+            java.util.Set<String> out = new java.util.HashSet<>();
+            StructurePackMeta m = StructurePacks.getStructurePack(pack);
+            if (m == null) return out;
+            List<com.volcanicmg.mccitybuilder.planner.PieceSets.Piece> pieces = new ArrayList<>();
+            try (var files = Files.list(m.getPath().resolve(folder))) {
+                for (Path f : files.toList()) {
+                    String name = f.getFileName().toString();
+                    if (!name.endsWith(".blueprint")) continue;
+                    String sub = folder.isEmpty() ? name : folder + "/" + name;
+                    Blueprint bp = StructurePacks.getBlueprint(pack, sub, true, regs);
+                    if (bp == null) continue;
+                    String[] sn = com.volcanicmg.mccitybuilder.planner.PieceSets.split(name);
+                    pieces.add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece(sub, sn[0], Integer.parseInt(sn[1]), bp.getSizeX(), bp.getSizeY(), bp.getSizeZ()));
+                }
+            } catch (IOException | RuntimeException e) {
+                return out;
+            }
+            for (var fam : com.volcanicmg.mccitybuilder.planner.PieceSets.classify(pieces).values())
+                for (var g : fam.roles().getOrDefault(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT, List.of()))
+                    for (var p : g.pieces()) out.add(p.path());
+            return out;
+        });
     }
 
     /** @return the first 8 hex digits of the bytes' SHA-256 */
@@ -230,22 +272,39 @@ public final class Crops {
         return DIR.toAbsolutePath().normalize().resolve(subPath);
     }
 
+    // Whether this server run has registered the pack (Structurize forgets it only when it rediscovers packs).
+    private static Object registeredFor;
+
     /**
-     * Makes sure Structurize knows {@link #PACK} (a paste of a crop's anchor looks its pack up), writing only its
-     * pack.json and icon when they're missing.
+     * Makes sure Structurize knows {@link #PACK} (a paste of a crop's anchor looks its pack up), once per server run,
+     * writing only its pack.json and icon when they're missing.
+     *
+     * @throws IOException when another pack of that name is registered from another folder (it is left alone)
      */
     static void ensurePack() throws IOException {
-        StructurePackMeta m = StructurePacks.getStructurePack(PACK);
-        if (m == null || !m.getPath().toAbsolutePath().normalize().equals(DIR.toAbsolutePath().normalize())) register(false);
+        Object server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (registeredFor == server && server != null) return;
+        // A new server run: packs may have changed.
+        straights.clear();
+        register(false);
+        registeredFor = server;
     }
 
     /** @param bump true when a crop was added: a new version, so players joining later get the pack again */
     private static void register(boolean bump) throws IOException {
         Path dir = DIR.toAbsolutePath().normalize();
+        StructurePackMeta m = StructurePacks.getStructurePack(PACK);
+        if (m != null && !m.getPath().toAbsolutePath().normalize().equals(dir)) {
+            com.volcanicmg.mccitybuilder.CityBuilder.LOGGER.warn("City Builder: another structure pack named {} is at {}; Fill gaps crops are off", PACK, m.getPath());
+            throw new IOException("another pack is named " + PACK);
+        }
         Files.createDirectories(dir);
-        if (!Files.exists(dir.resolve("icon.png"))) write(dir.resolve("icon.png"), icon());
+        if (!Files.exists(dir.resolve("icon.png")))
+            try (var in = Crops.class.getResourceAsStream("/assets/mccitybuilder/crop_pack_icon.png")) {
+                if (in != null) write(dir.resolve("icon.png"), in.readAllBytes());
+            }
         if (!bump && Files.exists(dir.resolve("pack.json"))) {
-            StructurePacks.discoverPackAtPath(dir, false, List.of(), false, "Local");
+            if (m == null) StructurePacks.discoverPackAtPath(dir, false, List.of(), false, "Local");
             return;
         }
         String json = "{\"name\": \"" + PACK + "\", \"icon\": \"icon.png\", \"authors\": [\"City Builder\"], \"desc\": \"Fill gaps: straights cropped to close a wall or road gap\","
@@ -261,13 +320,4 @@ public final class Crops {
         Files.move(tmp, f, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 
-    /** @return the pack's icon: a small grey wall with a filled notch (PNG) */
-    private static byte[] icon() throws IOException {
-        var img = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB);
-        for (int x = 0; x < 16; x++)
-            for (int y = 5; y < 14; y++) img.setRGB(x, y, x >= 6 && x <= 9 ? 0xFFE0A030 : (x + y) % 4 == 0 ? 0xFF6E6E6E : 0xFF8E8E8E);
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        javax.imageio.ImageIO.write(img, "png", bo);
-        return bo.toByteArray();
-    }
 }

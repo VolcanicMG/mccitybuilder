@@ -7,9 +7,11 @@
   crops it itself and writes it into its own structure pack, "City Builder Crops" (`blueprints/mccitybuilder_crops/`),
   so survival builders can load the order. Protocol 6. Known limits: on a dedicated server, players get crops made
   after they joined only when they rejoin (their client previews of those orders can't load until then; building is
-  unaffected); a crop's file name carries a hash of its straight, so after a style pack updates a straight, removing
-  a crop built from the old one is refused (take it down by hand); plans with cropped pieces don't load in builds
-  older than this one.
+  unaffected); plans with cropped pieces don't load in builds older than this one. A crop's file name carries a hash
+  of its straight, so after a style pack updates a straight, new fills get new files and a crop built from the old one
+  is still removed as it was built (from its own file). Crops are only made from a road / wall folder's straights
+  (as City Builder sorts them, without a player's own role overrides). Admins: the crop folder is capped at 2000
+  files / 64 MB; files no open work order or built record names can be deleted while the server is stopped.
 - Controls guide: two aligned columns, one short action per row, an even rhythm; compact by default with an
   All / Less button (remembered).
 - Road / wall tool: "How roads and walls work" (? on the line panel: pages on pieces, joints, height, gaps, edit mode,

@@ -490,30 +490,43 @@ public final class InstantBuild {
         busyPositions.put(key(level, r.pos), now);
         if (move) busyPositions.put(key(level, r.from), now);
         int colonyId = colony.getID();
-        StructurePacks.getBlueprintFuture(pack, path, level.registryAccess()).whenComplete((bp, t) -> level.getServer().execute(() -> {
+        // A crop's source must be one of its folder's straights as City Builder sorts them (read off the server thread).
+        java.util.concurrent.CompletableFuture<java.util.Set<String>> straights = r.crop == null ? java.util.concurrent.CompletableFuture.completedFuture(null)
+                : java.util.concurrent.CompletableFuture.supplyAsync(() -> Crops.straightsOf(pack, path, level.registryAccess()));
+        StructurePacks.getBlueprintFuture(pack, path, level.registryAccess()).thenCombine(straights, (bp, ss) -> new Object[]{bp, ss}).whenComplete((res, t) -> level.getServer().execute(() -> {
             boolean started = false;
+            Blueprint bp = res == null ? null : (Blueprint) res[0];
             try {
                 if (bp == null) reject(p, r, "blueprint not found " + pack + " " + path);
                 else if (r.crop == null) started = start(p, level, colonyId, r, pack, path, rot, bp, now, null);
                 else {
                     // A cropped straight: from here on a piece of the crop pack like any other (records, snapshots, orders).
                     // Only a straight, along the side it runs on (its longer one), shorter than it.
-                    String name = path.substring(path.lastIndexOf('/') + 1);
-                    var role = com.volcanicmg.mccitybuilder.planner.PieceSets.role(name);
+                    @SuppressWarnings("unchecked") java.util.Set<String> ss = (java.util.Set<String>) res[1];
                     boolean runAxis = r.crop[0] == (bp.getSizeX() >= bp.getSizeZ() ? 0 : 1);
-                    Blueprint c = (role == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT || role == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.OTHER)
-                            && runAxis ? Crops.crop(bp, r.crop) : null;
+                    Blueprint c = ss.contains(path) && runAxis ? Crops.crop(bp, r.crop) : null;
                     if (c == null) reject(p, r, "bad crop window for " + pack + " " + path);
                     else {
                         java.nio.file.Path src = StructurePacks.getStructurePack(pack).getPath().resolve(path);
                         String cropPath = Crops.packPath(pack, path, r.crop, Crops.hash(java.nio.file.Files.readAllBytes(src)));
-                        // Its own name in the crop pack (a pasted anchor block records where it came from).
                         Crops.ensurePack();
-                        c.setPackName(Crops.PACK);
-                        c.setFilePath(Crops.fileOf(cropPath).getParent());
-                        c.setFileName(Crops.fileOf(cropPath).getFileName().toString().replace(".blueprint", ""));
-                        // Written only by start(), after every check, where a builder will load it (orders).
-                        started = start(p, level, colonyId, r, Crops.PACK, cropPath, rot, c, now, com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(c));
+                        // Removing: the crop as it was built (its straight may have changed since), from its own file.
+                        String[] pp = Crops.packPathParts(pack, path, r.crop);
+                        String built = r.mode == DECO_DELETE || r.mode == DECO_REMOVE_ORDER
+                                ? BuiltRecords.of(level).recordedPath(colonyId, Crops.PACK, pp[0], pp[1], r.pos, rot.ordinal()) : null;
+                        if (built != null && !built.equals(cropPath)) {
+                            // ponytail: a few KB read on the server thread; queue it like the source if removals get heavy.
+                            Blueprint old = StructurePacks.getBlueprint(Crops.PACK, built, true, level.registryAccess());
+                            if (old == null) reject(p, r, "the crop as built is gone: " + built);
+                            else started = start(p, level, colonyId, r, Crops.PACK, built, rot, old, now, null);
+                        } else {
+                            // Its own name in the crop pack (a pasted anchor block records where it came from).
+                            c.setPackName(Crops.PACK);
+                            c.setFilePath(Crops.fileOf(cropPath).getParent());
+                            c.setFileName(Crops.fileOf(cropPath).getFileName().toString().replace(".blueprint", ""));
+                            // Written only by start(), after every check.
+                            started = start(p, level, colonyId, r, Crops.PACK, cropPath, rot, c, now, com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(c));
+                        }
                     }
                 }
             } catch (java.io.IOException ex) {
@@ -732,6 +745,14 @@ public final class InstantBuild {
                     skip.add(local);
                     tes[y][z][x] = null;
                 }
+        // A pasted crop's file: its removal must find the crop as built even after its straight changes.
+        if (cropFile != null && r.mode == DECO)
+            try {
+                Crops.store(cropFile, path);
+            } catch (java.io.IOException ex) {
+                reject(p, r, "can't write crop " + path + ": " + ex.getMessage());
+                return false;
+            }
         // What stands there now, for a later delete or move to put back (huts by building position).
         String snapKey = placesHut ? Snapshots.hutKey(level, colonyId, r.pos) : r.mode == DECO || r.mode == DECO_MOVE
                 ? Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()) : null;
