@@ -2,6 +2,9 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Creative Move clears the old site of every level an upgraded hut was built through (snapshot terrain and
+  neighbours kept; citizens no longer pin blocks); cleared ground gets the surrounding surface back instead of dirt
+  (decoration delete too). The move message says how many old blocks were cleared.
 - Decorations: Repair. Creative re-pastes the blueprint in place (storage with items kept, the original-ground
   snapshot untouched); survival asks MineColonies for a builder repair order (needs a decoration controller).
 - Wall loops face out (battlements outside) whichever way they were drawn, as soon as the loop closes; a loop

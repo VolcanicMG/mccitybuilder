@@ -1129,7 +1129,11 @@ public final class InstantBuild {
                         // Grass, flowers, snow and the placement's own water still running off don't make a column's top.
                         if (have.isAir() || have.canBeReplaced() && !have.getFluidState().isSource()) continue;
                         BlockPos up = w.above();
-                        if (have.is(net.minecraft.world.level.block.Blocks.DIRT) && !keepTop.test(w) && !level.getFluidState(up).isSource())
+                        // Claims are asked per chunk like the fill; sand never goes over air (it would fall).
+                        if (have.is(net.minecraft.world.level.block.Blocks.DIRT) && !keepTop.test(w) && !level.getFluidState(up).isSource()
+                                && !(surface.getBlock() instanceof net.minecraft.world.level.block.FallingBlock && level.getBlockState(w.below()).isAir())
+                                && placeOk.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(x >> 4, z >> 4), k -> !NeoForge.EVENT_BUS.post(
+                                        new BlockEvent.EntityPlaceEvent(BlockSnapshot.create(level.dimension(), level, w), level.getBlockState(w.below()), p)).isCanceled()))
                             level.setBlock(w, surface, 3);
                         break;
                     }
