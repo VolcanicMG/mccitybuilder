@@ -399,9 +399,13 @@ final class PonderScreen extends Screen {
         Set<String> before = new HashSet<>(), now = new HashSet<>();
         if (prev != null) for (PieceView.Part q : prev.parts()) before.add(id(q));
         for (PieceView.Part q : s.parts()) now.add(id(q));
-        // The plate under this step (holes where its pieces stand), baked once.
-        String plateKey = "ponderplate|" + pack + "|" + topic + "|" + step;
-        int[] pb = plate(s, plateKey);
+        // The plate under this step (holes where its pieces stand), baked once; before a click step's click, only
+        // under the pieces already standing (no trench where the new ones will drop).
+        boolean held = st.click && !st.nodes && el < (long) (CLICK_T * Ponder.STEP_MS);
+        List<PieceView.Part> standing = new ArrayList<>();
+        for (PieceView.Part q : s.parts()) if (!held || before.contains(id(q))) standing.add(q);
+        String plateKey = "ponderplate|" + pack + "|" + topic + "|" + step + (held ? "|held" : "");
+        int[] pb = plate(s, standing, plateKey);
         List<PieceView.Part> parts = new ArrayList<>();
         List<Float> lifts = new ArrayList<>(), grows = new ArrayList<>();
         parts.add(new PieceView.Part(plateKey, null, pb[0], pb[1], pb[2]));
@@ -491,11 +495,12 @@ final class PonderScreen extends Screen {
 
     /**
      * Bakes (once) the step's plate: grass on top of dirt and stone, a few blocks deep under the topic's frame, open
-     * only where this step's pieces have blocks, from each column's lowest one up (no pit beside a piece).
+     * only where the standing pieces have blocks, from each column's lowest one up (no pit beside a piece).
      *
+     * @param standing the step's pieces that stand now (a click step's new ones only after the click)
      * @return {x, y, z} of its corner
      */
-    private int[] plate(Scene s, String key) {
+    private int[] plate(Scene s, List<PieceView.Part> standing, String key) {
         int x0 = (int) Math.floor(bounds[0]), z0 = (int) Math.floor(bounds[2]), x1 = (int) Math.ceil(bounds[3]), z1 = (int) Math.ceil(bounds[5]);
         int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
         for (int x = x0; x < x1; x++)
@@ -506,7 +511,7 @@ final class PonderScreen extends Screen {
         int y0 = lo - 4, sy = hi - y0;
         // Per column: the lowest block a piece really has there (air and substitution leave the ground as it is).
         Map<Long, Integer> under = new HashMap<>();
-        for (PieceView.Part q : s.parts())
+        for (PieceView.Part q : standing)
             for (int x = 0; x < q.bp().getSizeX(); x++)
                 for (int z = 0; z < q.bp().getSizeZ(); z++)
                     for (int y = 0; y < q.bp().getSizeY(); y++) {
