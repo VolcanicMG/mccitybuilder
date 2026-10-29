@@ -582,7 +582,11 @@ final class PlannerScreen extends Screen {
             int bx = ix + i * (bw + 2);
             boolean over = mx >= bx && mx < bx + bw && my >= iy && my < iy + 20;
             VanillaUi.button(g, bx, iy, bw, 20, false, off[i], over);
-            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.line." + bkeys[i]).getString(), bx, iy, bw, 20, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK);
+            // Clear waiting for its second click: red "Confirm?" and the time left draining along the bottom.
+            float arm = i == 4 && !off[i] ? LineView.clearArm() : 0;
+            String bl = Component.translatable(arm > 0 ? "mccitybuilder.line.clear_sure" : "mccitybuilder.line." + bkeys[i]).getString();
+            VanillaUi.buttonLabel(g, font, bl, bx, iy, bw, 20, off[i] ? VanillaUi.INK_DISABLED : arm > 0 ? 0xFFFF5555 : VanillaUi.INK);
+            if (arm > 0) g.fill(bx + 2, iy + 16, bx + 2 + Math.round((bw - 4) * arm), iy + 18, 0xFFFF5555);
             int fi = i;
             hits.add(new Hit(bx, iy, bw, 20, () -> {
                 if (off[fi]) return;
@@ -930,7 +934,10 @@ final class PlannerScreen extends Screen {
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         long bad = PlanView.conflicts.stream().filter(c -> c != com.volcanicmg.mccitybuilder.planner.Plan.Conflict.NONE).count();
-        g.drawString(font, Component.translatable("mccitybuilder.plan.title", PlanView.entries.size(), PlanView.lines.size(), bad), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
+        // The full line when it fits, else the short one, never past the panel.
+        String head = Component.translatable("mccitybuilder.plan.title", PlanView.entries.size(), PlanView.lines.size(), bad).getString();
+        if (font.width(head) > w - 2 * PAD) head = Component.translatable("mccitybuilder.plan.title_short", PlanView.entries.size(), PlanView.lines.size(), bad).getString();
+        g.drawString(font, font.plainSubstrByWidth(head, w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
         String sub = PlanView.progress() != null ? PlanView.progress().getString()
                 : PlanView.hasSelection() ? selectedPlanText() : Component.translatable("mccitybuilder.plan.hint").getString();
         g.drawString(font, font.plainSubstrByWidth(sub, w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
@@ -963,28 +970,27 @@ final class PlannerScreen extends Screen {
                 : "  " + Component.translatable("mccitybuilder.plan.conflict." + c.name().toLowerCase(java.util.Locale.ROOT)).getString());
     }
 
-    /** Overlay picker under the banner: [<] Overlay: Builders [>] (L cycles); the Plan toggle beside it. */
+    /** The toolbar under the banner: the Plan toggle and the Road / Wall tools. */
     private void overlayPicker(GuiGraphics g, int mx, int my) {
-        // Plan, Road and Wall under the banner (the overlay is always on; config can hide parts of it).
-        int y = 20, px = (width - 164) / 2;
-        // Road and Wall tools beside the Plan toggle.
-        String[] tools = {"road", "wall"};
+        // Plan, Road and Wall under the banner, each with the help's pixel icon (the overlay is always on).
+        int y = 20, bh = 22, pw = 82, tw = 74, gap = 4, px = (width - pw - 2 * (tw + gap)) / 2;
+        toolbarButton(g, mx, my, px, y, pw, bh, "building", Component.translatable(PlanView.on ? "mccitybuilder.plan.on_short" : "mccitybuilder.plan.off_short").getString(),
+                PlanView.on, this::togglePlan, Component.translatable("mccitybuilder.plan.tip"));
+        String[] tools = {"road", "wall"}, icons = {"roads", "draw"};
         for (int i = 0; i < 2; i++) {
-            int tx = px + 64 + i * 52;
             String t = tools[i];
-            panels.add(new int[]{tx, y, 48, 16});
-            boolean overT = mx >= tx && mx < tx + 48 && my >= y && my < y + 16;
-            VanillaUi.button(g, tx, y, 48, 16, t.equals(LineView.tool), false, overT);
-            String tl = Component.translatable("mccitybuilder.line.tool." + t).getString();
-            g.drawString(font, tl, tx + (48 - font.width(tl)) / 2, y + 4, VanillaUi.INK, false);
-            hits.add(new Hit(tx, y, 48, 16, () -> useTool(t), Component.translatable("mccitybuilder.line.tool." + t + ".tip")));
+            toolbarButton(g, mx, my, px + pw + gap + i * (tw + gap), y, tw, bh, icons[i], Component.translatable("mccitybuilder.line.tool." + t).getString(),
+                    t.equals(LineView.tool), () -> useTool(t), Component.translatable("mccitybuilder.line.tool." + t + ".tip"));
         }
-        panels.add(new int[]{px, y, 60, 16});
-        boolean overP = mx >= px && mx < px + 60 && my >= y && my < y + 16;
-        VanillaUi.button(g, px, y, 60, 16, PlanView.on, false, overP);
-        String pl = Component.translatable(PlanView.on ? "mccitybuilder.plan.on_short" : "mccitybuilder.plan.off_short").getString();
-        g.drawString(font, pl, px + (60 - font.width(pl)) / 2, y + 4, VanillaUi.INK, false);
-        hits.add(new Hit(px, y, 60, 16, this::togglePlan, Component.translatable("mccitybuilder.plan.tip")));
+    }
+
+    /** A toolbar toggle: icon at the left, label centred in the rest. */
+    private void toolbarButton(GuiGraphics g, int mx, int my, int x, int y, int w, int h, String icon, String label, boolean on, Runnable run, Component tip) {
+        panels.add(new int[]{x, y, w, h});
+        VanillaUi.button(g, x, y, w, h, on, false, mx >= x && mx < x + w && my >= y && my < y + h);
+        PonderScreen.icon(g, icon, x + 4, y + (h - 16) / 2, 1);
+        VanillaUi.buttonLabel(g, font, label, x + 20, y, w - 22, h, VanillaUi.INK);
+        hits.add(new Hit(x, y, w, h, run, tip));
     }
 
     /** "Planner · colony name" at the top, so planner mode is obvious. */

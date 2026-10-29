@@ -1586,6 +1586,12 @@ final class LineView {
 
     private static long clearArmed;
 
+    /** @return how much of Clear's confirm window is left (1 just armed, 0 not armed) */
+    static float clearArm() {
+        long left = clearArmed - System.currentTimeMillis();
+        return left <= 0 ? 0 : left / 3000f;
+    }
+
     /**
      * The tool's Clear: removes its planned segments (built and in-flight ones stay; huts, decorations and the other
      * tool's segments are untouched). The first click arms it for 3 s; Undo brings them all back.

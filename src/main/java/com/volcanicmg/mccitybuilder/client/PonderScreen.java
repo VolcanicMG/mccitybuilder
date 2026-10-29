@@ -806,7 +806,7 @@ final class PonderScreen extends Screen {
     }
 
     /** A {@link Ponder#ICONS} icon, {@code px} GUI pixels per icon pixel. */
-    private static void icon(GuiGraphics g, String id, int x, int y, int px) {
+    static void icon(GuiGraphics g, String id, int x, int y, int px) {
         String[] rows = Ponder.ICONS.get(id);
         if (rows == null) return;
         for (int r = 0; r < rows.length; r++)
