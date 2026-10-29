@@ -82,9 +82,45 @@ public final class DevBridge {
                 for (char c : body.toCharArray()) s.charTyped(c, 0);
                 return "ok";
             });
+            case "/project" -> client(() -> {
+                double[] n = Planner.project(Double.parseDouble(a[0]), Double.parseDouble(a[1]), Double.parseDouble(a[2]));
+                var w = Minecraft.getInstance().getWindow();
+                return n == null ? "behind camera" : String.format("%.1f %.1f", (n[0] + 1) / 2 * w.getGuiScaledWidth(), (1 - n[1]) / 2 * w.getGuiScaledHeight());
+            });
+            case "/pick" -> client(() -> {
+                var w = Minecraft.getInstance().getWindow();
+                var hit = Planner.pick(Double.parseDouble(a[0]) / w.getGuiScaledWidth(), Double.parseDouble(a[1]) / w.getGuiScaledHeight());
+                return hit == null ? "miss" : hit.getBlockPos().toShortString() + " " + hit.getDirection();
+            });
+            case "/pack" -> client(() -> {
+                if (!body.isEmpty()) {
+                    var m = PlannerScreen.class.getDeclaredMethod("pickPack", String.class);
+                    m.setAccessible(true);
+                    m.invoke(null, body);
+                }
+                return PlannerScreen.pack() + " of " + Blueprints.packs();
+            });
+            case "/window" -> client(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                if (a[0].equals("full")) {
+                    if (!mc.getWindow().isFullscreen()) mc.getWindow().toggleFullScreen();
+                    mc.options.fullscreen().set(true);
+                    if (a.length > 1) {
+                        mc.options.guiScale().set(Integer.parseInt(a[1]));
+                        mc.resizeDisplay();
+                    }
+                    return "ok";
+                }
+                org.lwjgl.glfw.GLFW.glfwSetWindowSize(mc.getWindow().getWindow(), Integer.parseInt(a[0]), Integer.parseInt(a[1]));
+                if (a.length > 2) {
+                    mc.options.guiScale().set(Integer.parseInt(a[2]));
+                    mc.resizeDisplay();
+                }
+                return "ok";
+            });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
-            default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /screenshot /blocks");
+            default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks");
         };
     }
 
@@ -107,6 +143,7 @@ public final class DevBridge {
         sb.append(" gui=").append(w.getGuiScaledWidth()).append('x').append(w.getGuiScaledHeight()).append('@').append(w.getGuiScale());
         if (mc.player != null) sb.append(" player=").append(mc.player.blockPosition().toShortString());
         sb.append(" planner=").append(Planner.active());
+        if (Planner.active()) sb.append(" pack=").append(PlannerScreen.pack()).append(" family=").append(LineView.family());
         if (Planner.active() && Planner.drone != null) {
             var d = Planner.drone;
             sb.append(String.format(" camera=%.1f %.1f %.1f yaw=%.0f pitch=%.0f", d.x, d.altitude, d.z, d.yaw, d.pitch));
