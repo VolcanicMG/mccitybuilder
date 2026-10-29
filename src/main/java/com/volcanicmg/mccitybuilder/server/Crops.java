@@ -262,6 +262,11 @@ public final class Crops {
             if (n[0] >= MAX_FILES || n[1] + bytes.length > MAX_BYTES) throw new IOException("the crop pack is full (" + n[0] + " files)");
             Files.createDirectories(f.getParent());
             write(f, bytes);
+        } else if (!java.util.Arrays.equals(Files.readAllBytes(f), bytes)) {
+            // The same name always holds the same crop: a file that differs was written wrong (older builds turned its
+            // block entities), so it is replaced.
+            write(f, bytes);
+            fresh = true;
         }
         if (fresh) register(true);
         else ensurePack();

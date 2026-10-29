@@ -528,7 +528,8 @@ public final class InstantBuild {
                             c.setFilePath(Crops.fileOf(cropPath).getParent());
                             c.setFileName(Crops.fileOf(cropPath).getFileName().toString().replace(".blueprint", ""));
                             // Written only by start(), after every check.
-                            started = start(p, level, colonyId, r, Crops.PACK, cropPath, rot, c, now, com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(c));
+                            // A deep copy: the NBT shares the blueprint's block entity tags, which turning it for the paste rewrites.
+                            started = start(p, level, colonyId, r, Crops.PACK, cropPath, rot, c, now, com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(c).copy());
                         }
                     }
                 }
@@ -995,7 +996,7 @@ public final class InstantBuild {
 
     /** @return an unturned copy of an unturned blueprint (its own block and entity arrays) */
     private static Blueprint copy(Blueprint bp, ServerLevel level) {
-        Blueprint c = com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(bp), level.registryAccess());
+        Blueprint c = com.ldtteam.structurize.blueprints.v1.BlueprintUtil.readBlueprintFromNBT(com.ldtteam.structurize.blueprints.v1.BlueprintUtil.writeBlueprintToNBT(bp).copy(), level.registryAccess());
         c.setPackName(bp.getPackName());
         if (bp.getFilePath() != null) c.setFilePath(bp.getFilePath());
         if (bp.getFileName() != null) c.setFileName(bp.getFileName());
