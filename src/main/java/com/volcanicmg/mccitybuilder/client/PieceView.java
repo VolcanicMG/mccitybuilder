@@ -68,7 +68,9 @@ final class PieceView {
      * blueprint, or they bake to nothing.
      */
     private static Map<RenderType, VertexBuffer> bake(Blueprint bp) {
-        return bake(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), (x, y, z) -> bp.getBlockState(new BlockPos(x, y, z)), MAX_BLOCKS, (x, y, z) -> {
+        BlockState[] connected = connected(bp);
+        int sx = bp.getSizeX(), sz = bp.getSizeZ();
+        return bake(sx, bp.getSizeY(), sz, (x, y, z) -> connected[(y * sz + z) * sx + x], MAX_BLOCKS, (x, y, z) -> {
             try {
                 var be = bp.getBlockEntity(new BlockPos(x, y, z));
                 return be == null ? ModelData.EMPTY : be.getModelData();
@@ -77,6 +79,36 @@ final class PieceView {
                 return ModelData.EMPTY;
             }
         });
+    }
+
+    /**
+     * @return the blueprint's blocks as the world shows them once placed: each shape-updated against its neighbours in
+     * the blueprint (walls, fences, panes, stairs connect; a blueprint stores them as they were scanned or rotated,
+     * often unconnected, which bakes bare posts), indexed (y * sz + z) * sx + x
+     */
+    static BlockState[] connected(Blueprint bp) {
+        int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
+        BlockState[] out = new BlockState[sx * sy * sz];
+        com.ldtteam.structurize.client.fakelevel.BlueprintBlockAccess level =
+                Minecraft.getInstance().level == null ? null : new com.ldtteam.structurize.client.fakelevel.BlueprintBlockAccess(bp);
+        for (int y = 0; y < sy; y++)
+            for (int z = 0; z < sz; z++)
+                for (int x = 0; x < sx; x++) {
+                    BlockPos p = new BlockPos(x, y, z);
+                    BlockState st = bp.getBlockState(p);
+                    if (level != null && !st.isAir())
+                        try {
+                            for (net.minecraft.core.Direction d : net.minecraft.core.Direction.values()) {
+                                BlockPos n = p.relative(d);
+                                st = st.updateShape(d, level.getBlockState(n), level, p, n);
+                            }
+                        } catch (RuntimeException e) {
+                            // A block whose update needs more of a world than a blueprint has: as stored.
+                            st = bp.getBlockState(p);
+                        }
+                    out[(y * sz + z) * sx + x] = st;
+                }
+        return out;
     }
 
     /** A block's model data for {@link #bake} (its block entity's, else empty). */

@@ -120,6 +120,7 @@ public final class DevBridge {
             });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
+            case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");
         };
@@ -284,6 +285,32 @@ public final class DevBridge {
                     }
             return "ok " + n + " (anchor " + src.getPrimaryBlockOffset() + ", size " + src.getSizeX() + "x" + src.getSizeZ() + ")";
         }).get();
+    }
+
+    /**
+     * {@code <pack (spaces as _)> <path> <turns>}: a piece's wall / fence / pane / stair blocks as stored in its turned
+     * blueprint and as the help scenes bake them ({@link PieceView#connected}), one line each where they differ.
+     */
+    private static String states(String pack, String path, int turns) {
+        var bp = PieceCatalog.rotated(pack, path, turns);
+        if (bp == null) return "loading";
+        var con = PieceView.connected(bp);
+        StringBuilder sb = new StringBuilder();
+        int sx = bp.getSizeX(), sz = bp.getSizeZ(), n = 0, diff = 0;
+        for (int y = 0; y < bp.getSizeY(); y++)
+            for (int z = 0; z < sz; z++)
+                for (int x = 0; x < sx; x++) {
+                    var st = bp.getBlockState(new BlockPos(x, y, z));
+                    var b = st.getBlock();
+                    if (!(b instanceof net.minecraft.world.level.block.WallBlock || b instanceof net.minecraft.world.level.block.CrossCollisionBlock
+                            || b instanceof net.minecraft.world.level.block.StairBlock)) continue;
+                    n++;
+                    var c = con[(y * sz + z) * sx + x];
+                    if (c.equals(st)) continue;
+                    diff++;
+                    sb.append(x).append(',').append(y).append(',').append(z).append(' ').append(st).append("  ->  ").append(c).append('\n');
+                }
+        return n + " connecting blocks, " + diff + " changed\n" + sb;
     }
 
     private static String blocks(String[] a) throws Exception {
