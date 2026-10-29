@@ -2,6 +2,12 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Wall loops face out (battlements outside) whichever way they were drawn, as soon as the loop closes; a loop
+  flipped on purpose stays as drawn.
+- "Closing a loop" help redone: fitted loop with no gaps, live / open end markers, an outline preview that snaps
+  to the connect L, and pieces that drop at the click; help scenes' walls face one way along each chain.
+- Clear shows "Sure?" with a draining bar after the first click; the plan panel title shortens to fit; bigger
+  Plan / Road / Wall toolbar buttons with icons (icons only on narrow screens).
 - Help scenes, piece cards and the joint editor draw blocks the way the world does (ambient occlusion, face shading,
   world culling, biome tints, fences / walls / panes connected); one broken modded block drops out alone.
 - Help scenes, piece cards and the joint editor draw Domum Ornamentum blocks (their textures come from the

@@ -1220,8 +1220,7 @@ final class LineView {
             if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         refitAround(new int[][]{start, end}, l);
         // Back on the chain's own start: the loop faces out now (preview and Build alike), in this drop's undo step.
-        Plan.Line first = chain.get(0);
-        if (end[0] == first.x0() && end[1] == first.z0()) faceOut();
+        if (!chain.isEmpty() && end[0] == chain.get(0).x0() && end[1] == chain.get(0).z0()) faceOut();
         prevDir = new int[]{end[0] - start[0], end[1] - start[1]};
         start = end;
         end = null;
