@@ -320,7 +320,9 @@ public final class Crops {
 
     /** Writes a file whole or not at all (a temp file moved over it), so a reader never sees half of one. */
     private static void write(Path f, byte[] bytes) throws IOException {
-        Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
+        // Beside the pack, not in it: Structurize's client-sync zip walks the pack folder and trips on a half-made file.
+        Path tmp = DIR.toAbsolutePath().resolveSibling(DIR.getFileName() + ".tmp").resolve(f.getFileName());
+        Files.createDirectories(tmp.getParent());
         Files.write(tmp, bytes);
         Files.move(tmp, f, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }

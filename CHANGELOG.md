@@ -2,6 +2,9 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Move: the old site is cleared against an untouched copy of the blueprint (no building-shaped dirt left).
+- Fill gaps: crop files keep their block entities' own coordinates (some crops failed to load for builders);
+  a crop file written wrong by an older build is rewritten the next time it is sent.
 - Creative Move clears the old site of every level an upgraded hut was built through (snapshot terrain and
   neighbours kept; citizens no longer pin blocks); cleared ground gets the surrounding surface back instead of dirt
   (decoration delete too). The move message says how many old blocks were cleared.
