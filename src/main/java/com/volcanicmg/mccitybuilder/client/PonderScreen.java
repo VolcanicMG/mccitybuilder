@@ -481,7 +481,7 @@ final class PonderScreen extends Screen {
 
     /**
      * Bakes (once) the step's plate: grass on top of dirt and stone, a few blocks deep under the topic's frame, open
-     * where this step's pieces stand (their own lowest blocks fill that).
+     * only where this step's pieces have blocks, from each column's lowest one up (no pit beside a piece).
      *
      * @return {x, y, z} of its corner
      */
@@ -494,10 +494,17 @@ final class PonderScreen extends Screen {
                 hi = Math.max(hi, Ponder.ground(s.ground(), x, z));
             }
         int y0 = lo - 4, sy = hi - y0;
+        // Per column: the lowest block a piece really has there (air and substitution leave the ground as it is).
         Map<Long, Integer> under = new HashMap<>();
         for (PieceView.Part q : s.parts())
-            for (int x = q.x(); x < q.x() + q.bp().getSizeX(); x++)
-                for (int z = q.z(); z < q.z() + q.bp().getSizeZ(); z++) under.merge(Plan.cell(x, z), q.y(), Math::min);
+            for (int x = 0; x < q.bp().getSizeX(); x++)
+                for (int z = 0; z < q.bp().getSizeZ(); z++)
+                    for (int y = 0; y < q.bp().getSizeY(); y++) {
+                        BlockState st = q.bp().getBlockState(new net.minecraft.core.BlockPos(x, y, z));
+                        if (st.isAir() || st.getBlock() == com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get()) continue;
+                        under.merge(Plan.cell(q.x() + x, q.z() + z), q.y() + y, Math::min);
+                        break;
+                    }
         BlockState grass = Blocks.GRASS_BLOCK.defaultBlockState(), dirt = Blocks.DIRT.defaultBlockState(), stone = Blocks.STONE.defaultBlockState();
         PieceView.bakeBlocks(key, x1 - x0, sy, z1 - z0, (lx, ly, lz) -> {
             int wx = x0 + lx, wy = y0 + ly, wz = z0 + lz, top = Ponder.ground(s.ground(), wx, wz) - 1;
