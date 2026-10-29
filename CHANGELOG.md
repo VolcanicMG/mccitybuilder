@@ -2,6 +2,12 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Help scenes, piece cards and the joint editor draw Domum Ornamentum blocks (their textures come from the
+  blueprint's block data) instead of leaving them out; help scenes leave no pits beside walls; drag steps show the
+  arrow with a move badge; new Edit mode help icon.
+- Huts and decorations sit where the build tool puts them (one higher over grass); the gap box stands at its
+  neighbouring piece's height.
+
 - Road / wall tool: Fill gaps (F, opt-in per segment) closes the cells whole pieces leave uncovered with a straight
   cropped to exactly those cells, cut where its edges carry on the neighbours' pattern; nothing overlaps. The server
   crops it itself and writes it into its own structure pack, "City Builder Crops" (`blueprints/mccitybuilder_crops/`),
