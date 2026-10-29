@@ -2,6 +2,8 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Decorations: Repair. Creative re-pastes the blueprint in place (storage with items kept, the original-ground
+  snapshot untouched); survival asks MineColonies for a builder repair order (needs a decoration controller).
 - Wall loops face out (battlements outside) whichever way they were drawn, as soon as the loop closes; a loop
   flipped on purpose stays as drawn.
 - "Closing a loop" help redone: fitted loop with no gaps, live / open end markers, an outline preview that snaps
