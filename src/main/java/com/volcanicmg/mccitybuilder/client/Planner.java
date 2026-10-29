@@ -952,6 +952,20 @@ public final class Planner {
         return true;
     }
 
+    /**
+     * Survival Repair of a decoration: MineColonies' own decoration request (its controller window's Repair), which
+     * checks MANAGE_HUTS and makes a REPAIR order when the blueprint's anchor is a decoration controller.
+     *
+     * @return false without a level
+     */
+    static boolean requestDecoRepair(Deco d) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return false;
+        new com.minecolonies.core.network.messages.server.DecorationBuildRequestMessage(com.minecolonies.api.colony.workorders.WorkOrderType.REPAIR, d.pos(), d.pack(),
+                d.path(), mc.level.dimension(), RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)], BlockPos.ZERO).sendToServer();
+        return true;
+    }
+
     static void requestBuild(IBuildingView b, BuildRequestMessage.Mode mode) {
         new BuildRequestMessage(b, mode, BlockPos.ZERO).sendToServer();
     }

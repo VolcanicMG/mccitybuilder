@@ -1575,7 +1575,7 @@ final class PlannerScreen extends Screen {
         buttonRow(g, x, y, w, n, keys, run, why, mx, my);
     }
 
-    /** A placed decoration: Move and Delete in creative, Remove (a builder order) in survival; all through the server part. */
+    /** A placed decoration: Move, Repair and Delete in creative (the server part); Repair (MineColonies' order) and Remove (a builder order) in survival. */
     private void decoSelection(GuiGraphics g, int mx, int my, Planner.Deco d) {
         boolean creative = Planner.creative(), server = Planner.serverInstant();
         int w = PALETTE_W, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
@@ -1584,18 +1584,27 @@ final class PlannerScreen extends Screen {
         g.drawString(font, font.plainSubstrByWidth(d.name(), w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
         g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.deco.info", d.pack()).getString(), w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
         String off = server ? null : "mccitybuilder.deco.no_server";
-        String[] keys = creative ? new String[]{"deco_move", "deco_delete"} : new String[]{"deco_remove"};
+        // Survival Repair is MineColonies' own decoration order: it needs the decoration's controller, and an order already
+        // there would be cancelled by the same request.
+        boolean controller = minecraft.level != null && minecraft.level.getBlockState(d.pos()).getBlock() instanceof com.minecolonies.core.blocks.BlockDecorationController;
+        boolean ordered = Planner.colony() != null && Planner.colony().getWorkOrders().stream().anyMatch(o -> d.pos().equals(o.getLocation()));
+        String repairOff = creative ? off : !controller ? "mccitybuilder.deco_repair.no_controller" : ordered ? "mccitybuilder.deco_repair.ordered" : null;
+        String[] keys = creative ? new String[]{"deco_move", "deco_repair", "deco_delete"} : new String[]{"deco_repair", "deco_remove"};
+        Runnable repair = () -> {
+            if (creative ? Planner.sendDeco(com.volcanicmg.mccitybuilder.server.InstantBuild.DECO_REPAIR, d) : Planner.requestDecoRepair(d))
+                toast(Component.translatable(creative ? "mccitybuilder.deco_repair_sent" : "mccitybuilder.requested"));
+        };
         Runnable[] run = creative ? new Runnable[]{() -> {
             if (Planner.startMoveDeco(d)) toast(Component.translatable("mccitybuilder.deco_move_started"));
             else toast(Component.translatable("mccitybuilder.invalid.loading"));
-        }, () -> {
+        }, repair, () -> {
             if (Planner.sendDeco(com.volcanicmg.mccitybuilder.server.InstantBuild.DECO_DELETE, d)) toast(Component.translatable("mccitybuilder.deco_delete_sent"));
             Planner.select(null);
-        }} : new Runnable[]{() -> {
+        }} : new Runnable[]{repair, () -> {
             if (Planner.sendDeco(com.volcanicmg.mccitybuilder.server.InstantBuild.DECO_REMOVE_ORDER, d)) toast(Component.translatable("mccitybuilder.deco_remove_sent"));
             Planner.select(null);
         }};
-        buttonRow(g, x, y, w, keys.length, keys, run, creative ? new String[]{off, off} : new String[]{off}, mx, my);
+        buttonRow(g, x, y, w, keys.length, keys, run, creative ? new String[]{off, repairOff, off} : new String[]{repairOff, off}, mx, my);
     }
 
     /** The selection panel's buttons: label {@code mccitybuilder.<key>}, tip {@code .tip}, or {@code why[i]} when off. */

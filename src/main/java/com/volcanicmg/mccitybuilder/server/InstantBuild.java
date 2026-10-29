@@ -71,9 +71,12 @@ public final class InstantBuild {
      * DECO_ORDER = a survival decoration work order; MOVE = rebuild a building at {@code pos} and retire the one at
      * {@code from} (inventories copied, citizens moved); DECO_DELETE = remove a decoration's blocks that still match
      * its blueprint; DECO_MOVE = paste a decoration at {@code pos}, copy its containers from {@code from}, delete the
-     * old; DECO_REMOVE_ORDER = a survival REMOVE work order for a decoration.
+     * old; DECO_REMOVE_ORDER = a survival REMOVE work order for a decoration; DECO_REPAIR = paste a decoration City
+     * Builder knows (a record or its live controller) again where it stands, at its turn: like DECO, only differing
+     * blocks are replaced and storage holding items stays (creative).
      */
-    public static final int PLACE = 0, UPGRADE = 1, REPAIR = 2, DECO = 3, CLEAN = 4, DECO_ORDER = 5, MOVE = 6, DECO_DELETE = 7, DECO_MOVE = 8, DECO_REMOVE_ORDER = 9;
+    public static final int PLACE = 0, UPGRADE = 1, REPAIR = 2, DECO = 3, CLEAN = 4, DECO_ORDER = 5, MOVE = 6, DECO_DELETE = 7, DECO_MOVE = 8, DECO_REMOVE_ORDER = 9,
+            DECO_REPAIR = 10;
     static final long MIN_INTERVAL_MS = 1000;
     static final Map<UUID, Long> lastRequest = new HashMap<>();
 
@@ -376,7 +379,7 @@ public final class InstantBuild {
 
     /** @return the colony's permission check for this request (PLACE needs PLACE_HUTS as well, like MineColonies) */
     static boolean allowed(IColony colony, ServerPlayer p, int mode) {
-        boolean places = mode == PLACE || mode == DECO || mode == MOVE || mode == DECO_MOVE;
+        boolean places = mode == PLACE || mode == DECO || mode == DECO_REPAIR || mode == MOVE || mode == DECO_MOVE;
         return colony.getPermissions().hasPermission(p, Action.MANAGE_HUTS) && (!places || colony.getPermissions().hasPermission(p, Action.PLACE_HUTS));
     }
 
@@ -387,7 +390,7 @@ public final class InstantBuild {
 
     /** @return true for the modes that take a pack / path / rotation from the client */
     static boolean pathMode(int mode) {
-        return mode == PLACE || mode == DECO || mode == DECO_ORDER || mode == DECO_DELETE || mode == DECO_MOVE || mode == DECO_REMOVE_ORDER;
+        return mode == PLACE || mode == DECO || mode == DECO_REPAIR || mode == DECO_ORDER || mode == DECO_DELETE || mode == DECO_MOVE || mode == DECO_REMOVE_ORDER;
     }
 
     private static void handle(Request r, IPayloadContext ctx) {
@@ -422,7 +425,7 @@ public final class InstantBuild {
         if (!batch) lastRequest.put(p.getUUID(), now);
         ServerLevel level = p.serverLevel();
         boolean move = r.mode == MOVE || r.mode == DECO_MOVE;
-        if (r.mode < PLACE || r.mode > DECO_REMOVE_ORDER || !level.isLoaded(r.pos) || move && (!level.isLoaded(r.from) || r.from.equals(r.pos))) {
+        if (r.mode < PLACE || r.mode > DECO_REPAIR || !level.isLoaded(r.pos) || move && (!level.isLoaded(r.from) || r.from.equals(r.pos))) {
             reject(p, r, "bad mode or unloaded position");
             return false;
         }
@@ -566,7 +569,7 @@ public final class InstantBuild {
             reject(p, r, "player or colony changed");
             return false;
         }
-        boolean placesHut = r.mode == PLACE || r.mode == MOVE, decoLike = r.mode == DECO || r.mode == DECO_ORDER || r.mode == DECO_DELETE || r.mode == DECO_MOVE || r.mode == DECO_REMOVE_ORDER;
+        boolean placesHut = r.mode == PLACE || r.mode == MOVE, decoLike = r.mode == DECO || r.mode == DECO_REPAIR || r.mode == DECO_ORDER || r.mode == DECO_DELETE || r.mode == DECO_MOVE || r.mode == DECO_REMOVE_ORDER;
         IBuilding existing = colony.getServerBuildingManager().getBuilding(r.pos);
         if (placesHut ? existing != null : !decoLike && (existing == null || !levelOk(r, existing))) {
             reject(p, r, "building changed while loading");
@@ -583,7 +586,8 @@ public final class InstantBuild {
         boolean removes = r.mode == DECO_DELETE || r.mode == DECO_MOVE || r.mode == DECO_REMOVE_ORDER;
         BlockPos recAt = r.mode == DECO_MOVE ? r.from : r.pos;
         int recRot = r.mode == DECO_MOVE ? r.fromRot.ordinal() : rot.ordinal();
-        if (removes && !records.has(colonyId, pack, path, recAt, recRot) && !liveController(level, recAt, pack, path, recRot)) {
+        // A repair, too: only what City Builder or a builder put there.
+        if ((removes || r.mode == DECO_REPAIR) && !records.has(colonyId, pack, path, recAt, recRot) && !liveController(level, recAt, pack, path, recRot)) {
             reject(p, r, "not something City Builder built: " + pack + " " + path + " at " + recAt.toShortString());
             return false;
         }
@@ -746,7 +750,7 @@ public final class InstantBuild {
                     tes[y][z][x] = null;
                 }
         // A pasted crop's file: its removal must find the crop as built even after its straight changes.
-        if (cropFile != null && r.mode == DECO)
+        if (cropFile != null && (r.mode == DECO || r.mode == DECO_REPAIR))
             try {
                 Crops.store(cropFile, path);
             } catch (java.io.IOException ex) {
@@ -754,6 +758,7 @@ public final class InstantBuild {
                 return false;
             }
         // What stands there now, for a later delete or move to put back (huts by building position).
+        // A repair keeps whatever snapshot there is (what stood there now is the damaged decoration itself).
         String snapKey = placesHut ? Snapshots.hutKey(level, colonyId, r.pos) : r.mode == DECO || r.mode == DECO_MOVE
                 ? Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()) : null;
         // The same decoration pasted again where it stands keeps the snapshot of what stood before it the first time.
@@ -786,8 +791,8 @@ public final class InstantBuild {
         final String fPack = pack, fPath = path;
         Handler handler = new Handler(level, r.pos, bp, rot, () -> {
             try {
-                if (r.mode != DECO && r.mode != DECO_MOVE) finish(level, colonyId, r, bp, origin, offset, dataPos, data);
-                if (r.mode == DECO || r.mode == DECO_MOVE)
+                if (r.mode != DECO && r.mode != DECO_REPAIR && r.mode != DECO_MOVE) finish(level, colonyId, r, bp, origin, offset, dataPos, data);
+                if (r.mode == DECO || r.mode == DECO_REPAIR || r.mode == DECO_MOVE)
                     records.add(colonyId, fPack, fPath, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
                 if (r.mode == MOVE || r.mode == DECO_MOVE) {
                     moveFinish(p, level, colonyId, r, fSrcRot, fSrcOrigin, fSrcFar, bp, fPack, fPath);

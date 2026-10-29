@@ -120,6 +120,13 @@ public final class DevBridge {
             });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
+            // <mode> <pack (spaces as _)> <path> <x y z> <rot>: an InstantBuild request as the planner sends it.
+            case "/deco" -> client(() -> {
+                net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.volcanicmg.mccitybuilder.server.InstantBuild.Request(Integer.parseInt(a[0]),
+                        new BlockPos(Integer.parseInt(a[3]), Integer.parseInt(a[4]), Integer.parseInt(a[5])), 0, a[1].replace('_', ' '), a[2],
+                        com.ldtteam.structurize.api.RotationMirror.values()[Integer.parseInt(a[6])]));
+                return "ok";
+            });
             // yaw pitch zoom: the 3D views held still at that view (dragging stops the turning); "free" lets go.
             case "/view" -> client(() -> {
                 if (a[0].equals("free")) PieceView.dragging = false;
