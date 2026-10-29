@@ -195,24 +195,30 @@ final class PieceView {
                         BlockPos p = new BlockPos(x, y, z);
                         BlockState st = level.getBlockState(p);
                         if (st.isAir() || st.getRenderShape() != RenderShape.MODEL) continue;
-                        ModelData md = data == null ? ModelData.EMPTY : data.at(x, y, z);
-                        md = br.getBlockModel(st).getModelData(level, p, st, md);
-                        long seed = st.getSeed(p);
-                        rand.setSeed(seed);
                         pose.pushPose();
-                        pose.translate(x, y, z);
-                        for (RenderType chunk : br.getBlockModel(st).getRenderTypes(st, rand, md)) {
-                            // Translucent stays an entity type (its world target isn't drawn here).
-                            RenderType rt = chunk == RenderType.translucent() ? RenderTypeHelper.getEntityRenderType(chunk, false) : chunk;
-                            BufferBuilder bb = builders.computeIfAbsent(rt, k -> {
-                                ByteBufferBuilder mem = new ByteBufferBuilder(k.bufferSize());
-                                memory.put(k, mem);
-                                return new BufferBuilder(mem, k.mode(), k.format());
-                            });
+                        try {
+                            ModelData md = data == null ? ModelData.EMPTY : data.at(x, y, z);
+                            md = br.getBlockModel(st).getModelData(level, p, st, md);
+                            long seed = st.getSeed(p);
                             rand.setSeed(seed);
-                            br.renderBatched(st, p, level, pose, bb, true, rand, md, chunk);
+                            pose.translate(x, y, z);
+                            for (RenderType chunk : br.getBlockModel(st).getRenderTypes(st, rand, md)) {
+                                // Translucent stays an entity type (its world target isn't drawn here).
+                                RenderType rt = chunk == RenderType.translucent() ? RenderTypeHelper.getEntityRenderType(chunk, false) : chunk;
+                                BufferBuilder bb = builders.computeIfAbsent(rt, k -> {
+                                    ByteBufferBuilder mem = new ByteBufferBuilder(k.bufferSize());
+                                    memory.put(k, mem);
+                                    return new BufferBuilder(mem, k.mode(), k.format());
+                                });
+                                rand.setSeed(seed);
+                                br.renderBatched(st, p, level, pose, bb, true, rand, md, chunk);
+                            }
+                        } catch (RuntimeException e) {
+                            // A modded block that asks more of the fake level than it has: left out alone, not the piece.
+                            continue;
+                        } finally {
+                            pose.popPose();
                         }
-                        pose.popPose();
                         n++;
                     }
         } catch (RuntimeException e) {

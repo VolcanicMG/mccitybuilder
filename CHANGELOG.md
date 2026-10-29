@@ -2,6 +2,8 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Help scenes, piece cards and the joint editor draw blocks the way the world does (ambient occlusion, face shading,
+  world culling, biome tints, fences / walls / panes connected); one broken modded block drops out alone.
 - Help scenes, piece cards and the joint editor draw Domum Ornamentum blocks (their textures come from the
   blueprint's block data) instead of leaving them out; help scenes leave no pits beside walls; drag steps show the
   arrow with a move badge; new Edit mode help icon.
