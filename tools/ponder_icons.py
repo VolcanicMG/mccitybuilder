@@ -21,9 +21,7 @@ ICONS = {
 "................", "................", "................", "oooooo....oooooo", "ollllo....ollllo", "olsSSo....osssSo",
 "olsSSooooooosSSo", "olssSoyyyAosssSo", "olsSSoyaaAossSSo", "olssSoyaaAosssSo", "olsSSoAAAAossSSo", "oSSSSooooooSSSSo",
 "oooooo....oooooo", "................", "................", "................"],
-"edit": [
-"................", "....oo..........", "...oyao.........", "..oyaaAo........", ".oyaaaaAo.......", "..oaaaAo........", "...oaAo.........", "....oo.ooo......", ".......owwo.....", "........owwo....", ".........owwooo.", "..........owwwo.", ".........owwwwo.", "........owwwwwo.", "........ooooooo.", "................", 
-],
+"edit": None,  # composed below: a node, the arrow on it, the move badge
 "building": [
 "................", ".oooooooooooooo.", ".owwwwwwwwwwwlo.", ".owlllllllllllS.", ".olllllllllllSo.", ".oSSSSSSSSSSSSo.", ".ooooobbBBooooo.", "......obbBo.....", "......obbBo.....", "......obbBo.....", "......obbBo.....", "oooooooooooooooo", "olllllllllllllSo", "olssSssssssSsssS", "oSSSSSSSSSSSSSSo", "oooooooooooooooo", 
 ],
@@ -50,6 +48,32 @@ BADGES = {
 "move": outlined([
 ".........", "....w....", "...www...", "..w.w.w..", ".wwwwwww.", "..w.w.w..", "...www...", "....w....", "........."]),
 }
+
+def compose(layers, n=16):
+    """Pixels from layers drawn in order ({(y, x): colour char}); every clear pixel 4-beside a filled one is outline."""
+    px = {}
+    for layer in layers: px.update(layer)
+    return ["".join(px.get((y, x), 'o' if any((y + dy, x + dx) in px for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1))) else '.')
+                    for x in range(n)) for y in range(n)]
+
+def node(cy, cx, r):
+    """An edit node: a diamond, light yellow top left, amber, dark amber bottom right."""
+    out = {}
+    for y in range(cy - r, cy + r + 1):
+        for x in range(cx - r, cx + r + 1):
+            d = abs(y - cy) + abs(x - cx)
+            if d < r: out[(y, x)] = 'y' if (x - cx) + (y - cy) < -1 else 'A' if (x - cx) + (y - cy) > 1 else 'a'
+    return out
+
+def mask(rows, oy, ox, ch='w'):
+    return {(oy + y, ox + x): ch for y, r in enumerate(rows) for x, c in enumerate(r) if c == 'w'}
+
+# Edit: a node with the drag cursor's arrow on it and the move badge (CURSORS["arrow"] / BADGES["move"] in small).
+ICONS["edit"] = compose([
+    node(4, 4, 4),
+    mask(["w", "ww", "www", "wwww", "ww"], 5, 5),
+    mask(["...w...", "..www..", ".w.w.w.", "wwwwwww", ".w.w.w.", "..www..", "...w..."], 8, 8),
+])
 import json, struct, zlib
 for name, g in {**ICONS, **CURSORS}.items():
     w = 16 if name in ICONS else 10
@@ -61,7 +85,10 @@ for name, g in BADGES.items():
 json.dump({"icons": ICONS, "cursors": CURSORS, "badges": BADGES}, open('build/ponder_icons.json', 'w'), indent=0)
 
 # The preview: on the stage's dark blue, each cursor with the badge at its lower right (as PonderScreen draws it).
-COL = {'o': (0x20, 0x20, 0x20), 'w': (0xFF, 0xFF, 0xFF), 'l': (0xC8, 0xC8, 0xC8)}
+# Ponder.iconColor's palette.
+PAL = {'o': 0x202020, 'w': 0xFFFFFF, 'l': 0xC8C8C8, 's': 0x8E8E8E, 'S': 0x5C5C5C, 'b': 0xB58A55, 'B': 0x7A5530, 'y': 0xFFE680,
+       'a': 0xFFB31A, 'A': 0xB07010, 'c': 0x40E6FF, 'C': 0x1E8FA8, 'g': 0x6CB44A, 'G': 0x3F7F2E, 'd': 0x8B5E3C, 'D': 0x5E3F27}
+COL = {k: (v >> 16, v >> 8 & 255, v & 255) for k, v in PAL.items()}
 BX, BY = 8, 9
 W, H, S = 2 * 19 + 1, 20, 10
 px = [[(0x2E, 0x39, 0x46)] * W for _ in range(H)]
@@ -70,8 +97,29 @@ for i, cur in enumerate(["arrow", "pressed"]):
         for y, row in enumerate(g):
             for x, ch in enumerate(row):
                 if ch in COL: px[oy + y][ox + x] = COL[ch]
-raw = b''.join(b'\0' + b''.join(bytes(px[y // S][x // S]) for x in range(W * S)) for y in range(H * S))
-chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
-open('build/ponder_cursor_preview.png', 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', W * S, H * S, 8, 2, 0, 0, 0))
-                                                   + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+def png(path, px, S):
+    """Writes rows of RGB tuples, each pixel S x S."""
+    W, H = len(px[0]), len(px)
+    raw = b''.join(b'\0' + b''.join(bytes(px[y // S][x // S]) for x in range(W * S)) for y in range(H * S))
+    chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', W * S, H * S, 8, 2, 0, 0, 0))
+                           + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+def stage(n_w, n_h):
+    return [[(0x2E, 0x39, 0x46)] * n_w for _ in range(n_h)]
+
+def paint(px, g, ox, oy):
+    for y, row in enumerate(g):
+        for x, ch in enumerate(row):
+            if ch in COL: px[oy + y][ox + x] = COL[ch]
+
+png('build/ponder_cursor_preview.png', px, S)
+# Every topic icon in a row (help order), and the edit icon alone.
+ORDER = ["draw", "joints", "connect", "height", "gaps", "edit", "building", "roads"]
+row = stage(len(ORDER) * 18 + 2, 20)
+for i, k in enumerate(ORDER): paint(row, ICONS[k], 2 + 18 * i, 2)
+png('build/ponder_icons_preview.png', row, 10)
+one = stage(20, 20)
+paint(one, ICONS["edit"], 2, 2)
+png('build/ponder_edit_icon.png', one, 10)
 print("ok")
