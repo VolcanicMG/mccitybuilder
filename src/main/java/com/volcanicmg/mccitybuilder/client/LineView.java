@@ -129,6 +129,7 @@ final class LineView {
             if (m != PlanView.lines) PlanView.setLines(m);
         }
         startSplit = null;
+        faceOut();
         start = prevDir = end = connect = connectTo = connectHint = null;
         lastDir = -1;
         elbowAlt = false;
@@ -136,6 +137,19 @@ final class LineView {
         liveOffs = null;
         chain.clear();
         clearLive();
+    }
+
+    /** A chain of walls closed on its own start: every wall turned to face out of the loop (one undo step with the drop). */
+    private static void faceOut() {
+        Boolean f = Plan.faceOutFlip(chain);
+        if (f == null || f == chain.get(0).flip()) return;
+        List<Plan.Line> ls = new ArrayList<>(PlanView.lines);
+        for (Plan.Line l : chain) {
+            int i = ls.indexOf(l);
+            if (i < 0 || PlanView.locked(l)) return;
+            ls.set(i, l.withFlip(f));
+        }
+        PlanView.setLines(ls);
     }
 
     /** Drops the live pieces and their ghosts (they come back on the next aim while the tool is on). */

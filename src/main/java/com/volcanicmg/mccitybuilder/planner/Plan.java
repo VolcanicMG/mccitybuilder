@@ -381,6 +381,29 @@ public final class Plan {
     }
 
     /**
+     * Walls face out to the right of their drawing direction (the battlement side; {@code flip} swaps it). A chain of
+     * walls closed on its own start is a loop: drawn counter-clockwise seen from above (north up) it already faces
+     * out, drawn clockwise every wall faces in.
+     *
+     * @param chain the chain's segments in drawing order
+     * @return the flip every segment needs to face out of the loop, or null when the chain isn't a closed loop of
+     * walls drawn end to end with one flip
+     */
+    public static Boolean faceOutFlip(List<Line> chain) {
+        if (chain.size() < 3) return null;
+        Line first = chain.get(0), last = chain.get(chain.size() - 1);
+        if (last.x1() != first.x0() || last.z1() != first.z0()) return null;
+        long area = 0;
+        for (int k = 0; k < chain.size(); k++) {
+            Line l = chain.get(k), n = chain.get((k + 1) % chain.size());
+            if (!l.isWall() || l.flip() != first.flip() || l.x1() != n.x0() || l.z1() != n.z0()) return null;
+            area += (long) l.x0() * l.z1() - (long) l.x1() * l.z0();
+        }
+        // Shoelace sum in x / z (z south): negative = counter-clockwise on screen = facing out unflipped.
+        return area == 0 ? null : area > 0;
+    }
+
+    /**
      * Auto-connect: the line tool reaches an end {@code target} off its start's axes with two segments, start -> elbow
      * -> target (an L at the elbow, the target end joined). An elbow is usable when neither segment lies along or
      * crosses a segment of the same tool, nothing of that tool is at the elbow, and neither leaves start / enters the

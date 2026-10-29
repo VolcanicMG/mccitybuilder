@@ -11,7 +11,7 @@ import java.util.List;
  * <p>
  * Coordinates are cells; a coordinate may use {@code L}, the family's longest straight ({@code 2L-1}, {@code L+3}).
  * A segment spec is {@code "x0 z0 x1 z1"} plus options: {@code ~} its far end moves out until its pieces fit exactly,
- * {@code gap} its far end moves out until some cells stay uncovered (shown without Fill gaps), {@code fill} (Fill gaps), {@code ghost} (the planner's preview: outlines only, not built), a height mode {@code follow|flat|chain|smooth}, {@code dy=N}.
+ * {@code gap} its far end moves out until some cells stay uncovered (shown without Fill gaps), {@code fill} (Fill gaps), {@code ghost} (the planner's preview: outlines only, not built), {@code flip} (the wall's other side out), a height mode {@code follow|flat|chain|smooth}, {@code dy=N}.
  * {@code W} / {@code H}: the connect topic's loop, fitted so its pieces leave no gap.
  */
 public final class Ponder {
@@ -107,7 +107,7 @@ public final class Ponder {
         topic("joints", null,
                 s("joints", 1).line("0 0 2L 0", "2L 0 2L L ~").call(c, "0", 6, "mccitybuilder.ponder.call.corner"),
                 s("joints", 2).line("0 0 2L 0", "2L 0 2L L ~", "2L 0 3L 0 ~").call(c, "0", 6, "mccitybuilder.ponder.call.tee"),
-                s("joints", 3).line("0 0 2L 0", "2L 0 2L L ~", "2L 0 3L 0 ~", "2L 0 2L -L ~").call(c, "0", 6, "mccitybuilder.ponder.call.cross"),
+                s("joints", 3).line("0 0 2L 0", "2L 0 2L L ~", "2L 0 3L 0 ~", "2L 0 2L -L ~ flip").call(c, "0", 6, "mccitybuilder.ponder.call.cross"),
                 s("joints", 4).line("0 0 2L 0", "2L 0 2L L ~").joint("2L 0", Plan.J_TOWER).keys("C").call(c, "0", 7, "mccitybuilder.ponder.call.type"));
         // A loop of W x H cells (the screen fits the closed loop to whole pieces; while open, Fill gaps closes what its
         // end caps leave). Once the connect snaps, the planner lays the chain out closed (corners for end caps), as here.
@@ -126,10 +126,10 @@ public final class Ponder {
                 s("height", 4).slope().line("0 0 3L 0 chain", "3L 0 3L L chain ~").keys("H"),
                 s("height", 5).slope().line("0 0 3L 0 flat dy=2").keys("#pgup", "/", "#pgdn"));
         topic("gaps", null,
-                s("gaps", 1).line("0 0 2L+4 0 gap", "0 0 0 L ~", "2L+4 0 2L+4 L ~").call("L", "0", 6, "mccitybuilder.ponder.call.gap"),
-                s("gaps", 2).line("0 0 2L+4 0 gap fill", "0 0 0 L ~", "2L+4 0 2L+4 L ~").keys("F").call("L", "0", 6, "mccitybuilder.ponder.call.filled"),
-                s("gaps", 3).line("0 0 2L+4 0 gap", "0 0 0 L ~", "2L+4 0 2L+4 L ~", "L -4 L 4").colour(3, "red"),
-                s("gaps", 4).line("0 0 2L+4 0 gap fill", "0 0 0 L ~", "2L+4 0 2L+4 L ~").nodes().keys("X"));
+                s("gaps", 1).line("0 0 2L+4 0 gap", "0 0 0 L ~ flip", "2L+4 0 2L+4 L ~").call("L", "0", 6, "mccitybuilder.ponder.call.gap"),
+                s("gaps", 2).line("0 0 2L+4 0 gap fill", "0 0 0 L ~ flip", "2L+4 0 2L+4 L ~").keys("F").call("L", "0", 6, "mccitybuilder.ponder.call.filled"),
+                s("gaps", 3).line("0 0 2L+4 0 gap", "0 0 0 L ~ flip", "2L+4 0 2L+4 L ~", "L -4 L 4").colour(3, "red"),
+                s("gaps", 4).line("0 0 2L+4 0 gap fill", "0 0 0 L ~ flip", "2L+4 0 2L+4 L ~").nodes().keys("X"));
         topic("edit", null,
                 s("edit", 1).line("0 0 2L 0", "2L 0 2L L ~").nodes().keys("X"),
                 s("edit", 2).line("0 0 2L 0", "2L 0 2L 2L ~").nodes().cursor("2L", "2L", true),
@@ -247,9 +247,9 @@ public final class Ponder {
     }
 
     /** A segment spec read: ends in cells, its options. */
-    public record Seg(int x0, int z0, int x1, int z1, boolean fit, boolean fill, int height, int dy, boolean gap, boolean ghost) {
+    public record Seg(int x0, int z0, int x1, int z1, boolean fit, boolean fill, int height, int dy, boolean gap, boolean ghost, boolean flip) {
         public Seg(int x0, int z0, int x1, int z1, boolean fit, boolean fill, int height, int dy, boolean gap) {
-            this(x0, z0, x1, z1, fit, fill, height, dy, gap, false);
+            this(x0, z0, x1, z1, fit, fill, height, dy, gap, false, false);
         }
     }
 
@@ -261,7 +261,7 @@ public final class Ponder {
     /** {@link #seg} with the loop's W / H ({@link #coord(String, int, int, int)}) */
     public static Seg seg(String spec, int longest, int w, int h) {
         String[] t = spec.trim().split(" +");
-        boolean fit = false, fill = false, gap = false, ghost = false;
+        boolean fit = false, fill = false, gap = false, ghost = false, flip = false;
         int height = Plan.FOLLOW, dy = 0;
         for (int i = 4; i < t.length; i++)
             switch (t[i]) {
@@ -269,6 +269,7 @@ public final class Ponder {
                 case "fill" -> fill = true;
                 case "gap" -> gap = true;
                 case "ghost" -> ghost = true;
+                case "flip" -> flip = true;
                 case "follow" -> height = Plan.FOLLOW;
                 case "flat" -> height = Plan.FLAT;
                 case "chain" -> height = Plan.CHAIN;
@@ -278,7 +279,7 @@ public final class Ponder {
                     dy = Integer.parseInt(t[i].substring(3));
                 }
             }
-        return new Seg(coord(t[0], longest, w, h), coord(t[1], longest, w, h), coord(t[2], longest, w, h), coord(t[3], longest, w, h), fit, fill, height, dy, gap, ghost);
+        return new Seg(coord(t[0], longest, w, h), coord(t[1], longest, w, h), coord(t[2], longest, w, h), coord(t[3], longest, w, h), fit, fill, height, dy, gap, ghost, flip);
     }
 
     /** @return the plate's ground level at a cell: 0, or one block up every three cells east on a slope */

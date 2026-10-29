@@ -826,6 +826,22 @@ public final class SelfCheck {
         return a.sx() == b.sx() && a.sy() == b.sy() && a.sz() == b.sz() && java.util.Arrays.equals(a.ids(), b.ids());
     }
 
+    /** A closed loop of walls faces out: counter-clockwise (north up) as drawn, clockwise flipped; open chains untouched. */
+    private static void faceOut() {
+        java.util.function.Function<int[][], List<Plan.Line>> loop = pts -> {
+            List<Plan.Line> out = new java.util.ArrayList<>();
+            for (int k = 0; k < pts.length; k++) out.add(new Plan.Line("wall", pts[k][0], pts[k][1], pts[(k + 1) % pts.length][0], pts[(k + 1) % pts.length][1], "p", "f", 1, 0, false, false));
+            return out;
+        };
+        int[][] ccw = {{20, 0}, {0, 0}, {0, 10}, {20, 10}}, cw = {{0, 0}, {20, 0}, {20, 10}, {0, 10}};
+        check(Boolean.FALSE.equals(Plan.faceOutFlip(loop.apply(ccw))), "a loop drawn counter-clockwise already faces out");
+        check(Boolean.TRUE.equals(Plan.faceOutFlip(loop.apply(cw))), "a loop drawn clockwise flips to face out");
+        check(Plan.faceOutFlip(loop.apply(cw).subList(0, 3)) == null, "an open chain keeps its facing");
+        List<Plan.Line> mixed = new java.util.ArrayList<>(loop.apply(cw));
+        mixed.set(1, mixed.get(1).withFlip(true));
+        check(Plan.faceOutFlip(mixed) == null, "a loop the player flipped in part is left alone");
+    }
+
     /** Edit-mode nodes: a node shared with a built segment can't be dragged (it would move the built end). */
     private static void builtNodes() {
         Plan.Line built = new Plan.Line("wall", 0, 0, 10, 0, "p", "f", 1, 0, false, false).asBuilt(), plan = new Plan.Line("wall", 10, 0, 10, 10, "p", "f", 1, 0, false, false);
@@ -839,6 +855,7 @@ public final class SelfCheck {
         autoConnect();
         builtNodes();
         fillGaps();
+        faceOut();
         List<int[][]> segs = new java.util.ArrayList<>();
         segs.add(new int[][]{{0, 0}, {20, 0}});
         // Ends snap to an existing endpoint near the cursor; otherwise to 45° steps from the previous direction.
@@ -2486,6 +2503,20 @@ public final class SelfCheck {
                     check(c.y() > 0 && tr.apply(c.text()).length() <= 40, "ponder callout anchored above the ground, short: " + c.text());
                 }
                 if (st.cursor != null) com.volcanicmg.mccitybuilder.planner.Ponder.coord(st.cursor[0], 9);
+                // Walls face one way along a chain: at a cell two arms meet (or the two arms of a T / cross in line),
+                // one arrives and one leaves with the same flip, or both arrive / leave with opposite flips.
+                for (var x : segs)
+                    for (var y : segs) {
+                        if (x == y || x.ghost() != y.ghost()) continue;
+                        for (int[] c : new int[][]{{x.x0(), x.z0()}, {x.x1(), x.z1()}}) {
+                            boolean xEnds = c[0] == x.x1() && c[1] == x.z1(), yStarts = c[0] == y.x0() && c[1] == y.z0(), yEnds = c[0] == y.x1() && c[1] == y.z1();
+                            if (!yStarts && !yEnds) continue;
+                            long arms = segs.stream().filter(q -> q.ghost() == x.ghost() && (q.x0() == c[0] && q.z0() == c[1] || q.x1() == c[0] && q.z1() == c[1])).count();
+                            boolean inLine = x.x0() == x.x1() && y.x0() == y.x1() || x.z0() == x.z1() && y.z0() == y.z1();
+                            if (arms > 2 && !inLine) continue;
+                            check((xEnds != yEnds) == (x.flip() == y.flip()), "ponder walls face one way: " + st.caption + " at " + c[0] + "," + c[1]);
+                        }
+                    }
             }
         }
         check(com.volcanicmg.mccitybuilder.planner.Ponder.coord("2L-1", 9) == 17 && com.volcanicmg.mccitybuilder.planner.Ponder.coord("-L", 9) == -9, "ponder L coordinates");

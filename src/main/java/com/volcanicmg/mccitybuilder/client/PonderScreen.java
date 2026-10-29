@@ -223,7 +223,7 @@ final class PonderScreen extends Screen {
                 Ponder.Seg s = segs.get(i);
                 for (int k = 0; s.gap() && k < 2 * longest; k++) {
                     List<Ponder.Seg> plain = new ArrayList<>(segs);
-                    plain.set(i, new Ponder.Seg(s.x0(), s.z0(), s.x1(), s.z1(), s.fit(), false, s.height(), s.dy(), true, s.ghost()));
+                    plain.set(i, new Ponder.Seg(s.x0(), s.z0(), s.x1(), s.z1(), s.fit(), false, s.height(), s.dy(), true, s.ghost(), s.flip()));
                     if (PieceCatalog.layout(lines(plain, tool, fam, ground), types).shortened().get(i) >= 1) break;
                     int dx = Integer.signum(s.x1() - s.x0()), dz = Integer.signum(s.z1() - s.z0());
                     for (int q = 0; q < segs.size(); q++) segs.set(q, moveEnd(segs.get(q), s.x1(), s.z1(), dx, dz));
@@ -324,7 +324,7 @@ final class PonderScreen extends Screen {
                 for (int[] c : cellsOf(s)) base = Math.max(base == Plan.NO_BASE ? Integer.MIN_VALUE : base, Ponder.ground(ground, c[0], c[1]));
         List<Plan.Line> out = new ArrayList<>();
         for (Ponder.Seg s : segs)
-            out.add(new Plan.Line(tool, s.x0(), s.z0(), s.x1(), s.z1(), pack, fam, LineView.level, LineView.variant, false, false, false, s.height(), s.dy(),
+            out.add(new Plan.Line(tool, s.x0(), s.z0(), s.x1(), s.z1(), pack, fam, LineView.level, LineView.variant, false, false, s.flip(), s.height(), s.dy(),
                     s.height() == Plan.CHAIN ? base : Plan.NO_BASE, false, s.fill()));
         return out;
     }
@@ -337,8 +337,8 @@ final class PonderScreen extends Screen {
     }
 
     private static Ponder.Seg moveEnd(Ponder.Seg s, int x, int z, int dx, int dz) {
-        if (s.x1() == x && s.z1() == z) return new Ponder.Seg(s.x0(), s.z0(), x + dx, z + dz, s.fit(), s.fill(), s.height(), s.dy(), s.gap(), s.ghost());
-        if (s.x0() == x && s.z0() == z) return new Ponder.Seg(x + dx, z + dz, s.x1(), s.z1(), s.fit(), s.fill(), s.height(), s.dy(), s.gap(), s.ghost());
+        if (s.x1() == x && s.z1() == z) return new Ponder.Seg(s.x0(), s.z0(), x + dx, z + dz, s.fit(), s.fill(), s.height(), s.dy(), s.gap(), s.ghost(), s.flip());
+        if (s.x0() == x && s.z0() == z) return new Ponder.Seg(x + dx, z + dz, s.x1(), s.z1(), s.fit(), s.fill(), s.height(), s.dy(), s.gap(), s.ghost(), s.flip());
         return s;
     }
 
