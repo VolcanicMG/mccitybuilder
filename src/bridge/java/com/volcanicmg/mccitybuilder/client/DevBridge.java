@@ -120,6 +120,17 @@ public final class DevBridge {
             });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
+            // yaw pitch zoom: the 3D views held still at that view (dragging stops the turning); "free" lets go.
+            case "/view" -> client(() -> {
+                if (a[0].equals("free")) PieceView.dragging = false;
+                else {
+                    PieceView.yaw = Float.parseFloat(a[0]);
+                    PieceView.pitch = Float.parseFloat(a[1]);
+                    PieceView.zoom = Float.parseFloat(a[2]);
+                    PieceView.dragging = true;
+                }
+                return "ok";
+            });
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");

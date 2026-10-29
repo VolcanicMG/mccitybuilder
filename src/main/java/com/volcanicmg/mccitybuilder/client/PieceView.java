@@ -17,8 +17,6 @@ import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.RenderShape;
@@ -118,69 +116,105 @@ final class PieceView {
         ModelData at(int x, int y, int z);
     }
 
-    /** @return the face shading the world gives a face this way (up full, down half, north / south 0.8, east / west 0.6) */
-    private static float shade(net.minecraft.core.Direction d) {
-        return switch (d) {
-            case UP -> 1f;
-            case DOWN -> 0.5f;
-            case NORTH, SOUTH -> 0.8f;
-            default -> 0.6f;
-        };
+    /** Full light (sky and block 15): scenes look the same by day and by night. */
+    private static final com.ldtteam.common.fakelevel.IFakeLevelLightProvider FULL_LIGHT = new com.ldtteam.common.fakelevel.IFakeLevelLightProvider() {
+        @Override
+        public boolean forceOwnLightLevel() {
+            return true;
+        }
+
+        @Override
+        public int getBlockLight(BlockPos pos) {
+            return 15;
+        }
+
+        @Override
+        public int getSkyDarken() {
+            return 0;
+        }
+    };
+
+    /** A box of blocks as a fake level's block source (Structurize's substitution leaves nothing there). */
+    private record Box(int sx, int sy, int sz, Blocks blocks) implements com.ldtteam.common.fakelevel.IFakeLevelBlockGetter {
+        @Override
+        public int getSizeX() {
+            return sx;
+        }
+
+        @Override
+        public int getSizeZ() {
+            return sz;
+        }
+
+        @Override
+        public int getHeight() {
+            return sy;
+        }
+
+        @Override
+        public BlockState getBlockState(BlockPos p) {
+            if (p.getX() < 0 || p.getY() < 0 || p.getZ() < 0 || p.getX() >= sx || p.getY() >= sy || p.getZ() >= sz) return AIR;
+            BlockState st = blocks.at(p.getX(), p.getY(), p.getZ());
+            return st == null || st.getBlock() == com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get() ? AIR : st;
+        }
+
+        @Override
+        public net.minecraft.world.level.block.entity.BlockEntity getBlockEntity(BlockPos p) {
+            return null;
+        }
+
+        @Override
+        public net.minecraft.world.level.material.FluidState getFluidState(BlockPos p) {
+            return getBlockState(p).getFluidState();
+        }
     }
 
+    private static final BlockState AIR = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+
     /**
-     * Bakes blocks of a box: each face shaded the way the world shades it, faces against a neighbouring opaque block
-     * left out (they never show).
+     * Bakes blocks of a box the way chunks are built: each block through the world's block renderer over a fake level
+     * of the box (ambient occlusion, the level's face shading, faces hidden by neighbours culled as in the world,
+     * biome tints where the player is), full light, each model render type into its own buffer.
      */
     private static Map<RenderType, VertexBuffer> bake(int sx, int sy, int sz, Blocks blocks, int max, Data data) {
         Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return Map.of();
         var br = mc.getBlockRenderer();
+        var level = new com.ldtteam.common.fakelevel.FakeLevel<>(new Box(sx, sy, sz, blocks), FULL_LIGHT, mc.level, null, true);
+        // Biome tints (grass, leaves) of where the player looks from, like the world around the view.
+        level.setWorldPos(mc.gameRenderer.getMainCamera().getBlockPosition());
         Map<RenderType, ByteBufferBuilder> memory = new LinkedHashMap<>();
         Map<RenderType, BufferBuilder> builders = new LinkedHashMap<>();
         PoseStack pose = new PoseStack();
-        RandomSource rand = RandomSource.create(42);
+        RandomSource rand = RandomSource.create();
         int n = 0;
         try {
-        for (int y = 0; y < sy && n < max; y++)
-            for (int z = 0; z < sz; z++)
-                for (int x = 0; x < sx; x++) {
-                    BlockState st = blocks.at(x, y, z);
-                    if (st == null) continue;
-                    if (st.isAir() || st.getRenderShape() != RenderShape.MODEL || st.getBlock() == com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get())
-                        continue;
-                    BakedModel model = br.getBlockModel(st);
-                    ModelData md = data == null ? ModelData.EMPTY : data.at(x, y, z);
-                    int c = mc.getBlockColors().getColor(st, null, null, 0);
-                    float r = (c >> 16 & 255) / 255f, g = (c >> 8 & 255) / 255f, b = (c & 255) / 255f;
-                    pose.pushPose();
-                    pose.translate(x, y, z);
-                    rand.setSeed(42);
-                    for (RenderType chunk : model.getRenderTypes(st, rand, md)) {
-                        // The block render types: lit by the lightmap and the baked face shading, like blocks in the world (the entity
-                        // types' directional lights darkened everything); translucent stays an entity type (its world target isn't drawn here).
-                        RenderType rt = chunk == RenderType.translucent() ? RenderTypeHelper.getEntityRenderType(chunk, false) : chunk;
-                        BufferBuilder bb = builders.computeIfAbsent(rt, k -> {
-                            ByteBufferBuilder mem = new ByteBufferBuilder(k.bufferSize());
-                            memory.put(k, mem);
-                            return new BufferBuilder(mem, k.mode(), k.format());
-                        });
-                        for (net.minecraft.core.Direction d : FACES) {
-                            if (d != null) {
-                                int nx = x + d.getStepX(), ny = y + d.getStepY(), nz = z + d.getStepZ();
-                                BlockState nb = nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz ? null : blocks.at(nx, ny, nz);
-                                if (nb != null && nb.canOcclude() && nb.getRenderShape() == RenderShape.MODEL) continue;
-                            }
-                            rand.setSeed(42);
-                            for (var q : model.getQuads(st, d, rand, md, chunk)) {
-                                float f = q.isShade() ? shade(q.getDirection()) : 1f;
-                                float tr = q.isTinted() ? r : 1f, tg = q.isTinted() ? g : 1f, tb = q.isTinted() ? b : 1f;
-                                bb.putBulkData(pose.last(), q, tr * f, tg * f, tb * f, 1f, 0xF000F0, OverlayTexture.NO_OVERLAY);
-                            }
+            for (int y = 0; y < sy && n < max; y++)
+                for (int z = 0; z < sz; z++)
+                    for (int x = 0; x < sx; x++) {
+                        BlockPos p = new BlockPos(x, y, z);
+                        BlockState st = level.getBlockState(p);
+                        if (st.isAir() || st.getRenderShape() != RenderShape.MODEL) continue;
+                        ModelData md = data == null ? ModelData.EMPTY : data.at(x, y, z);
+                        md = br.getBlockModel(st).getModelData(level, p, st, md);
+                        long seed = st.getSeed(p);
+                        rand.setSeed(seed);
+                        pose.pushPose();
+                        pose.translate(x, y, z);
+                        for (RenderType chunk : br.getBlockModel(st).getRenderTypes(st, rand, md)) {
+                            // Translucent stays an entity type (its world target isn't drawn here).
+                            RenderType rt = chunk == RenderType.translucent() ? RenderTypeHelper.getEntityRenderType(chunk, false) : chunk;
+                            BufferBuilder bb = builders.computeIfAbsent(rt, k -> {
+                                ByteBufferBuilder mem = new ByteBufferBuilder(k.bufferSize());
+                                memory.put(k, mem);
+                                return new BufferBuilder(mem, k.mode(), k.format());
+                            });
+                            rand.setSeed(seed);
+                            br.renderBatched(st, p, level, pose, bb, true, rand, md, chunk);
                         }
+                        pose.popPose();
+                        n++;
                     }
-                    pose.popPose();
-                    n++;
-                }
         } catch (RuntimeException e) {
             memory.values().forEach(ByteBufferBuilder::close);
             throw e;
@@ -205,14 +239,6 @@ final class PieceView {
         return out;
     }
 
-    /**
-     * Draws the piece into the box at (x, y), w by h GUI pixels.
-     *
-     * @param key a stable id for the piece (it is baked once)
-     */
-    private static final net.minecraft.core.Direction[] FACES = {null, net.minecraft.core.Direction.UP, net.minecraft.core.Direction.DOWN, net.minecraft.core.Direction.NORTH,
-            net.minecraft.core.Direction.SOUTH, net.minecraft.core.Direction.WEST, net.minecraft.core.Direction.EAST};
-
     /** Bakes a box of blocks under {@code key} once (a help scene's plate); null states are empty. */
     static void bakeBlocks(String key, int sx, int sy, int sz, Blocks blocks) {
         if (baked.containsKey(key)) return;
@@ -224,6 +250,11 @@ final class PieceView {
         }
     }
 
+    /**
+     * Draws the piece into the box at (x, y), w by h GUI pixels.
+     *
+     * @param key a stable id for the piece (it is baked once)
+     */
     static void render(GuiGraphics g, String key, Blueprint bp, int x, int y, int w, int h) {
         long now = System.currentTimeMillis();
         if (!dragging && last != 0) yaw += Math.min(100, now - last) * 0.02f;
