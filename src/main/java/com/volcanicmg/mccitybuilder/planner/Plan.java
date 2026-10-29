@@ -361,6 +361,70 @@ public final class Plan {
         return -1;
     }
 
+    /**
+     * Auto-connect: the line tool reaches an end {@code target} off its start's axes with two segments, start -> elbow
+     * -> target (an L at the elbow, the target end joined). An elbow is usable when neither segment lies along or
+     * crosses a segment of the same tool, nothing of that tool is at the elbow, and neither leaves start / enters the
+     * target along an arm already there.
+     *
+     * @param preferDir the first segment's preferred direction (0 east .. 3 north; -1 none): its elbow comes first
+     * @return the usable elbows {x, z}, preferred first; empty when start and target share an axis (plain end snapping)
+     */
+    public static List<int[]> elbows(List<Line> lines, String tool, int[] start, int[] target, int preferDir) {
+        List<int[]> out = new java.util.ArrayList<>();
+        if (start[0] == target[0] || start[1] == target[1]) return out;
+        List<Line> same = new java.util.ArrayList<>();
+        for (Line l : lines) if (l.tool().equals(tool)) same.add(l);
+        for (int[] e : new int[][]{{target[0], start[1]}, {start[0], target[1]}}) {
+            boolean ok = !arms(same, start).contains(dirOf(start[0], start[1], e[0], e[1])) && !arms(same, target).contains(dirOf(target[0], target[1], e[0], e[1]));
+            for (Line l : same) ok &= !touches(l, e);
+            for (int[][] leg : new int[][][]{{start, e}, {e, target}}) {
+                Line run = new Line(tool, leg[0][0], leg[0][1], leg[1][0], leg[1][1], "", "", 0, 0, false, false);
+                ok &= crossings(same, run, l -> false).isEmpty();
+                for (Line l : same) ok &= !overlaps(l, run) && !diagonalOn(l, run, start, target);
+            }
+            if (ok) out.add(e);
+        }
+        if (out.size() == 2 && dirOf(start[0], start[1], out.get(1)[0], out.get(1)[1]) == preferDir) java.util.Collections.reverse(out);
+        return out;
+    }
+
+    /** @return true when cell c is on axis segment l (ends included) */
+    private static boolean touches(Line l, int[] c) {
+        return c[0] >= Math.min(l.x0(), l.x1()) && c[0] <= Math.max(l.x0(), l.x1()) && c[1] >= Math.min(l.z0(), l.z1()) && c[1] <= Math.max(l.z0(), l.z1())
+                && (l.x0() == l.x1() || l.z0() == l.z1());
+    }
+
+    /** @return true when diagonal segment d passes a cell of axis run r other than the route's ends s and t */
+    private static boolean diagonalOn(Line d, Line r, int[] s, int[] t) {
+        if (d.x0() == d.x1() || d.z0() == d.z1()) return false;
+        int n = Math.max(Math.abs(d.x1() - d.x0()), Math.abs(d.z1() - d.z0())), sx = Integer.signum(d.x1() - d.x0()), sz = Integer.signum(d.z1() - d.z0());
+        for (int k = 0; k <= n; k++) {
+            int[] c = {d.x0() + sx * k, d.z0() + sz * k};
+            if (!(c[0] == s[0] && c[1] == s[1]) && !(c[0] == t[0] && c[1] == t[1]) && touches(r, c)) return true;
+        }
+        return false;
+    }
+
+    /** @return true when axis segments a and b lie along each other for two or more cells */
+    private static boolean overlaps(Line a, Line b) {
+        if (a.x0() != a.x1() && a.z0() != a.z1()) return false;
+        boolean ax = a.z0() == a.z1(), bx = b.z0() == b.z1();
+        if (ax != bx || (ax ? a.z0() != b.z0() : a.x0() != b.x0())) return false;
+        int alo = ax ? Math.min(a.x0(), a.x1()) : Math.min(a.z0(), a.z1()), ahi = ax ? Math.max(a.x0(), a.x1()) : Math.max(a.z0(), a.z1());
+        int blo = ax ? Math.min(b.x0(), b.x1()) : Math.min(b.z0(), b.z1()), bhi = ax ? Math.max(b.x0(), b.x1()) : Math.max(b.z0(), b.z1());
+        return Math.min(ahi, bhi) > Math.max(alo, blo);
+    }
+
+    /**
+     * Edit mode's node at cell c (a joint or a free end): draggable only when every segment ending there can move.
+     * Dragging a node moves all of them, so a node shared with a built (or sending) segment doesn't drag.
+     */
+    public static boolean nodeMovable(List<Line> lines, int[] c, java.util.function.Predicate<Line> locked) {
+        for (Line l : lines) for (int[] e : l.ends()) if (e[0] == c[0] && e[1] == c[1] && locked.test(l)) return false;
+        return true;
+    }
+
     /** @return the directions out of cell {@code c} along the segments ending there (a joint's arms) */
     public static java.util.Set<Integer> arms(List<Line> lines, int[] c) {
         java.util.Set<Integer> out = new java.util.TreeSet<>();

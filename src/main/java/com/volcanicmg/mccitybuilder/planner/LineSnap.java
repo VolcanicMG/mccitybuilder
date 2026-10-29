@@ -74,6 +74,18 @@ public final class LineSnap {
         return new int[]{start[0] + (int) Math.round(cos * len), start[1] + (int) Math.round(sin * len)};
     }
 
+    /**
+     * Auto-connect's target: the free end nearest the cursor within {@code r} blocks (fixed, not the zoom-scaled snap
+     * radius: the cursor must be on it), off both of the start's axes (an end on one is plain end snapping).
+     *
+     * @param freeEnds the ends a connect may join (one segment there, not built)
+     * @return that end, or null
+     */
+    public static int[] connectTarget(int[] start, double cx, double cz, List<int[]> freeEnds, double r) {
+        int[] e = nearEndpoint(cx, cz, List.<int[][]>of(freeEnds.toArray(new int[0][])), r);
+        return e == null || e[0] == start[0] || e[1] == start[1] ? null : e.clone();
+    }
+
     /** @return the segment's length in blocks (cells along it, end excluded) */
     public static int length(int[] a, int[] b) {
         return Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));

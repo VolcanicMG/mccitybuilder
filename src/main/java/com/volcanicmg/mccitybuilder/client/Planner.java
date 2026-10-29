@@ -263,6 +263,7 @@ public final class Planner {
         active = false;
         Minecraft mc = Minecraft.getInstance();
         stopPlacing();
+        PlannerScreen.tipStep = -1;
         PlanView.hide();
         selected = null;
         selectedDeco = hoveredDeco = null;

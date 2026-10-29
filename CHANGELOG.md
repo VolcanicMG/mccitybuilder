@@ -2,6 +2,15 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Controls guide: two aligned columns, one short action per row, an even rhythm; compact by default with an
+  All / Less button (remembered).
+- Road / wall tool: "How roads and walls work" (? on the line panel: pages on pieces, joints, height, gaps, edit mode,
+  building and colours), first-use coach tips (Replay tips in the help), and warnings that say how to fix them.
+- Road / wall tool: hovering an existing end off the live segment's axes connects to it ("connect: L"): two segments
+  through an elbow that crosses and overlaps nothing (R: the other elbow), dropped in one click and one undo step;
+  the chain ends there.
+- Built roads / walls: right-click no longer removes them (Del / Remove still do), and edit mode shows no nodes or
+  handles on them (a joint shared with a built segment included); a click still selects one.
 - Citizen icons show what they hold (sword, bow, tool) with an armour badge; builders show their tool; tooltips say
   "Holding" / "Armour".
 - Joint menu rows show the alignment percentage and flip walls when that aligns better; the 1-block gap at

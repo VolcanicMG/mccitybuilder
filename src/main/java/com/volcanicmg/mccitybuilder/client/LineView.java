@@ -70,6 +70,14 @@ final class LineView {
     // segment goes straight on from the chain's last one (dropped as its extension).
     private static int[] adjust;
     private static boolean merge;
+    // Auto-connect: the hovered end off the start's axes is reached through this elbow (null: none); the other usable
+    // elbow is shown instead (R), the live segment's last direction (the elbow continuing it comes first), and whether
+    // both segments are long enough for a piece (the first segment's need checked in aim).
+    private static int[] connect, connectTo;
+    private static boolean elbowAlt, connectFits;
+    private static int lastDir = -1;
+    // How close (blocks, whatever the zoom) the cursor must be to an end for a connect.
+    private static final double CONNECT_R = 1.5;
     // The chain's last segment grows by this vector at the corner the live segment makes (null: no growth).
     private static int[] grow;
     // The live layout's joint / cap offsets at {start, end} (length snapping tiles between them), its flat level.
@@ -119,7 +127,9 @@ final class LineView {
             if (m != PlanView.lines) PlanView.setLines(m);
         }
         startSplit = null;
-        start = prevDir = end = null;
+        start = prevDir = end = connect = connectTo = null;
+        lastDir = -1;
+        elbowAlt = false;
         chainBase = Plan.NO_BASE;
         liveOffs = null;
         chain.clear();
@@ -214,14 +224,16 @@ final class LineView {
             b = end;
             // Turning off the chain's last segment: the corner takes cells from it, so it grows to keep its straights
             // whole and this segment moves out with the corner (shown live, applied on the click).
-            grow = chainGrowth(end);
+            // Connecting: the first segment turns off the chain's last one (that one grows, the elbow moves with it
+            // along the second segment); the hovered end stays.
+            grow = connect == null ? chainGrowth(end) : straightOn(connect) ? null : chainGrowth(connect);
             if (grow != null) {
                 a = new int[]{start[0] + grow[0], start[1] + grow[1]};
-                b = new int[]{end[0] + grow[0], end[1] + grow[1]};
+                if (connect == null) b = new int[]{end[0] + grow[0], end[1] + grow[1]};
             }
         }
         int[] key = {a[0], a[1], b[0], b[1], start == null ? 0 : 1, PlanView.layoutVersion,
-                Objects.hash(tool, fam, PlannerScreen.pack(), level, variant, towers, gate, flip, heightMode, dy, chainBase),
+                Objects.hash(tool, fam, PlannerScreen.pack(), level, variant, towers, gate, flip, heightMode, dy, chainBase, java.util.Arrays.hashCode(connect)),
                 liveIncomplete ? PieceCatalog.loadVersion * 31 + (int) (System.currentTimeMillis() / 500) : 0};
         if (!LineSnap.relayout(liveKey, key)) return;
         liveKey = key;
@@ -266,6 +278,15 @@ final class LineView {
                 Plan.Line prev = chain.get(chain.size() - 1);
                 nl = prev.between(prev.x0(), prev.z0(), b[0], b[1]);
             }
+            // Connecting: the first segment to the elbow, the live one from there to the hovered end.
+            Plan.Line leg = connect == null ? null : next(a, elbowNow());
+            if (leg != null) {
+                // Straight on from the chain's last segment: that one extends to the elbow, as the click does.
+                Plan.Line prev = chain.isEmpty() ? null : chain.get(chain.size() - 1);
+                if (straightOn(connect) && all.remove(prev)) leg = prev.between(prev.x0(), prev.z0(), connect[0], connect[1]);
+                all.add(leg);
+                nl = next(elbowNow(), b);
+            }
             all.add(nl);
             // Passing through a segment: both split there (an intersection), as the click will.
             List<int[]> cs = new ArrayList<>();
@@ -278,10 +299,15 @@ final class LineView {
             int last = all.size() - 1;
             List<PieceCatalog.Placed> ps = new ArrayList<>(lay.lines().get(last));
             for (Plan.Line part : parts) if (part != parts.get(parts.size() - 1)) ps.addAll(lay.lines().get(all.indexOf(part)));
+            if (leg != null) {
+                int li = all.indexOf(leg);
+                ps.addAll(lay.lines().get(li));
+                connectFits = LineSnap.canDrop(LineSnap.length(new int[]{leg.x0(), leg.z0()}, elbowNow()) + 1, lay.need().get(li));
+            }
             // The segments the live one attaches to are laid out with it (their joint, cap, shift, heights change):
             // their pieces come from this layout, and the plan stops drawing its own for them (PlanView.liveTouched).
             for (int k = 0; k < last; k++)
-                if (onLine(all.get(k), a) || onLine(all.get(k), b) || crossed(all.get(k)))
+                if (onLine(all.get(k), a) || onLine(all.get(k), b) || crossed(all.get(k)) || connect != null && onLine(all.get(k), elbowNow()))
                     for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
             boolean wasEmpty = live.isEmpty();
             live = ps;
@@ -294,7 +320,8 @@ final class LineView {
             liveOffs = lay.offs().get(last);
             liveY = lay.heights().get(last)[0];
             liveSegMax = lay.heights().get(last)[1];
-            liveLen = LineSnap.length(a, b) + 1;
+            if (leg != null) liveSegMax = Math.max(liveSegMax, lay.heights().get(all.indexOf(leg))[1]);
+            liveLen = LineSnap.length(connect != null ? elbowNow() : a, b) + 1;
             complete = lay.complete();
         }
         List<int[]> buildings = PlanView.buildingBoxes();
@@ -411,7 +438,8 @@ final class LineView {
             select(List.of(), false);
             selectedJoint = hoverJoint.clone();
             openJointMenu();
-            if (from != null) startDrag(2, List.of(selectedJoint), from);
+            // A node a built segment ends at opens the menu but never drags (that end can't move).
+            if (from != null && Plan.nodeMovable(PlanView.lines, selectedJoint, PlanView::locked)) startDrag(2, List.of(selectedJoint), from);
             return;
         }
         if (line < 0) {
@@ -421,7 +449,8 @@ final class LineView {
         boolean whole = wholeMode || alt || dbl;
         if (!sel.contains(line) || whole && !selWhole || dbl) select(whole ? Plan.connected(PlanView.lines, line) : List.of(line), whole);
         else if (hoverMid < 0 && !sel.contains(body)) return;
-        if (from == null) return;
+        // A built segment is selected (Del / Remove), never dragged.
+        if (from == null || sel.stream().anyMatch(i -> i < PlanView.lines.size() && PlanView.locked(PlanView.lines.get(i)))) return;
         List<int[]> pts = new ArrayList<>();
         for (int i : sel) for (int[] e : PlanView.lines.get(i).ends()) if (pts.stream().noneMatch(p -> p[0] == e[0] && p[1] == e[1])) pts.add(e);
         startDrag(1, pts, from);
@@ -795,6 +824,7 @@ final class LineView {
     private static int[] snapEnd(double cx, double cz, List<int[][]> segs, double r) {
         adjust = null;
         merge = false;
+        connect = null;
         // Another segment's end, from any side: a joint exactly there (its free end may move onto this line).
         int bestI = -1, bestK = -1;
         double bd = r * r;
@@ -880,6 +910,22 @@ final class LineView {
             snap = "tee_end";
             snapPoints = List.of(teeCell);
         }
+        // Right on a free end off the start's axes, and no T: two segments reach it through an elbow (an L there).
+        int[] ct = pass != null ? null : LineSnap.connectTarget(start, cx, cz, freeEnds(), CONNECT_R);
+        if (!java.util.Arrays.equals(ct, connectTo)) {
+            connectTo = ct;
+            elbowAlt = false;
+            connectFits = false;
+        }
+        int[] el = ct == null ? null : elbow(ct);
+        if (el != null) {
+            connect = el;
+            jointPoints(ct);
+            snap = "connect";
+            snapPoints = List.of(ct, el);
+            return ct.clone();
+        }
+        lastDir = dir;
         Plan.Line nl = next(start, raw);
         int[] lens = PieceCatalog.runLengths(nl);
         if (liveOffs != null && lens.length > 0 && !net.minecraft.client.gui.screens.Screen.hasShiftDown()) {
@@ -908,11 +954,47 @@ final class LineView {
     }
 
     /**
+     * @return the elbow reaching end {@code e} from the start ({@link Plan#elbows}), inside the claims: the one continuing
+     * the live segment's last direction (else turning off the previous segment) first, the other with R; null for none
+     */
+    private static int[] elbow(int[] e) {
+        int pref = lastDir;
+        if (pref < 0 && prevDir != null) pref = prevDir[0] == 0 ? (e[0] > start[0] ? 0 : 2) : (e[1] > start[1] ? 1 : 3);
+        List<int[]> els = new ArrayList<>();
+        for (int[] el : Plan.elbows(PlanView.lines, tool, start, e, pref)) if (!outside(next(start, el)) && !outside(next(el, e))) els.add(el);
+        if (els.isEmpty()) return null;
+        return els.get(elbowAlt && els.size() > 1 ? 1 : 0);
+    }
+
+    /** @return the free ends (one segment, not built or sending) of the tool's segments: what a connect may join */
+    private static List<int[]> freeEnds() {
+        List<int[]> out = new ArrayList<>();
+        for (Plan.Line l : PlanView.lines)
+            if (l.tool().equals(tool) && !PlanView.locked(l)) for (int[] e : l.ends()) if (endCount(e) == 1) out.add(e);
+        return out;
+    }
+
+    /** @return true when a segment from the start to {@code e} goes straight on from the chain's last one (it extends it) */
+    private static boolean straightOn(int[] e) {
+        if (chain.isEmpty() || prevDir == null || PlanView.locked(chain.get(chain.size() - 1))) return false;
+        return Integer.signum(prevDir[0]) == Integer.signum(e[0] - start[0]) && Integer.signum(prevDir[1]) == Integer.signum(e[1] - start[1]);
+    }
+
+    /** R while connecting: the other elbow. @return false when not connecting (R flips the segments then) */
+    static boolean flipElbow() {
+        if (connect == null) return false;
+        elbowAlt = !elbowAlt;
+        connectFits = false;
+        liveKey = null;
+        return true;
+    }
+
+    /**
      * @return how far (as a vector) the chain's last segment grows at its end so its straights stay whole once the
      * corner the live segment makes takes its cells, or null (no corner, a snapped end, locked, already fitting)
      */
     private static int[] chainGrowth(int[] e) {
-        if (chain.isEmpty() || merge || adjust != null || e == null || e[0] == start[0] && e[1] == start[1] || snap != null && !snap.equals("pieces")) return null;
+        if (chain.isEmpty() || merge || adjust != null || e == null || e[0] == start[0] && e[1] == start[1] || snap != null && !snap.equals("pieces") && !snap.equals("connect")) return null;
         Plan.Line prev = chain.get(chain.size() - 1);
         int idx = PlanView.lines.indexOf(prev);
         if (idx < 0 || PlanView.locked(prev) || prev.x1() != start[0] || prev.z1() != start[1] || endCount(start) != 1 || idx >= PlanView.lineOffs.size()) return null;
@@ -1021,42 +1103,21 @@ final class LineView {
             return true;
         }
         if (end == null || end[0] == start[0] && end[1] == start[1]) return true;
-        if (outside(next(start, end))) {
-            flash = "mccitybuilder.line.outside";
-            flashUntil = System.currentTimeMillis() + 1500;
-            return false;
-        }
+        if (connect != null) return clickConnect();
+        if (refused(start, end)) return false;
         if (!LineSnap.canDrop(liveLen, liveNeed)) {
             flash = liveNeed == Integer.MAX_VALUE ? "mccitybuilder.line.no_fit" : "mccitybuilder.line.too_short";
             flashArg = liveNeed;
             flashUntil = System.currentTimeMillis() + 1500;
             return false;
         }
-        // Through a built or sending segment, or a built joint piece: no intersection there (it can't change); along a
-        // segment already there: it would overlap.
-        for (int[] c : Plan.crossings(PlanView.lines, next(start, end), PlanView::locked))
-            if (c[2] != 0 || Plan.builtJointAt(PlanView.builtPieces.values(), c)) {
-                flash = c[2] == 2 ? "mccitybuilder.line.on_arm" : "mccitybuilder.line.cross_built." + (wall() ? "wall" : "road");
-                flashUntil = System.currentTimeMillis() + 2500;
-                return false;
-            }
-        // A new arm where a built joint piece already stands would need another piece there: refused. A built
-        // segment's plain end has none: the new joint is placed at its level.
-        for (int[] c : new int[][]{start, end}) {
-            if (Plan.builtJointAt(PlanView.builtPieces.values(), c)) {
-                flash = "mccitybuilder.line.joint_built";
-                flashUntil = System.currentTimeMillis() + 2500;
-                return false;
-            }
-        }
-        // Out of (or into) a joint: only on an open side, never along an arm already there.
-        int sd = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(start, end);
-        if (Plan.arms(PlanView.lines, start).contains(sd) || Plan.arms(PlanView.lines, end).contains((sd + 2) % 4)) {
-            flash = "mccitybuilder.line.on_arm";
-            flashUntil = System.currentTimeMillis() + 2000;
-            return false;
-        }
         checkpoint();
+        drop();
+        return true;
+    }
+
+    /** Drops the live segment start -> end (with the chain's grow / merge / moved end / T split), the chain going on from its end. */
+    private static void drop() {
         // A segment is dropped: the branch's split stays.
         startSplit = null;
         // The chain's last segment grows for the corner; this segment starts at the grown end.
@@ -1125,7 +1186,79 @@ final class LineView {
         // A gate is for one segment.
         gate = false;
         clearLive();
+    }
+
+    /** @return true (with a hint) when segment s -> e may not be dropped: outside, through built, onto a built joint or along an arm */
+    private static boolean refused(int[] s, int[] e) {
+        if (outside(next(s, e))) {
+            flash = "mccitybuilder.line.outside";
+            flashUntil = System.currentTimeMillis() + 1500;
+            return true;
+        }
+        // Through a built or sending segment, or a built joint piece: no intersection there (it can't change); along a
+        // segment already there: it would overlap.
+        for (int[] c : Plan.crossings(PlanView.lines, next(s, e), PlanView::locked))
+            if (c[2] != 0 || Plan.builtJointAt(PlanView.builtPieces.values(), c)) {
+                flash = c[2] == 2 ? "mccitybuilder.line.on_arm" : "mccitybuilder.line.cross_built." + (wall() ? "wall" : "road");
+                flashUntil = System.currentTimeMillis() + 2500;
+                return true;
+            }
+        // A new arm where a built joint piece already stands would need another piece there: refused. A built
+        // segment's plain end has none: the new joint is placed at its level.
+        for (int[] c : new int[][]{s, e}) {
+            if (Plan.builtJointAt(PlanView.builtPieces.values(), c)) {
+                flash = "mccitybuilder.line.joint_built";
+                flashUntil = System.currentTimeMillis() + 2500;
+                return true;
+            }
+        }
+        // Out of (or into) a joint: only on an open side, never along an arm already there.
+        int sd = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(s, e);
+        if (Plan.arms(PlanView.lines, s).contains(sd) || Plan.arms(PlanView.lines, e).contains((sd + 2) % 4)) {
+            flash = "mccitybuilder.line.on_arm";
+            flashUntil = System.currentTimeMillis() + 2000;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Drops an auto-connect: both segments (start -> elbow -> the hovered end) in one undo step; the hovered end becomes
+     * their joint and the chain ends there, as when a ring closes.
+     */
+    private static boolean clickConnect() {
+        int[] el0 = connect, el = elbowNow(), target = end, s1 = grow == null ? start : new int[]{start[0] + grow[0], start[1] + grow[1]};
+        // The grown elbow must still leave the second segment pointing at the end, long enough for its pieces.
+        boolean passed = el[0] == target[0] && el[1] == target[1] || Integer.signum(target[0] - el[0]) != Integer.signum(target[0] - el0[0])
+                || Integer.signum(target[1] - el[1]) != Integer.signum(target[1] - el0[1]);
+        if (passed || !connectFits || !LineSnap.canDrop(liveLen, liveNeed)) {
+            flash = "mccitybuilder.line.connect_short";
+            flashUntil = System.currentTimeMillis() + 2000;
+            return false;
+        }
+        if (refused(s1, el) || refused(el, target)) return false;
+        checkpoint();
+        // The first segment drops as a normal one: it extends the chain's last segment, or that one grows for the
+        // corner (grow, as previewed: the drop moves the elbow with it).
+        connect = connectTo = null;
+        adjust = null;
+        teeCell = null;
+        snap = null;
+        end = el0;
+        merge = straightOn(el0);
+        drop();
+        // The second, from the elbow to the end: the L closes there.
+        merge = false;
+        grow = null;
+        end = target;
+        drop();
+        endChain();
         return true;
+    }
+
+    /** @return the connect's elbow as dropped: moved with the chain's last segment when that one grows for the corner */
+    private static int[] elbowNow() {
+        return grow == null ? connect : new int[]{connect[0] + grow[0], connect[1] + grow[1]};
     }
 
     /** @return the segment with end {@code k} (0 = start) moved to (x, z) */
@@ -1347,8 +1480,13 @@ final class LineView {
         else dy = Math.max(-64, Math.min(64, dy + d));
     }
 
+    /** @return true when the segment under the cursor is built (or on its way): right-click never removes it */
+    static boolean hoverBuilt() {
+        return hoverLine >= 0 && hoverLine < PlanView.lines.size() && PlanView.locked(PlanView.lines.get(hoverLine));
+    }
+
     /**
-     * Del / right-click / Remove: deletes the hovered planned segment (or the selected one); Undo brings it back.
+     * Del / right-click (planned segments only) / Remove: deletes the hovered planned segment (or the selected one); Undo brings it back.
      *
      * @return false when there was none
      */

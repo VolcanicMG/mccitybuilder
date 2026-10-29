@@ -2,6 +2,7 @@ package com.volcanicmg.mccitybuilder;
 
 import com.volcanicmg.mccitybuilder.planner.Hints;
 import com.volcanicmg.mccitybuilder.planner.HutCatalog;
+import com.volcanicmg.mccitybuilder.planner.LineHelp;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -58,12 +59,119 @@ public final class PlannerPreview {
         frame(a, bx2, by2, bw2, 28);
         String[] icons = {"place", "rotate", "mirror", "up", "down", "cancel"};
         for (int i = 0; i < icons.length; i++) iconButton(a, icons[i], bx2 + 4 + i * 22, by2 + 4);
-        guide(a, sw, sh, tr);
+        guide(a, List.of("adjusting"), false, sw, sh, tr);
         g.dispose();
         File out = new File(args[0]);
         if (out.getParentFile() != null) out.getParentFile().mkdirs();
         ImageIO.write(img, "png", out);
         System.out.println("wrote " + out);
+        // The guide alone per planner state, compact and with every row, beside the mock: <name>-guide-<state>-<compact|all>.png.
+        String base = out.getPath().replaceAll("\\.png$", "");
+        for (List<String> ids : List.of(List.of("browse", "view"), List.of("line"), List.of("placing"), List.of("adjusting"), List.of("planned"), List.of("selected")))
+            for (boolean all : new boolean[]{false, true})
+                guidePng(ids, all, tr, new File(base + "-guide-" + ids.get(0) + (all ? "-all" : "-compact") + ".png"));
+        // The road / wall help pages and the coach tips: <name>-help-<n>-<page>.png, <name>-tip-<n>-<id>.png.
+        for (int i = 0; i < LineHelp.PAGES.size(); i++) helpPng(i, tr, new File(base + "-help-" + (i + 1) + "-" + LineHelp.PAGES.get(i).id() + ".png"));
+        for (int i = 0; i < LineHelp.TIPS.size(); i++) tipPng(i, tr, new File(base + "-tip-" + (i + 1) + "-" + LineHelp.TIPS.get(i)[0] + ".png"));
+    }
+
+    /** One help page as LineHelpScreen draws it, at GUI scale 2. */
+    private static void helpPng(int page, Function<String, String> tr, File f) throws Exception {
+        int w = LineHelp.W, h = LineHelp.H, p = LineHelp.PAD;
+        BufferedImage img = new BufferedImage((w + 8) * 2, (h + 8) * 2, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        McAssets a = new McAssets(g, 2);
+        a.fill(0, 0, w + 8, h + 8, 0xFF262626);
+        int x = 4, y = 4;
+        frame(a, x, y, w, h);
+        LineHelp.Page pg = LineHelp.PAGES.get(page);
+        a.text(tr.apply("mccitybuilder.help.title"), x + p, y + p, LABEL);
+        String num = (page + 1) + " / " + LineHelp.PAGES.size();
+        a.text(num, x + w - p - a.width(num), y + p, 0xFF707070);
+        a.text(tr.apply("mccitybuilder.help." + pg.id() + ".title"), x + p, y + p + 14, 0xFF206080);
+        a.fill(x + p, y + p + 24, w - 2 * p, 1, SLOT_BG);
+        int ty = y + p + 30;
+        if (pg.diagram() == null) {
+            for (int i = 0; i < LineHelp.LEGEND.size(); i++) {
+                int ry = ty + i * 13;
+                a.fill(x + p, ry, 10, 10, 0xFF202020);
+                a.fill(x + p + 1, ry + 1, 8, 8, LineHelp.LEGEND_COLOURS[i]);
+                a.text(tr.apply("mccitybuilder.help.colours." + LineHelp.LEGEND.get(i)), x + p + 16, ry + 1, LABEL);
+            }
+        } else {
+            for (String line : LineHelp.pageLines(pg, tr, a::width)) {
+                a.text(line, x + p, ty, LABEL);
+                ty += LineHelp.LINE_H;
+            }
+            String[] d = pg.diagram();
+            int c = LineHelp.CELL, dw = d[0].length() * c, dh = d.length * c, dx = x + w - p - dw - 4, dy = y + p + 30;
+            slot(a, dx - 2, dy - 2, dw + 4, dh + 4);
+            for (int r = 0; r < d.length; r++)
+                for (int k = 0; k < d[r].length(); k++) {
+                    int col = LineHelp.color(d[r].charAt(k));
+                    if (col != 0) a.fill(dx + k * c, dy + r * c, c, c, col);
+                }
+        }
+        String[] keys = {"back", "next", "replay", "close"};
+        int bw = (w - 2 * p - 6) / 4, by = y + h - p - 20;
+        for (int i = 0; i < 4; i++) {
+            int bx = x + p + i * (bw + 2);
+            boolean off = i == 0 && page == 0 || i == 1 && page == LineHelp.PAGES.size() - 1;
+            a.sprite(off ? "widget/button_disabled" : "widget/button", bx, by, bw, 20);
+            String l = tr.apply("mccitybuilder.help." + keys[i]);
+            a.text(l, bx + (bw - a.width(l)) / 2, by + 6, off ? 0xFFA0A0A0 : INK);
+        }
+        g.dispose();
+        ImageIO.write(img, "png", f);
+        System.out.println("wrote " + f);
+    }
+
+    /** One coach tip as PlannerScreen draws it, at GUI scale 2. */
+    private static void tipPng(int i, Function<String, String> tr, File f) throws Exception {
+        int tp = LineHelp.TIP_PAD, w = LineHelp.TIP_W;
+        BufferedImage probe = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D pg = probe.createGraphics();
+        McAssets m = new McAssets(pg, 2);
+        List<String> lines = LineHelp.wrap(tr.apply("mccitybuilder.tip." + LineHelp.TIPS.get(i)[0]), w - 2 * tp, m::width);
+        pg.dispose();
+        int h = tp + 11 + lines.size() * 10 + 4 + 16 + tp;
+        BufferedImage img = new BufferedImage((w + 8) * 2, (h + 8) * 2, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        McAssets a = new McAssets(g, 2);
+        a.fill(0, 0, w + 8, h + 8, 0xFF6A8C42);
+        int x = 4, y = 4;
+        frame(a, x, y, w, h);
+        a.text(tr.apply("mccitybuilder.tip.step").replaceFirst("%s", "" + (i + 1)).replaceFirst("%s", "" + LineHelp.TIPS.size()), x + tp, y + tp, 0xFF206080);
+        for (int k = 0; k < lines.size(); k++) a.text(lines.get(k), x + tp, y + tp + 11 + k * 10, LABEL);
+        boolean last = i == LineHelp.TIPS.size() - 1;
+        String[] keys = last ? new String[]{"done"} : new String[]{"skip", "next"};
+        int bw = 50, by = y + h - tp - 16;
+        for (int k = 0; k < keys.length; k++) {
+            int bx = x + w - tp - (keys.length - k) * (bw + 2) + 2;
+            a.sprite("widget/button", bx, by, bw, 16);
+            String l = tr.apply("mccitybuilder.tip." + keys[k]);
+            a.text(l, bx + (bw - a.width(l)) / 2, by + 4, INK);
+        }
+        g.dispose();
+        ImageIO.write(img, "png", f);
+        System.out.println("wrote " + f);
+    }
+
+    /** One guide panel on a plain background, at GUI scale 2. */
+    private static void guidePng(List<String> ids, boolean all, Function<String, String> tr, File f) throws Exception {
+        BufferedImage probe = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D pg = probe.createGraphics();
+        Hints.Laid laid = Hints.layout(ids, all, tr, new McAssets(pg, 2)::width);
+        pg.dispose();
+        int w = Hints.WIDTH + 8, h = Hints.PAD + 20 + laid.height() + Hints.PAD + 8;
+        BufferedImage img = new BufferedImage(w * 2, h * 2, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        McAssets a = new McAssets(g, 2);
+        a.fill(0, 0, w, h, 0xFF6A8C42);
+        guide(a, ids, all, w, h, tr);
+        g.dispose();
+        ImageIO.write(img, "png", f);
+        System.out.println("wrote " + f);
     }
 
     private static void palette(McAssets a, Function<String, String> tr) throws Exception {
@@ -177,13 +285,17 @@ public final class PlannerPreview {
         }
     }
 
-    private static void guide(McAssets a, int sw, int sh, Function<String, String> tr) throws Exception {
-        Hints.Laid laid = Hints.layout(List.of("adjusting"), tr, a::width);
+    private static void guide(McAssets a, List<String> ids, boolean all, int sw, int sh, Function<String, String> tr) throws Exception {
+        Hints.Laid laid = Hints.layout(ids, all, tr, a::width);
         int w = Hints.WIDTH, x = sw - 4 - w, h = Hints.PAD + 20 + laid.height() + Hints.PAD, y = sh - 4 - h;
         frame(a, x, y, w, h);
         a.text(tr.apply("mccitybuilder.hint.title"), x + Hints.PAD + 1, y + Hints.PAD + 2, LABEL);
         a.sprite("widget/button", x + w - 22, y + 4, 18, 18);
         a.text("?", x + w - 15, y + 9, INK);
+        String al = tr.apply(all ? "mccitybuilder.hint.less" : "mccitybuilder.hint.all");
+        int aw = a.width(al) + 10;
+        a.sprite("widget/button", x + w - 24 - aw, y + 4, aw, 18);
+        a.text(al, x + w - 24 - aw + 5, y + 9, INK);
         int cx = x + Hints.PAD, cy = y + Hints.PAD + 20, capH = Hints.CAP_H;
         for (Hints.Item it : laid.items()) {
             if (it.cap()) {

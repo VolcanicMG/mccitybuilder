@@ -707,8 +707,58 @@ public final class SelfCheck {
     }
 
     /** Road / wall tools: snapping, chaining and branching, wall joints, height, gates, battlements, segments. */
+    /** Ethan's U: top wall open at its right end, left side, the bottom drawn from the bottom-left corner. */
+    private static void autoConnect() {
+        java.util.function.BiFunction<int[], int[], Plan.Line> w = (a, b) -> new Plan.Line("wall", a[0], a[1], b[0], b[1], "p", "f", 1, 0, false, false);
+        List<Plan.Line> u = List.of(w.apply(new int[]{0, 0}, new int[]{20, 0}), w.apply(new int[]{0, 0}, new int[]{0, 15}));
+        int[] start = {0, 15}, target = {20, 0};
+        // Going north first would run back along the left side: only the bottom-right elbow.
+        List<int[]> els = Plan.elbows(u, "wall", start, target, -1);
+        check(els.size() == 1 && els.get(0)[0] == 20 && els.get(0)[1] == 15, "U closes through the bottom-right elbow: " + els.stream().map(java.util.Arrays::toString).toList());
+        check(Plan.elbows(u, "road", start, target, -1).size() == 2, "another tool's lines don't block an elbow");
+        // Collinear (or the same cell): no route, plain end snapping.
+        check(Plan.elbows(u, "wall", new int[]{0, 15}, new int[]{0, 0}, -1).isEmpty() && Plan.elbows(u, "wall", new int[]{5, 15}, new int[]{20, 15}, -1).isEmpty(), "collinear target: no elbow");
+        // Free field: both elbows, the preferred direction first.
+        List<Plan.Line> one = List.of(w.apply(new int[]{20, 0}, new int[]{30, 0}));
+        List<int[]> two = Plan.elbows(one, "wall", new int[]{0, 10}, new int[]{20, 0}, 3);
+        check(two.size() == 2 && two.get(0)[0] == 0 && two.get(0)[1] == 0, "preferred first segment north: elbow (0,0) first");
+        two = Plan.elbows(one, "wall", new int[]{0, 10}, new int[]{20, 0}, 0);
+        check(two.size() == 2 && two.get(0)[0] == 20 && two.get(0)[1] == 10, "preferred first segment east: elbow (20,10) first");
+        // The target's own arm: entering it along its line is refused (that elbow lies on it anyway).
+        List<int[]> e3 = Plan.elbows(List.of(w.apply(new int[]{10, 0}, new int[]{20, 0})), "wall", new int[]{0, 10}, new int[]{20, 0}, -1);
+        check(e3.size() == 1 && e3.get(0)[0] == 20 && e3.get(0)[1] == 10, "never along the target's arm: " + e3.stream().map(java.util.Arrays::toString).toList());
+        // A leg crossing a wall: rejected.
+        List<Plan.Line> wall = List.of(w.apply(new int[]{10, -5}, new int[]{10, 20}), w.apply(new int[]{20, 0}, new int[]{25, 0}));
+        check(Plan.elbows(wall, "wall", new int[]{0, 10}, new int[]{20, 0}, -1).isEmpty(), "both routes cross the wall at x 10: none");
+        // A leg lying along a wall: rejected.
+        List<Plan.Line> along = List.of(w.apply(new int[]{20, 0}, new int[]{30, 0}), w.apply(new int[]{3, 10}, new int[]{12, 10}));
+        List<int[]> e4 = Plan.elbows(along, "wall", new int[]{0, 10}, new int[]{20, 0}, 0);
+        check(e4.size() == 1 && e4.get(0)[0] == 0 && e4.get(0)[1] == 0, "the east-first route overlaps the wall on z 10: only (0,0)");
+        // A diagonal wall through a route's cell blocks that route.
+        List<Plan.Line> diag = List.of(w.apply(new int[]{20, 0}, new int[]{30, 0}), w.apply(new int[]{5, 5}, new int[]{15, 15}));
+        List<int[]> e5 = Plan.elbows(diag, "wall", new int[]{0, 10}, new int[]{20, 0}, 0);
+        check(e5.size() == 1 && e5.get(0)[0] == 0 && e5.get(0)[1] == 0, "the diagonal crosses z 10 at x 10: only (0,0)");
+        // The target: only with the cursor on a free end (1.5 blocks, whatever the zoom radius), never on the start's axes.
+        List<int[]> free = List.of(new int[]{20, 0}, new int[]{0, 30});
+        int[] t = LineSnap.connectTarget(new int[]{0, 15}, 20.5, 0.9, free, 1.5);
+        check(t != null && t[0] == 20 && t[1] == 0, "cursor on the open end: connect");
+        check(LineSnap.connectTarget(new int[]{0, 15}, 22.6, 0.5, free, 1.5) == null, "2 blocks off the end: no connect (axis / length snapping as before)");
+        check(LineSnap.connectTarget(new int[]{0, 15}, 0.5, 30.5, free, 1.5) == null, "an end on the start's axis: plain end snapping");
+        check(LineSnap.connectTarget(new int[]{0, 15}, 20.5, 0.5, List.of(), 1.5) == null, "no free end (a joint, a built end): no connect");
+    }
+
+    /** Edit-mode nodes: a node shared with a built segment can't be dragged (it would move the built end). */
+    private static void builtNodes() {
+        Plan.Line built = new Plan.Line("wall", 0, 0, 10, 0, "p", "f", 1, 0, false, false).asBuilt(), plan = new Plan.Line("wall", 10, 0, 10, 10, "p", "f", 1, 0, false, false);
+        List<Plan.Line> ls = List.of(built, plan);
+        check(!Plan.nodeMovable(ls, new int[]{0, 0}, Plan.Line::built) && !Plan.nodeMovable(ls, new int[]{10, 0}, Plan.Line::built), "built ends and shared joints don't drag");
+        check(Plan.nodeMovable(ls, new int[]{10, 10}, Plan.Line::built), "a planned segment's free end drags");
+    }
+
     private static void lines() throws Exception {
         undoRestore();
+        autoConnect();
+        builtNodes();
         List<int[][]> segs = new java.util.ArrayList<>();
         segs.add(new int[][]{{0, 0}, {20, 0}});
         // Ends snap to an existing endpoint near the cursor; otherwise to 45° steps from the previous direction.
@@ -2275,8 +2325,8 @@ public final class SelfCheck {
 
     private static void hintsAndLang() throws Exception {
         String lang = Files.readString(Path.of("src/main/resources/assets/mccitybuilder/lang/en_us.json"));
-        for (String id : List.of("view", "browse", "placing", "adjusting", "selected", "line"))
-            check(Hints.SECTIONS.containsKey(id) && Hints.SECTIONS.get(id).size() <= Hints.MAX_ROWS, "hints section " + id);
+        for (String id : List.of("view", "browse", "placing", "adjusting", "planned", "selected", "line"))
+            check(Hints.SECTIONS.containsKey(id) && Hints.rows(id, false).size() <= Hints.MAX_ROWS && !Hints.rows(id, false).isEmpty(), "hints section " + id);
         for (String k : Hints.langKeys()) check(lang.contains("\"" + k + "\":"), "lang key: " + k);
         for (String c : HutCatalog.CATEGORIES) check(lang.contains("\"mccitybuilder.category." + c + "\":"), "category lang: " + c);
         java.util.function.Function<String, String> tr = k -> {
@@ -2285,11 +2335,22 @@ public final class SelfCheck {
             int b = lang.indexOf('"', lang.indexOf(':', a) + 1) + 1;
             return lang.substring(b, lang.indexOf('"', b));
         };
-        for (String id : List.of("browse", "placing", "adjusting", "selected", "line")) {
-            Hints.Laid l = Hints.layout(List.of(id, "view"), tr, s -> s.length() * 6);
-            for (Hints.Item it : l.items())
-                check(it.x() >= 0 && it.x() + it.w() <= Hints.WIDTH - 2 * Hints.PAD, "hint fits: " + id + " '" + it.text() + "'");
-        }
+        // Every row, compact and full, inside the panel (6 px a character: wider than the vanilla font's average); the
+        // tallest guide shown (state + camera, all rows) fits a 1147x480 GUI under the queue, or degrades to compact.
+        for (String id : List.of("browse", "placing", "adjusting", "planned", "selected", "line"))
+            for (boolean all : new boolean[]{false, true}) {
+                Hints.Laid l = Hints.layout(id.equals("browse") ? List.of(id, "view") : List.of(id), all, tr, s -> s.length() * 6);
+                for (Hints.Item it : l.items())
+                    check(it.x() >= 0 && it.x() + it.w() <= Hints.WIDTH - 2 * Hints.PAD, "hint fits: " + id + (all ? " all" : "") + " '" + it.text() + "'");
+                // Actions start at one x (the action column) within a section list.
+                long cols = l.items().stream().filter(it -> !it.cap() && !it.title() && !Hints.SEPARATORS.contains(it.text())).mapToInt(Hints.Item::x).distinct().count();
+                check(cols == 1, "hint actions share one column: " + id);
+                int h = Hints.PAD + 20 + l.height() + Hints.PAD;
+                // The queue panel takes the top ~110 px of a 480 px GUI.
+                if (!all) check(h <= 480 - 8 - 110, "compact guide fits at 1147x480: " + id + " " + h);
+            }
+        for (String id : Hints.SECTIONS.keySet()) for (Hints.Row r : Hints.SECTIONS.get(id)) check(tr.apply(r.action()).length() <= 20, "short hint: " + r.action());
+        lineHelp(lang, tr);
         // Every "mccitybuilder.*" literal in the client code has an English string.
         Pattern lit = Pattern.compile("\"(mccitybuilder\\.[a-z0-9_.]+)\"");
         int n = 0;
@@ -2305,6 +2366,33 @@ public final class SelfCheck {
             }
         }
         check(n > 20, "lang literals found: " + n);
+    }
+
+    /** The road / wall help screen and coach tips: every string exists and every line fits its box (6 px a character). */
+    private static void lineHelp(String lang, java.util.function.Function<String, String> tr) {
+        java.util.function.ToIntFunction<String> w6 = s -> s.length() * 6;
+        for (String k : com.volcanicmg.mccitybuilder.planner.LineHelp.langKeys()) check(lang.contains("\"" + k + "\":"), "help lang key: " + k);
+        int textTop = com.volcanicmg.mccitybuilder.planner.LineHelp.PAD + 30, buttons = com.volcanicmg.mccitybuilder.planner.LineHelp.PAD + 24;
+        for (var pg : com.volcanicmg.mccitybuilder.planner.LineHelp.PAGES) {
+            int room = com.volcanicmg.mccitybuilder.planner.LineHelp.H - textTop - buttons;
+            if (pg.diagram() == null) {
+                check(com.volcanicmg.mccitybuilder.planner.LineHelp.LEGEND.size() * 13 <= room, "legend fits");
+                for (String k : com.volcanicmg.mccitybuilder.planner.LineHelp.LEGEND)
+                    check(16 + w6.applyAsInt(tr.apply("mccitybuilder.help.colours." + k)) <= com.volcanicmg.mccitybuilder.planner.LineHelp.W - 2 * com.volcanicmg.mccitybuilder.planner.LineHelp.PAD, "legend line fits: " + k);
+                continue;
+            }
+            List<String> ls = com.volcanicmg.mccitybuilder.planner.LineHelp.pageLines(pg, tr, w6);
+            for (String l : ls) check(w6.applyAsInt(l) <= com.volcanicmg.mccitybuilder.planner.LineHelp.TEXT_W || !l.contains(" "), "help line fits: " + l);
+            check(ls.size() * com.volcanicmg.mccitybuilder.planner.LineHelp.LINE_H <= room, "help page fits: " + pg.id() + " " + ls.size() + " lines");
+            int dw = pg.diagram()[0].length() * com.volcanicmg.mccitybuilder.planner.LineHelp.CELL;
+            check(com.volcanicmg.mccitybuilder.planner.LineHelp.TEXT_W + 8 + dw + 4 <= com.volcanicmg.mccitybuilder.planner.LineHelp.W - 2 * com.volcanicmg.mccitybuilder.planner.LineHelp.PAD, "diagram beside the text: " + pg.id());
+            check(pg.diagram().length * com.volcanicmg.mccitybuilder.planner.LineHelp.CELL <= room, "diagram height: " + pg.id());
+        }
+        check(com.volcanicmg.mccitybuilder.planner.LineHelp.H + 8 <= 480 && com.volcanicmg.mccitybuilder.planner.LineHelp.W + 8 <= 1147, "help screen fits a 1147x480 GUI");
+        for (String[] t : com.volcanicmg.mccitybuilder.planner.LineHelp.TIPS) {
+            List<String> ls = com.volcanicmg.mccitybuilder.planner.LineHelp.wrap(tr.apply("mccitybuilder.tip." + t[0]), com.volcanicmg.mccitybuilder.planner.LineHelp.TIP_W - 2 * com.volcanicmg.mccitybuilder.planner.LineHelp.TIP_PAD, w6);
+            check(ls.size() <= 6, "coach tip short enough: " + t[0] + " " + ls.size());
+        }
     }
 
     private static boolean near(double[] v, double x, double y, double z) {

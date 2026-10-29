@@ -6,6 +6,8 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class Config {
     public static final ModConfigSpec CLIENT_SPEC;
     public static final ModConfigSpec.BooleanValue SHOW_HINTS;
+    public static final ModConfigSpec.BooleanValue ALL_HINTS;
+    public static final ModConfigSpec.BooleanValue LINE_TIPS_SEEN;
     public static final ModConfigSpec.DoubleValue PAN_SPEED;
     public static final ModConfigSpec.DoubleValue FAST_PAN;
     public static final ModConfigSpec.BooleanValue EDGE_PAN;
@@ -19,6 +21,8 @@ public final class Config {
     static {
         ModConfigSpec.Builder c = new ModConfigSpec.Builder();
         SHOW_HINTS = c.comment("Show the controls guide in planner view (toggled with its ? button).").define("showHints", true);
+        LINE_TIPS_SEEN = c.comment("The road / wall tool's first-use tips were shown (set false to see them again).").define("lineTipsSeen", false);
+        ALL_HINTS = c.comment("The controls guide lists every control, not only the main ones (its All / Less button).").define("allHints", false);
         PAN_SPEED = c.comment("Camera pan speed in blocks per second at 20 blocks above the ground (it scales with height).")
                 .defineInRange("panSpeed", 24.0, 4.0, 200.0);
         FAST_PAN = c.comment("Pan speed multiplier while Shift is held (WASD and edge pan).").defineInRange("fastPanMultiplier", 3.0, 1.0, 10.0);

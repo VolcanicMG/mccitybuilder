@@ -16,6 +16,7 @@ import com.minecolonies.core.network.messages.server.colony.building.builder.Bui
 import com.volcanicmg.mccitybuilder.Config;
 import com.volcanicmg.mccitybuilder.planner.ActionIcons;
 import com.volcanicmg.mccitybuilder.planner.Hints;
+import com.volcanicmg.mccitybuilder.planner.LineHelp;
 import com.volcanicmg.mccitybuilder.planner.HutCatalog;
 import com.volcanicmg.mccitybuilder.planner.QueueIcons;
 import com.volcanicmg.mccitybuilder.planner.QueueOrder;
@@ -65,6 +66,10 @@ final class PlannerScreen extends Screen {
     // Right button: a drag turns the camera, a press without one (under DRAG_PX) backs out on release.
     private static final double DRAG_PX = 4;
     private boolean rightDown, rightDragged;
+    /** The road / wall tool's coach tip shown ({@link LineHelp#TIPS} index), or -1. */
+    static int tipStep = -1;
+    // The line panel's box this frame (coach tips anchor next to it), or null.
+    private int[] linePanelBox;
     // Frames a hover survives pick misses (a ray that finds nothing for a frame while the camera moves).
     private static final int HOVER_HOLD = 6;
     private int hoverMisses;
@@ -184,6 +189,7 @@ final class PlannerScreen extends Screen {
         editOverlay(g, mouseX, mouseY);
         actionBar(g, mouseX, mouseY);
         guide(g, mouseX, mouseY);
+        coachTip(g, mouseX, mouseY);
         status(g);
         boolean overUi = overPanel(mouseX, mouseY);
         // The planned segment under the cursor (not while drawing): highlighted, Del / right-click remove it.
@@ -447,6 +453,7 @@ final class PlannerScreen extends Screen {
         int w = 220, h = status != null ? 40 : 276, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = height - h - 4;
         stackTop = y - 4;
         panels.add(new int[]{x, y, w, h});
+        linePanelBox = new int[]{x, y, w, h};
         VanillaUi.panel(g, x, y, w, h);
         int ix = x + PAD, iw = w - 2 * PAD;
         g.drawString(font, Component.translatable(sel != null ? "mccitybuilder.line.selected." + tool : LineView.edit ? "mccitybuilder.line.edit_title." + tool : "mccitybuilder.line.title." + tool), ix + 1, y + PAD, VanillaUi.LABEL, false);
@@ -463,6 +470,15 @@ final class PlannerScreen extends Screen {
             click();
             editorOpen = !editorOpen;
         }, Component.translatable("mccitybuilder.line.pieces.tip")));
+        // How it works: the help screen.
+        int qx = gx - 16;
+        boolean overQ = mx >= qx && mx < qx + 14 && my >= gy && my < gy + 14;
+        VanillaUi.button(g, qx, gy, 14, 14, false, false, overQ);
+        g.drawString(font, "?", qx + 5, gy + 3, VanillaUi.INK, false);
+        hits.add(new Hit(qx, gy, 14, 14, () -> {
+            click();
+            minecraft.setScreen(new LineHelpScreen());
+        }, Component.translatable("mccitybuilder.help.button")));
         // Edit mode: a full-width button with a clearly pressed look while on.
         int ey = y + PAD + 11;
         boolean overEd = mx >= ix && mx < ix + iw && my >= ey && my < ey + 20;
@@ -535,7 +551,7 @@ final class PlannerScreen extends Screen {
             info = Component.translatable("mccitybuilder.line.cost_selected", com.volcanicmg.mccitybuilder.planner.LineSnap.length(new int[]{sel.x0(), sel.z0()},
                     new int[]{sel.x1(), sel.z1()}) + 1, ps.size(), LineView.cost(ps), sh).getString();
         } else if (LineView.edit) info = Component.translatable(LineView.selectedJoint != null ? "mccitybuilder.line.edit_joint" : "mccitybuilder.line.edit_hint").getString();
-        else if (LineView.hoverLine >= 0) info = Component.translatable("mccitybuilder.line.hover_remove").getString();
+        else if (LineView.hoverLine >= 0) info = Component.translatable(LineView.hoverBuilt() ? "mccitybuilder.line.hover_built" : "mccitybuilder.line.hover_remove").getString();
         else if (LineView.start == null) info = Component.translatable("mccitybuilder.line.click_start").getString();
         else {
             int chainPieces = 0;
@@ -735,19 +751,24 @@ final class PlannerScreen extends Screen {
             } else if (LineView.liveClash) {
                 warn = Component.translatable("mccitybuilder.line.crossing").getString();
                 warnColour = 0xFFFF8080;
-            } else if (LineView.liveShort > 0) warn = Component.translatable("mccitybuilder.line.short", LineView.liveShort).getString();
+            } else if (LineView.liveShort > 0) warn = Component.translatable(LineView.liveShort == 1 ? "mccitybuilder.line.short_one" : "mccitybuilder.line.short", LineView.liveShort).getString();
         }
         // What snapped, under the hint.
         if (LineView.snap != null && warn == null)
             warn = Component.translatable("mccitybuilder.line.snap." + LineView.snap, LineView.snapPieces).getString();
+        // A connect says so even over a warning (it shares the line).
+        else if ("connect".equals(LineView.snap)) warn = Component.translatable("mccitybuilder.line.snap.connect").getString() + " · " + warn;
         if (LineView.flash != null && System.currentTimeMillis() < LineView.flashUntil) {
             warn = Component.translatable(LineView.flash, LineView.flashArg).getString();
             warnColour = 0xFFFF8080;
         }
         if (warn == null || overPanel(mx, my)) return;
         int w = font.width(warn);
-        g.fill(mx + 10, my + 10, mx + 16 + w, my + 23, 0xC0202020);
-        g.drawString(font, warn, mx + 13, my + 13, LineView.snap != null && warnColour == 0xFFFFC040 && LineView.liveShort == 0 ? 0xFF80E0FF : warnColour, false);
+        // Left of the cursor when it would run into the line panel or off the screen.
+        int lx = mx + 10, limit = linePanelBox != null && my + 23 > linePanelBox[1] ? linePanelBox[0] : width - 4;
+        if (lx + w + 6 > limit) lx = Math.max(4, mx - 16 - w);
+        g.fill(lx, my + 10, lx + w + 6, my + 23, 0xC0202020);
+        g.drawString(font, warn, lx + 3, my + 13, LineView.snap != null && warnColour == 0xFFFFC040 && LineView.liveShort == 0 ? 0xFF80E0FF : warnColour, false);
     }
 
     /**
@@ -766,9 +787,11 @@ final class PlannerScreen extends Screen {
         List<Object> what = new ArrayList<>();
         java.util.Set<Long> seen = new java.util.HashSet<>();
         List<com.volcanicmg.mccitybuilder.planner.Plan.Line> ls = PlanView.lines;
+        // No node where a built joint piece stands, no handle on a built segment (a click on its body still selects it);
+        // other nodes at built segments open the joint menu but don't drag.
         for (var l : ls)
             for (int[] e : l.ends())
-                if (seen.add(com.volcanicmg.mccitybuilder.planner.Plan.cell(e[0], e[1]))) {
+                if (seen.add(com.volcanicmg.mccitybuilder.planner.Plan.cell(e[0], e[1])) && !com.volcanicmg.mccitybuilder.planner.Plan.builtJointAt(PlanView.builtPieces.values(), e)) {
                     double[] p = screen(e[0], e[1], 1.5);
                     if (p != null) {
                         hs.add(new double[]{p[0], p[1], 0});
@@ -777,6 +800,7 @@ final class PlannerScreen extends Screen {
                 }
         for (int i = 0; i < ls.size(); i++) {
             var l = ls.get(i);
+            if (PlanView.locked(l)) continue;
             double[] p = screen((l.x0() + l.x1()) / 2, (l.z0() + l.z1()) / 2, 1.5);
             if (p != null) {
                 hs.add(new double[]{p[0], p[1], 1});
@@ -869,6 +893,8 @@ final class PlannerScreen extends Screen {
     /** Road / wall tool on or off (they replace each other; neither changes hut placement). */
     private void useTool(String t) {
         LineView.use(t);
+        // The first time a line tool opens: its coach tips.
+        if (LineView.active() && !Config.LINE_TIPS_SEEN.get() && tipStep < 0) tipStep = 0;
         PlanView.linesChanged();
         PlanView.selectedLine = -1;
         click();
@@ -1594,23 +1620,78 @@ final class PlannerScreen extends Screen {
         return Component.translatable("mccitybuilder.level", b.getBuildingLevel(), b.getBuildingMaxLevel()).getString();
     }
 
+    // ---- coach tips ----
+
+    /**
+     * The line tool's first-use tips, one at a time ({@link LineHelp#TIPS}): a small panel above the screen centre, or
+     * left of the line panel for the edit-mode tip, with Skip and Next (Got it on the last); done or skipped, they
+     * don't come back (the help screen's Replay tips does).
+     */
+    private void coachTip(GuiGraphics g, int mx, int my) {
+        if (tipStep < 0 || !LineView.active()) {
+            if (!LineView.active()) linePanelBox = null;
+            return;
+        }
+        String[] tip = LineHelp.TIPS.get(tipStep);
+        int tp = LineHelp.TIP_PAD, w = LineHelp.TIP_W;
+        List<String> lines = LineHelp.wrap(Component.translatable("mccitybuilder.tip." + tip[0]).getString(), w - 2 * tp, font::width);
+        int h = tp + 11 + lines.size() * 10 + 4 + 16 + tp;
+        // Under the top bar, out of the drawing's way.
+        int x = (width - w) / 2, y = 40;
+        if (tip[1].equals("panel") && linePanelBox != null && linePanelBox[0] - w - 6 >= 0) {
+            x = linePanelBox[0] - w - 6;
+            y = Math.min(height - h - 4, linePanelBox[1] + 4);
+        }
+        panels.add(new int[]{x, y, w, h});
+        VanillaUi.panel(g, x, y, w, h);
+        g.drawString(font, Component.translatable("mccitybuilder.tip.step", tipStep + 1, LineHelp.TIPS.size()), x + tp, y + tp, 0xFF206080, false);
+        for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), x + tp, y + tp + 11 + i * 10, VanillaUi.LABEL, false);
+        boolean last = tipStep == LineHelp.TIPS.size() - 1;
+        String[] keys = last ? new String[]{"done"} : new String[]{"skip", "next"};
+        int bw = 50, by = y + h - tp - 16;
+        for (int i = 0; i < keys.length; i++) {
+            int bx = x + w - tp - (keys.length - i) * (bw + 2) + 2;
+            boolean over = mx >= bx && mx < bx + bw && my >= by && my < by + 16;
+            VanillaUi.button(g, bx, by, bw, 16, false, false, over);
+            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.tip." + keys[i]).getString(), bx, by, bw, 16, VanillaUi.INK);
+            boolean next = keys[i].equals("next");
+            // Before every other hit: the tip lies on top.
+            hits.add(0, new Hit(bx, by, bw, 16, () -> {
+                if (next) tipStep++;
+                else {
+                    tipStep = -1;
+                    Config.LINE_TIPS_SEEN.set(true);
+                    Config.LINE_TIPS_SEEN.save();
+                }
+            }, null));
+        }
+    }
+
     // ---- controls guide ----
 
     /** @return the width the controls guide takes at the right edge (just its "?" button while closed) */
-    private static int guideRoom() {
-        return Config.SHOW_HINTS.get() ? Hints.WIDTH : 20;
+    private int guideRoom() {
+        return guideFits() ? Hints.WIDTH : 20;
+    }
+
+    /** @return true when the guide is on and there is room for it beside the palette and the line panel (else just "?") */
+    private boolean guideFits() {
+        return Config.SHOW_HINTS.get() && width >= 4 + PALETTE_W + 4 + 220 + 4 + Hints.WIDTH + 4;
     }
 
     private void guide(GuiGraphics g, int mx, int my) {
         int w = Hints.WIDTH, x = width - 4 - w;
-        boolean open = Config.SHOW_HINTS.get();
+        boolean open = guideFits();
         String state = Planner.adjusting() ? "adjusting" : Planner.isPlacing() ? "placing" : LineView.active() ? "line" : PlanView.hasSelection() ? "planned"
                 : Planner.selected != null ? "selected" : "browse";
         // The camera keys only while nothing else is going on; the guide must stay below the queue panel.
         List<String> ids = state.equals("browse") ? List.of(state, "view") : List.of(state);
-        Hints.Laid laid = open ? Hints.layout(ids, PlannerScreen::hintText, font::width) : null;
+        boolean all = Config.ALL_HINTS.get();
+        Hints.Laid laid = open ? Hints.layout(ids, all, PlannerScreen::hintText, font::width) : null;
         int room = height - 8 - queueBottom;
-        if (open && Hints.PAD + 20 + laid.height() + Hints.PAD > room) laid = Hints.layout(List.of(state), PlannerScreen::hintText, font::width);
+        // Too tall: the main controls only, then without the camera, then just the "?" button.
+        if (open && all && Hints.PAD + 20 + laid.height() + Hints.PAD > room) laid = Hints.layout(ids, false, PlannerScreen::hintText, font::width);
+        if (open && Hints.PAD + 20 + laid.height() + Hints.PAD > room) laid = Hints.layout(List.of(state), false, PlannerScreen::hintText, font::width);
         if (open && Hints.PAD + 20 + laid.height() + Hints.PAD > room) open = false;
         int h = open ? Hints.PAD + 20 + laid.height() + Hints.PAD : 20;
         int y = height - 4 - h;
@@ -1619,6 +1700,16 @@ final class PlannerScreen extends Screen {
             panels.add(new int[]{x, y, w, h});
             VanillaUi.panel(g, x, y, w, h);
             g.drawString(font, Component.translatable("mccitybuilder.hint.title"), x + Hints.PAD + 1, y + Hints.PAD + 2, VanillaUi.LABEL, false);
+            // All / Less, left of the "?" button.
+            String al = Component.translatable(all ? "mccitybuilder.hint.less" : "mccitybuilder.hint.all").getString();
+            int aw = font.width(al) + 10, ax = x + w - 4 - 18 - 2 - aw, ay = y + 4;
+            boolean overA = mx >= ax && mx < ax + aw && my >= ay && my < ay + 18;
+            VanillaUi.button(g, ax, ay, aw, 18, false, false, overA);
+            g.drawString(font, al, ax + 5, ay + 5, VanillaUi.INK, false);
+            hits.add(new Hit(ax, ay, aw, 18, () -> {
+                Config.ALL_HINTS.set(!Config.ALL_HINTS.get());
+                Config.ALL_HINTS.save();
+            }, Component.translatable("mccitybuilder.hint.all.tip")));
             int cx = x + Hints.PAD, cy = y + Hints.PAD + 20;
             for (Hints.Item it : laid.items()) {
                 if (it.cap()) keyCap(g, cx + it.x(), cy + it.y(), it.w(), it.text());
@@ -1783,8 +1874,11 @@ final class PlannerScreen extends Screen {
                 // A plain right-click backs out one step: adjust -> follow -> not placing; ends a road / wall chain; deselect too.
                 if (LineView.active()) {
                     if (LineView.start != null) LineView.finishChain();
-                    // On a planned segment: remove it (Undo brings it back); elsewhere: leave the tool.
-                    else if (LineView.hoverLine >= 0 && LineView.removeHovered()) toast(Component.translatable("mccitybuilder.line.removed"));
+                    // On a planned segment: remove it (Undo brings it back); a built one only by Del / Remove; elsewhere: leave the tool.
+                    else if (LineView.hoverBuilt()) {
+                        LineView.flash = "mccitybuilder.line.built_right_click";
+                        LineView.flashUntil = System.currentTimeMillis() + 2500;
+                    } else if (LineView.hoverLine >= 0 && LineView.removeHovered()) toast(Component.translatable("mccitybuilder.line.removed"));
                     else useTool(LineView.tool);
                     rightDown = false;
                     return true;
@@ -1916,7 +2010,9 @@ final class PlannerScreen extends Screen {
                 case GLFW.GLFW_KEY_DELETE -> {
                     if (LineView.removeHovered()) toast(Component.translatable("mccitybuilder.line.removed"));
                 }
-                case GLFW.GLFW_KEY_R -> LineView.toggleFlip();
+                case GLFW.GLFW_KEY_R -> {
+                    if (!LineView.flipElbow()) LineView.toggleFlip();
+                }
                 case GLFW.GLFW_KEY_H -> LineView.cycleHeight(1);
                 case GLFW.GLFW_KEY_PAGE_UP -> LineView.raise(1);
                 case GLFW.GLFW_KEY_PAGE_DOWN -> LineView.raise(-1);
