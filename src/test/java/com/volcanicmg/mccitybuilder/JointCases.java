@@ -95,6 +95,12 @@ final class JointCases {
     static int rot;
     /** Per case laid out by the search (no built-in), its layout as a built-in line: "pack name TAB key TAB value". */
     static final Map<Case, String> PINS = new java.util.IdentityHashMap<>();
+    /** Road corners turned off their contact pick (a closed side toward a run) and moved onto their runs. */
+    static final Set<Case> TURNED = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    /** Road corners left with a closed side toward a run although another turn of the piece has none. */
+    static final Set<Case> CLOSED = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    // -DnoRoadFix: lay road corners out as before the fix (shows the self-check's road ratchets failing; writes road-layouts.tsv).
+    static final boolean ROAD_FIX = !Boolean.getBoolean("noRoadFix");
 
     /** @return {@link #all} at every level / variant number any group has, each family name suffixed " L<n>" */
     static List<Case> allLevels() throws Exception {
@@ -104,7 +110,12 @@ final class JointCases {
         try {
             for (int n : numbers) {
                 level = n;
-                for (Case cs : all()) out.add(new Case(cs.family() + " L" + n, cs.name(), cs.jointPath(), cs.joint(), cs.jointBox(), cs.runs(), cs.butt(), cs.fixed()));
+                for (Case cs : all()) {
+                    Case lc = new Case(cs.family() + " L" + n, cs.name(), cs.jointPath(), cs.joint(), cs.jointBox(), cs.runs(), cs.butt(), cs.fixed());
+                    if (TURNED.contains(cs)) TURNED.add(lc);
+                    if (CLOSED.contains(cs)) CLOSED.add(lc);
+                    out.add(lc);
+                }
             }
         } finally {
             level = 0;
@@ -278,6 +289,10 @@ final class JointCases {
         int[] oc = new int[outs.length], dc = new int[outs.length];
         double bestScore = -1;
         int bestFlush = -1;
+        boolean turned = false;
+        // A square straight (jungle's diagonal walks) has no run axis to compare a corner's arms with.
+        boolean roadCorner = famKey.startsWith("road:") && outs.length == 2 && outs[0] % 2 != outs[1] % 2 && (role == PieceSets.Role.CORNER || role == PieceSets.Role.INNER)
+                && sg.sx() != sg.sz();
         for (int fr : frames) {
             int[] ocf = new int[outs.length], dcf = new int[outs.length];
             for (int q = 0; q < outs.length; q++) {
@@ -292,7 +307,8 @@ final class JointCases {
             }
             List<Integer> ks = new ArrayList<>(), outList = new ArrayList<>();
             for (int o : ocf) outList.add(o);
-            double[] contact = new double[4 / step], shape = new double[4 / step], bestMatch = new double[4 / step];
+            double[] contact = new double[4 / step], shape = new double[4 / step], bestMatch = new double[4 / step], weakest = new double[4 / step];
+            boolean[] closedRun = new boolean[4 / step];
             for (int k = from; k < from + 4; k += step) {
                 PieceLayout.Grid t = jg.turned(k);
                 double sc = 0, bm = 1;
@@ -304,11 +320,17 @@ final class JointCases {
                 // The floor judges wall corners only (towers, T's, crosses and roads keep their contact order).
                 bestMatch[ks.size()] = outs.length == 2 && famKey.startsWith("wall:") && (role == PieceSets.Role.CORNER || role == PieceSets.Role.INNER) ? bm : 1;
                 double[] ac = PieceLayout.armClosed(t, outList, sg, flip);
+                weakest[ks.size()] = bm;
+                closedRun[ks.size()] = roadCorner && PieceLayout.closedTowardRun(t, outList, sg, flip);
                 contact[ks.size()] = sc;
                 shape[ks.size()] = ac[0] - ac[1];
                 ks.add(k);
             }
             int pick = PieceLayout.pickTurn(contact, bestMatch, shape);
+            // Only a road corner whose pick turns a closed side toward a run changes, as in the planner.
+            int alt = ROAD_FIX && closedRun[pick] ? PieceLayout.pickRoadCorner(contact, bestMatch, shape, closedRun, weakest) : pick;
+            boolean fixTurn = alt != pick;
+            pick = alt;
             // Of the frames, the one whose weakest run meets the joint best, then the most contact.
             PieceLayout.Grid tp = jg.turned(ks.get(pick));
             int[] tpb = box(c, ocf[0], tp, role, jp);
@@ -327,6 +349,7 @@ final class JointCases {
                 bestScore = score;
                 bestFlush = flush;
                 best = ks.get(pick);
+                turned = fixTurn;
                 rot = fr;
                 oc = ocf;
                 dc = dcf;
@@ -342,17 +365,34 @@ final class JointCases {
         int[] jbc = box(c, oc[0], tc, role, jp);
         PieceLayout.Grid t = jg.turned(best + rot);
         int[] jb = PieceLayout.rotBox(c, jbc, rot);
+        boolean move = turned && fix == null;
+        PieceLayout.Fit[] fw = new PieceLayout.Fit[outs.length];
+        for (int q = 0; q < outs.length; q++) {
+            PieceLayout.Fit fc = PieceLayout.fit(c, oc[q], jbc, tc, straight(sg, dc[q], flip), width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
+            if (move) fc = PieceLayout.outerFit(c, oc[q], oc[1 - q], jbc, tc, straight(sg, dc[q], flip), width, run, Math.max(3, width), fc);
+            fw[q] = PieceLayout.fitBack(c, oc[q], fc, width, run, rot);
+        }
+        // A road corner turned off its pick moves so both its runs sit on their lines, as in the planner.
+        int[] mv = move ? PieceLayout.jointMove(outs, fw) : new int[]{0, 0};
+        jb = new int[]{jb[0] + mv[0], jb[1] + mv[1], jb[2] + mv[0], jb[3] + mv[1]};
         List<Run> runs = new ArrayList<>();
         for (int q = 0; q < outs.length; q++) {
             int o = outs[q];
             PieceLayout.Grid s = straight(sg, dirs[q], flip);
-            PieceLayout.Fit fc = PieceLayout.fit(c, oc[q], jbc, tc, straight(sg, dc[q], flip), width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
-            PieceLayout.Fit f = PieceLayout.fitBack(c, oc[q], fc, width, run, rot);
+            PieceLayout.Fit f = move ? PieceLayout.moved(c, o, fw[q], width, run, mv) : fw[q];
             runs.add(new Run(o, s, f, PieceLayout.boxes(c, o, f.off(), List.of(run), width, f.shift()).get(0)));
         }
         best = Math.floorMod(best + rot, 4);
         Case cs = new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name, jp.path(), t, jb, runs, false, fix != null);
         if (fix == null && role != PieceSets.Role.END) PINS.put(cs, pin(pack, jp.path(), t, best, jb, runs, sg, st, dirs, flip));
+        if (turned) TURNED.add(cs);
+        if (roadCorner) {
+            List<Integer> ol = new ArrayList<>();
+            for (int o : outs) ol.add(o);
+            boolean open = false;
+            for (int k = 0; k < 4; k++) open |= !PieceLayout.closedTowardRun(jg.turned(k), ol, sg, flip);
+            if (open && PieceLayout.closedTowardRun(t, ol, sg, flip)) CLOSED.add(cs);
+        }
         out.add(cs);
     }
 

@@ -1399,6 +1399,98 @@ public final class SelfCheck {
         return true;
     }
 
+    /** @return a joint's layout as the planner places it: piece, turn (its blocks), box and each run's out, offset, shift, depth */
+    private static String layoutSig(JointCases.Case cs) {
+        StringBuilder g = new StringBuilder(cs.jointPath() + "|" + Integer.toHexString(java.util.Arrays.hashCode(cs.joint().ids())) + "|" + java.util.Arrays.toString(cs.jointBox()));
+        for (var r : cs.runs()) g.append("|").append(r.out()).append(":").append(r.fit().off()).append(",").append(r.fit().shift()).append(",").append(r.fit().depth());
+        return g.toString();
+    }
+
+    /**
+     * Saved plans laid out joint by joint ({@link JointCases#fromPlan}): a line meeting joints at both ends takes one
+     * sideways shift, so both its ends must put the run on the same line, and a run touching its joint must start right
+     * at the joint's box (Ethan's colonial road corners: arms 1-2 cells off their runs, 1-cell grass gaps).
+     *
+     * @return the defects, per "joint cell run direction"
+     */
+    static List<String> planJointDefects(String text) throws Exception {
+        List<Plan.Line> lines = Plan.readLines(text);
+        Map<String, Integer> at = new java.util.HashMap<>();
+        List<String> bad = new java.util.ArrayList<>();
+        for (var cs : JointCases.fromPlan(text)) {
+            String[] xz = cs.name().split(",");
+            int[] c = {Integer.parseInt(xz[0]), Integer.parseInt(xz[1])}, jb = cs.jointBox();
+            for (var r : cs.runs()) {
+                int d = r.out(), lat = d % 2 == 0 ? 1 : 0;
+                int[] b = r.box();
+                int gap = switch (d) {
+                    case 0 -> b[0] - jb[2] - 1;
+                    case 2 -> jb[0] - b[2] - 1;
+                    case 1 -> b[1] - jb[3] - 1;
+                    default -> jb[1] - b[3] - 1;
+                };
+                if (r.fit().depth() >= 0 && gap > 0) bad.add(cs.name() + " " + "ESWN".charAt(d) + " gap " + gap);
+                // The line leaving c in direction d: where its run lies across it, seen from this end.
+                for (Plan.Line l : lines) {
+                    int[][] e = l.ends();
+                    for (int k = 0; k < 2; k++) {
+                        if (e[k][0] != c[0] || e[k][1] != c[1] || PieceLayout.dir(e[k], e[1 - k]) != d) continue;
+                        Integer seen = at.put(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1()), c[lat] + b[lat]);
+                        if (seen != null && seen != c[lat] + b[lat]) bad.add(cs.name() + " " + "ESWN".charAt(d) + " off its line by " + (c[lat] + b[lat] - seen));
+                    }
+                }
+            }
+        }
+        return bad;
+    }
+
+    /**
+     * Road corners (Ethan's colonial level-1 corner1: its closed dirt-border sides scored like the road's end, so every
+     * corner came out a quarter turn off, off its runs, with gaps). Only corners turned off their contact pick may
+     * change: every other road joint must keep the layout of the build before (road-layouts.tsv; -DnoRoadFix -DwriteRoadLayouts
+     * writes it), since the line tool snaps lengths from these offsets (fortress / birch line ends moved live when an
+     * earlier fix changed them).
+     */
+    private static void roadCornerChecks(List<JointCases.Case> all) throws Exception {
+        Map<String, String> now = new java.util.TreeMap<>();
+        java.util.Set<String> turned = new java.util.TreeSet<>(), closed = new java.util.TreeSet<>();
+        java.util.function.BiConsumer<String, JointCases.Case> add = (key, cs) -> {
+            now.put(key, layoutSig(cs));
+            if (JointCases.TURNED.contains(cs)) turned.add(key);
+            if (JointCases.CLOSED.contains(cs)) closed.add(key);
+        };
+        for (var cs : all) if (cs.family().contains("infrastructure")) add.accept(cs.family() + "|" + cs.name(), cs);
+        List<String> plans = List.of("ab-roads.txt", "ethan-road-corners.txt", "ethan-colonial-roads.txt");
+        for (String plan : plans) for (var cs : JointCases.fromPlan(Files.readString(Path.of("src/test/resources/" + plan)))) add.accept(plan + "|" + cs.family() + "|" + cs.name(), cs);
+        Path ref = Path.of("src/test/resources/road-layouts.tsv");
+        if (Boolean.getBoolean("writeRoadLayouts")) {
+            StringBuilder sb = new StringBuilder();
+            now.forEach((k, v) -> sb.append(k).append('\t').append(v).append('\n'));
+            Files.writeString(ref, sb.toString());
+            return;
+        }
+        List<String> changed = new java.util.ArrayList<>();
+        int compared = 0;
+        for (String line : Files.readAllLines(ref)) {
+            String[] f = line.split("\t");
+            if (f.length != 2 || turned.contains(f[0])) continue;
+            compared++;
+            if (!f[1].equals(now.get(f[0]))) changed.add(f[0] + ": " + f[1] + " -> " + now.get(f[0]));
+        }
+        System.out.println("CityBuilder self-check: road joints turned off their pick (" + turned.size() + "): " + turned);
+        System.out.println("CityBuilder self-check: other road joints changed from road-layouts.tsv (" + changed.size() + " of " + compared + "): " + changed);
+        check(compared > 1000 && changed.isEmpty(), "road joints not turned keep their layout (and line-end snapping): " + changed);
+        System.out.println("CityBuilder self-check: road corners with a closed side toward a run (" + closed.size() + "): " + closed);
+        // The rest are left by PieceLayout#pickRoadCorner (no other turn meets the runs as well, e.g. fortress, right live).
+        check(closed.size() <= 141 && closed.stream().noneMatch(k -> k.contains("colonial")), "road corners face their runs with their open sides (ratchet 141, colonial none): " + closed);
+        // The A/B plan's fortress corners aren't turned (the snapshot above); its birch corners turn here only because the harness lays out the even group, live picks odd.
+        for (String plan : List.of("ethan-road-corners.txt", "ethan-colonial-roads.txt")) {
+            List<String> d = planJointDefects(Files.readString(Path.of("src/test/resources/" + plan)));
+            System.out.println("CityBuilder self-check: " + plan + " joint defects (" + d.size() + "): " + d);
+            check(d.isEmpty(), "plan joints line up with their runs, no gaps: " + plan + " " + d);
+        }
+    }
+
     private static void jointChecks() throws Exception {
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
         if (System.getProperty("contactFloor") != null) {
@@ -1406,6 +1498,7 @@ public final class SelfCheck {
             PieceLayout.clearCache();
         }
         List<JointCases.Case> all = JointCases.allLevels();
+        roadCornerChecks(all);
         var turnedDiffer = rotationCheck(all);
         System.out.println("CityBuilder self-check: cases laid out differently when drawn turned (" + turnedDiffer.size() + "):");
         for (String r : turnedDiffer) System.out.println("  turned " + r);

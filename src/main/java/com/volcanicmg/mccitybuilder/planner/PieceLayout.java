@@ -805,6 +805,98 @@ public final class PieceLayout {
         return best;
     }
 
+    /**
+     * A road corner centred on its cell lands its arms a cell or two off a run's centre line whenever its box is even
+     * or turned (the centring isn't symmetric), and a line's runs take one sideways shift for both ends: the second
+     * corner then meets its run off-line (Ethan's colonial road corners, 1-2 cells off). Moving the corner instead,
+     * so its runs sit on their lines: the move, per axis the opposite of the shift of the runs across it.
+     *
+     * @return {dx, dz} for the joint (0 on an axis whose runs disagree)
+     */
+    public static int[] jointMove(int[] outs, Fit[] fits) {
+        Integer sx = null, sz = null;
+        boolean bx = false, bz = false;
+        for (int q = 0; q < outs.length; q++) {
+            int s = fits[q].shift();
+            if (outs[q] % 2 == 0) {
+                bz |= sz != null && sz != s;
+                sz = s;
+            } else {
+                bx |= sx != null && sx != s;
+                sx = s;
+            }
+        }
+        return new int[]{sx == null || bx ? 0 : -sx, sz == null || bz ? 0 : -sz};
+    }
+
+    /** @return a run's fit with everything moved by {@code mv} ({@link #jointMove}): its box at the same place against the joint */
+    public static Fit moved(int[] c, int d, Fit f, int width, int run, int[] mv) {
+        int[] b = boxes(c, d, f.off(), List.of(run), width, f.shift()).get(0);
+        b = new int[]{b[0] + mv[0], b[1] + mv[1], b[2] + mv[0], b[3] + mv[1]};
+        int lat = d % 2 == 0 ? 1 : 0;
+        int off = switch (d) {
+            case 0 -> b[0] - c[0];
+            case 2 -> c[0] - b[2];
+            case 1 -> b[1] - c[1];
+            default -> c[1] - b[3];
+        };
+        return new Fit(off, b[lat] - c[lat] + (width - 1) / 2, f.match(), f.depth());
+    }
+
+    /**
+     * @return true when a face toward a run looks less like the straight's end than one of the joint's closed faces
+     * ({@link #faceLike}): the joint turns a closed side toward a run
+     */
+    public static boolean closedTowardRun(Grid joint, List<Integer> outs, Grid straight, boolean flip) {
+        double arm = Double.MAX_VALUE, closed = 0;
+        for (int f = 0; f < 4; f++) {
+            double v = faceLike(joint, f, straight, flip);
+            if (outs.contains(f)) arm = Math.min(arm, v);
+            else closed = Math.max(closed, v);
+        }
+        return arm < closed - 1e-9;
+    }
+
+    /**
+     * A road corner's turn: the contact pick ({@link #pickTurn}), unless it turns a closed side toward a run (its full
+     * border row scores like the road's end: Ethan's colonial level-1 corners, one quarter turn off) and another turn
+     * doesn't, while its weakest run meets the corner as well, its arms look clearly (0.2) more like the road's end and
+     * its contact is near (3/4);
+     * then of those, the arms most like the road's end, then the most contact.
+     *
+     * @param closed per turn, {@link #closedTowardRun}; @param weakest per turn, its weakest run's match
+     */
+    public static int pickRoadCorner(double[] contact, double[] bestMatch, double[] shape, boolean[] closed, double[] weakest) {
+        int byContact = pickTurn(contact, bestMatch, shape);
+        if (!closed[byContact]) return byContact;
+        int best = -1;
+        for (int k = 0; k < closed.length; k++)
+            if (!closed[k] && weakest[k] >= weakest[byContact] - 1e-9 && shape[k] >= shape[byContact] + 0.2 && contact[k] >= 0.75 * contact[byContact]
+                    && (best < 0 || shape[k] > shape[best] + 1e-9 || shape[k] > shape[best] - 1e-9 && contact[k] > contact[best] + 1e-9)) best = k;
+        return best < 0 ? byContact : best;
+    }
+
+    /**
+     * A road corner's run: of the shifts meeting the corner as well as the search's (same depth), one whose outer edge
+     * (away from the other arm) is flush with the corner's box; else the search's.
+     *
+     * @param other the other arm's direction out of the joint
+     */
+    public static Fit outerFit(int[] c, int d, int other, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift, Fit f) {
+        if (f.depth() < 0) return f;
+        boolean high = other == 2 || other == 3;
+        int lat = d % 2 == 0 ? 1 : 0;
+        Fit best = null;
+        for (int s = -maxShift; s <= maxShift; s++) {
+            if (destructiveAt(c, d, jb, joint, straight, width, run, s, f.depth())) continue;
+            Fit g = fitAt(c, d, jb, joint, straight, width, run, s, f.depth());
+            if (g.match() < f.match() - 1e-9) continue;
+            int[] b = boxes(c, d, g.off(), List.of(run), width, s).get(0);
+            if ((high ? b[lat + 2] == jb[lat + 2] : b[lat] == jb[lat]) && (best == null || Math.abs(s - f.shift()) < Math.abs(best.shift() - f.shift()))) best = g;
+        }
+        return best == null ? f : best;
+    }
+
     /** @return true when f beats best: more match, then shallower, then more centred ({@code off}), then a smaller shift */
     private static boolean better(Fit f, double off, Fit best, double bestOff) {
         if (best == null || f.match() > best.match() + 1e-9) return true;

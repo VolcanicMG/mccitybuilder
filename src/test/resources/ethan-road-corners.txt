@@ -1,0 +1,11 @@
+mccitybuilder-plan	1
+L3	road	-3479	-4470	-3479	-4447	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3479	-4447	-3457	-4447	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3457	-4447	-3457	-4465	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3457	-4465	-3439	-4465	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3439	-4465	-3439	-4451	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3421	-4471	-3421	-4440	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3421	-4440	-3391	-4440	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3391	-4440	-3391	-4462	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3410	-4469	-3398	-4469	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false
+L3	road	-3398	-4469	-3398	-4453	Colonial	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	false

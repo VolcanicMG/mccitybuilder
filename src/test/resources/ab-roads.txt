@@ -1,0 +1,11 @@
+mccitybuilder-plan	1
+L3	road	-3433	-4470	-3433	-4448	Urban Birch	road:infrastructure/roads/poor	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3433	-4448	-3409	-4448	Urban Birch	road:infrastructure/roads/poor	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3409	-4448	-3409	-4473	Urban Birch	road:infrastructure/roads/poor	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3409	-4473	-3394	-4473	Urban Birch	road:infrastructure/roads/poor	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3394	-4473	-3394	-4451	Urban Birch	road:infrastructure/roads/poor	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3479	-4470	-3479	-4448	Fortress	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3479	-4448	-3459	-4448	Fortress	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3459	-4448	-3459	-4466	Fortress	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3459	-4466	-3439	-4466	Fortress	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	true
+L3	road	-3439	-4466	-3439	-4451	Fortress	road:infrastructure/roads	1	0	false	false	false	0	0	-2147483648	true
