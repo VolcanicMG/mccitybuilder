@@ -142,13 +142,23 @@ final class LineView {
     /** A chain of walls closed on its own start: every wall turned to face out of the loop (one undo step with the drop). */
     private static void faceOut() {
         Boolean f = Plan.faceOutFlip(chain);
-        if (f == null || f == chain.get(0).flip()) return;
-        List<Plan.Line> ls = new ArrayList<>(PlanView.lines);
+        // Only a loop drawn the default way turns; one flipped on purpose (a courtyard facing in) stays.
+        if (!Boolean.TRUE.equals(f) || chain.get(0).flip()) return;
+        List<Plan.Line> ls = new ArrayList<>(PlanView.lines), now = new ArrayList<>();
         for (Plan.Line l : chain) {
             int i = ls.indexOf(l);
-            if (i < 0 || PlanView.locked(l)) return;
-            ls.set(i, l.withFlip(f));
+            // Refits can swap the object; the same span still is this segment (a split one is not).
+            for (int j = 0; i < 0 && j < ls.size(); j++) {
+                Plan.Line o = ls.get(j);
+                if (o.tool().equals(l.tool()) && o.x0() == l.x0() && o.z0() == l.z0() && o.x1() == l.x1() && o.z1() == l.z1()) i = j;
+            }
+            if (i < 0 || PlanView.locked(ls.get(i))) return;
+            Plan.Line n = ls.get(i).withFlip(true);
+            ls.set(i, n);
+            now.add(n);
         }
+        chain.clear();
+        chain.addAll(now);
         PlanView.setLines(ls);
     }
 
@@ -1209,6 +1219,9 @@ final class LineView {
         for (int[] c : made)
             if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         refitAround(new int[][]{start, end}, l);
+        // Back on the chain's own start: the loop faces out now (preview and Build alike), in this drop's undo step.
+        Plan.Line first = chain.get(0);
+        if (end[0] == first.x0() && end[1] == first.z0()) faceOut();
         prevDir = new int[]{end[0] - start[0], end[1] - start[1]};
         start = end;
         end = null;
