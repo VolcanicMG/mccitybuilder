@@ -57,8 +57,31 @@ final class PieceView {
         if (m != null) m.values().forEach(VertexBuffer::close);
     }
 
+    /** A block source for {@link #bake}: the state at (x, y, z) inside its box. */
+    interface Blocks {
+        BlockState at(int x, int y, int z);
+    }
+
     /** Bakes the piece's blocks around its own origin, in blueprint coordinates. */
     private static Map<RenderType, VertexBuffer> bake(Blueprint bp) {
+        return bake(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), (x, y, z) -> bp.getBlockState(new BlockPos(x, y, z)), MAX_BLOCKS);
+    }
+
+    /** @return the face shading the world gives a face this way (up full, down half, north / south 0.8, east / west 0.6) */
+    private static float shade(net.minecraft.core.Direction d) {
+        return switch (d) {
+            case UP -> 1f;
+            case DOWN -> 0.5f;
+            case NORTH, SOUTH -> 0.8f;
+            default -> 0.6f;
+        };
+    }
+
+    /**
+     * Bakes blocks of a box: each face shaded the way the world shades it, faces against a neighbouring opaque block
+     * left out (they never show).
+     */
+    private static Map<RenderType, VertexBuffer> bake(int sx, int sy, int sz, Blocks blocks, int max) {
         Minecraft mc = Minecraft.getInstance();
         var br = mc.getBlockRenderer();
         Map<RenderType, ByteBufferBuilder> memory = new LinkedHashMap<>();
@@ -67,10 +90,11 @@ final class PieceView {
         RandomSource rand = RandomSource.create(42);
         int n = 0;
         try {
-        for (int y = 0; y < bp.getSizeY() && n < MAX_BLOCKS; y++)
-            for (int z = 0; z < bp.getSizeZ(); z++)
-                for (int x = 0; x < bp.getSizeX(); x++) {
-                    BlockState st = bp.getBlockState(new BlockPos(x, y, z));
+        for (int y = 0; y < sy && n < max; y++)
+            for (int z = 0; z < sz; z++)
+                for (int x = 0; x < sx; x++) {
+                    BlockState st = blocks.at(x, y, z);
+                    if (st == null) continue;
                     if (st.isAir() || st.getRenderShape() != RenderShape.MODEL || st.getBlock() == com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get())
                         continue;
                     BakedModel model = br.getBlockModel(st);
@@ -80,13 +104,27 @@ final class PieceView {
                     pose.translate(x, y, z);
                     rand.setSeed(42);
                     for (RenderType chunk : model.getRenderTypes(st, rand, ModelData.EMPTY)) {
-                        RenderType rt = RenderTypeHelper.getEntityRenderType(chunk, false);
+                        // The block render types: lit by the lightmap and the baked face shading, like blocks in the world (the entity
+                        // types' directional lights darkened everything); translucent stays an entity type (its world target isn't drawn here).
+                        RenderType rt = chunk == RenderType.translucent() ? RenderTypeHelper.getEntityRenderType(chunk, false) : chunk;
                         BufferBuilder bb = builders.computeIfAbsent(rt, k -> {
                             ByteBufferBuilder mem = new ByteBufferBuilder(k.bufferSize());
                             memory.put(k, mem);
                             return new BufferBuilder(mem, k.mode(), k.format());
                         });
-                        br.getModelRenderer().renderModel(pose.last(), bb, st, model, r, g, b, 0xF000F0, OverlayTexture.NO_OVERLAY, ModelData.EMPTY, chunk);
+                        for (net.minecraft.core.Direction d : FACES) {
+                            if (d != null) {
+                                int nx = x + d.getStepX(), ny = y + d.getStepY(), nz = z + d.getStepZ();
+                                BlockState nb = nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz ? null : blocks.at(nx, ny, nz);
+                                if (nb != null && nb.canOcclude() && nb.getRenderShape() == RenderShape.MODEL) continue;
+                            }
+                            rand.setSeed(42);
+                            for (var q : model.getQuads(st, d, rand, ModelData.EMPTY, chunk)) {
+                                float f = q.isShade() ? shade(q.getDirection()) : 1f;
+                                float tr = q.isTinted() ? r : 1f, tg = q.isTinted() ? g : 1f, tb = q.isTinted() ? b : 1f;
+                                bb.putBulkData(pose.last(), q, tr * f, tg * f, tb * f, 1f, 0xF000F0, OverlayTexture.NO_OVERLAY);
+                            }
+                        }
                     }
                     pose.popPose();
                     n++;
@@ -120,6 +158,20 @@ final class PieceView {
      *
      * @param key a stable id for the piece (it is baked once)
      */
+    private static final net.minecraft.core.Direction[] FACES = {null, net.minecraft.core.Direction.UP, net.minecraft.core.Direction.DOWN, net.minecraft.core.Direction.NORTH,
+            net.minecraft.core.Direction.SOUTH, net.minecraft.core.Direction.WEST, net.minecraft.core.Direction.EAST};
+
+    /** Bakes a box of blocks under {@code key} once (a help scene's plate); null states are empty. */
+    static void bakeBlocks(String key, int sx, int sy, int sz, Blocks blocks) {
+        if (baked.containsKey(key)) return;
+        try {
+            baked.put(key, bake(sx, sy, sz, blocks, 60000));
+        } catch (RuntimeException e) {
+            CityBuilder.LOGGER.warn("City Builder: can't bake {}", key, e);
+            baked.put(key, Map.of());
+        }
+    }
+
     static void render(GuiGraphics g, String key, Blueprint bp, int x, int y, int w, int h) {
         long now = System.currentTimeMillis();
         if (!dragging && last != 0) yaw += Math.min(100, now - last) * 0.02f;
@@ -153,6 +205,8 @@ final class PieceView {
         Matrix4f mv = new Matrix4f(RenderSystem.getModelViewMatrix()).mul(pose.last().pose());
         for (var en : mesh.entrySet()) {
             en.getKey().setupRenderState();
+            var sh = RenderSystem.getShader();
+            if (sh != null && sh.CHUNK_OFFSET != null) sh.CHUNK_OFFSET.set(0f, 0f, 0f);
             en.getValue().bind();
             en.getValue().drawWithShader(mv, RenderSystem.getProjectionMatrix(), RenderSystem.getShader());
             VertexBuffer.unbind();
@@ -173,13 +227,6 @@ final class PieceView {
      */
     static void renderScene(GuiGraphics g, List<Part> parts, int x, int y, int w, int h) {
         if (parts.isEmpty()) return;
-        long now = System.currentTimeMillis();
-        if (!dragging && last != 0) yaw += Math.min(100, now - last) * 0.01f;
-        last = now;
-        if (stale) {
-            stale = false;
-            clear();
-        }
         int x0 = Integer.MAX_VALUE, y0 = Integer.MAX_VALUE, z0 = Integer.MAX_VALUE, x1 = Integer.MIN_VALUE, y1 = Integer.MIN_VALUE, z1 = Integer.MIN_VALUE;
         for (Part p : parts) {
             x0 = Math.min(x0, p.x());
@@ -189,6 +236,25 @@ final class PieceView {
             y1 = Math.max(y1, p.y() + p.bp().getSizeY());
             z1 = Math.max(z1, p.z() + p.bp().getSizeZ());
         }
+        renderScene(g, parts, new float[]{x0, y0, z0, x1, y1, z1}, null, null, null, x, y, w, h);
+    }
+
+    /**
+     * {@link #renderScene}, framed on fixed bounds {x0, y0, z0, x1, y1, z1} (so it holds still while pieces come and
+     * go), with {@code extra} drawn in scene space after the pieces (a plate, outline boxes).
+     *
+     * @return scene space to GUI pixels (callouts project through it)
+     */
+    static Matrix4f renderScene(GuiGraphics g, List<Part> parts, float[] bounds, java.util.function.BiConsumer<PoseStack, net.minecraft.client.renderer.MultiBufferSource> extra,
+                                float[] lift, float[] grow, int x, int y, int w, int h) {
+        long now = System.currentTimeMillis();
+        if (!dragging && last != 0) yaw += Math.min(100, now - last) * 0.01f;
+        last = now;
+        if (stale) {
+            stale = false;
+            clear();
+        }
+        float x0 = bounds[0], y0 = bounds[1], z0 = bounds[2], x1 = bounds[3], y1 = bounds[4], z1 = bounds[5];
         float scale = Math.min(w, h) / (Math.max(Math.max(x1 - x0, z1 - z0) * 1.45f, (y1 - y0) * 1.15f)) * zoom;
         g.flush();
         g.enableScissor(x, y, x + w, y + h);
@@ -199,9 +265,12 @@ final class PieceView {
         pose.mulPose(Axis.XP.rotationDegrees(pitch));
         pose.mulPose(Axis.YP.rotationDegrees(yaw));
         pose.translate(-(x0 + x1) / 2f, -(y0 + y1) / 2f, -(z0 + z1) / 2f);
-        Lighting.setupForEntityInInventory();
-        for (Part p : parts) {
+        Matrix4f toGui = new Matrix4f(pose.last().pose());
+        Lighting.setupForFlatItems();
+        for (int pi = 0; pi < parts.size(); pi++) {
+            Part p = parts.get(pi);
             Map<RenderType, VertexBuffer> mesh = baked.get(p.key());
+            if (mesh == null && p.bp() == null) continue;
             if (mesh == null) {
                 try {
                     mesh = bake(p.bp());
@@ -212,10 +281,21 @@ final class PieceView {
                 baked.put(p.key(), mesh);
             }
             pose.pushPose();
-            pose.translate(p.x(), p.y(), p.z());
+            pose.translate(p.x(), p.y() + (lift == null ? 0 : lift[pi]), p.z());
+            float k = grow == null ? 1 : grow[pi];
+            if (k != 1 && p.bp() != null) {
+                // Grows from its own centre (a piece popping in).
+                float cx = p.bp().getSizeX() / 2f, cz = p.bp().getSizeZ() / 2f;
+                pose.translate(cx, 0, cz);
+                pose.scale(k, k, k);
+                pose.translate(-cx, 0, -cz);
+            }
             Matrix4f mv = new Matrix4f(RenderSystem.getModelViewMatrix()).mul(pose.last().pose());
             for (var en : mesh.entrySet()) {
                 en.getKey().setupRenderState();
+                // Block shaders offset by the last drawn chunk otherwise.
+                var sh = RenderSystem.getShader();
+                if (sh != null && sh.CHUNK_OFFSET != null) sh.CHUNK_OFFSET.set(0f, 0f, 0f);
                 en.getValue().bind();
                 en.getValue().drawWithShader(mv, RenderSystem.getProjectionMatrix(), RenderSystem.getShader());
                 VertexBuffer.unbind();
@@ -224,7 +304,12 @@ final class PieceView {
             pose.popPose();
         }
         Lighting.setupFor3DItems();
+        if (extra != null) {
+            extra.accept(pose, g.bufferSource());
+            g.flush();
+        }
         pose.popPose();
         g.disableScissor();
+        return toGui;
     }
 }

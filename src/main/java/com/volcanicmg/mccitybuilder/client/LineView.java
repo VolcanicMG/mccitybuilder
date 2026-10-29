@@ -76,8 +76,10 @@ final class LineView {
     private static int[] connect, connectTo;
     private static boolean elbowAlt, connectFits;
     private static int lastDir = -1;
-    // How close (blocks, whatever the zoom) the cursor must be to an end for a connect.
-    private static final double CONNECT_R = 1.5;
+    // How close (GUI px from the end's marker, so it scales with zoom) the cursor must be for a connect.
+    private static final double CONNECT_PX = 11;
+    // An end the cursor is approaching (within twice that): its marker shows faintly, so it's clear where to aim.
+    static int[] connectHint;
     // The chain's last segment grows by this vector at the corner the live segment makes (null: no growth).
     private static int[] grow;
     // The live layout's joint / cap offsets at {start, end} (length snapping tiles between them), its flat level.
@@ -88,6 +90,8 @@ final class LineView {
     static final List<Plan.Line> chain = new ArrayList<>();
     // The live segment (or the piece under the cursor before a chain starts): pieces, conflicts, gap, length and need.
     static List<PieceCatalog.Placed> live = List.of();
+    // The live pieces of filled segments (Fill gaps): their straights overlap each other on purpose, keyed by the segment.
+    private static final java.util.Map<PieceCatalog.Placed, Plan.Line> liveFilled = new java.util.IdentityHashMap<>();
     static List<Boolean> liveBad = List.of();
     static int[] liveGap;
     static int liveShort, liveLen, liveNeed = Integer.MAX_VALUE;
@@ -127,7 +131,7 @@ final class LineView {
             if (m != PlanView.lines) PlanView.setLines(m);
         }
         startSplit = null;
-        start = prevDir = end = connect = connectTo = null;
+        start = prevDir = end = connect = connectTo = connectHint = null;
         lastDir = -1;
         elbowAlt = false;
         chainBase = Plan.NO_BASE;
@@ -309,6 +313,8 @@ final class LineView {
             for (int k = 0; k < last; k++)
                 if (onLine(all.get(k), a) || onLine(all.get(k), b) || crossed(all.get(k)) || connect != null && onLine(all.get(k), elbowNow()))
                     for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
+            liveFilled.clear();
+            for (int k = 0; k <= last; k++) if (all.get(k).fill()) for (PieceCatalog.Placed p : lay.lines().get(k)) liveFilled.put(p, all.get(k));
             boolean wasEmpty = live.isEmpty();
             live = ps;
             if (wasEmpty != live.isEmpty() || liveA == null || liveA[0] != a[0] || liveA[1] != a[1] || liveB[0] != b[0] || liveB[1] != b[1]) PlanView.relayout();
@@ -337,7 +343,9 @@ final class LineView {
                 if (start != null && (onLine(PlanView.lines.get(k), a) || onLine(PlanView.lines.get(k), b) || crossed(PlanView.lines.get(k)))) continue;
                 for (PieceCatalog.Placed q : PlanView.linePieces.get(k)) red |= PieceCatalog.clash(pk, p, PlanView.lines.get(k).pack(), q);
             }
-            for (PieceCatalog.Placed q : live) red |= q != p && PieceCatalog.clash(pk, p, pk, q);
+            // Straights of one run overlapping end to end are a filled segment's (Fill gaps), not a clash.
+            for (PieceCatalog.Placed q : live)
+                red |= q != p && !(liveFilled.get(p) != null && liveFilled.get(p) == liveFilled.get(q) && PieceCatalog.sameRun(p, q)) && PieceCatalog.clash(pk, p, pk, q);
             bad.add(red);
             liveClash |= red && !out;
         }
@@ -824,7 +832,7 @@ final class LineView {
     private static int[] snapEnd(double cx, double cz, List<int[][]> segs, double r) {
         adjust = null;
         merge = false;
-        connect = null;
+        connect = connectHint = null;
         // Another segment's end, from any side: a joint exactly there (its free end may move onto this line).
         int bestI = -1, bestK = -1;
         double bd = r * r;
@@ -911,7 +919,12 @@ final class LineView {
             snapPoints = List.of(teeCell);
         }
         // Right on a free end off the start's axes, and no T: two segments reach it through an elbow (an L there).
-        int[] ct = pass != null ? null : LineSnap.connectTarget(start, cx, cz, freeEnds(), CONNECT_R);
+        List<int[]> fe = freeEnds();
+        List<double[]> fpx = new ArrayList<>();
+        for (int[] e : fe) fpx.add(screen(e[0] + 0.5, groundY(e[0], e[1]) + 0.5, e[1] + 0.5));
+        double[] cur = screen(cx, groundY((int) Math.floor(cx), (int) Math.floor(cz)) + 0.5, cz);
+        int[] ct = pass != null || cur == null ? null : LineSnap.connectTarget(start, cur, fe, fpx, CONNECT_PX, connectTo);
+        connectHint = ct != null || pass != null || cur == null ? null : LineSnap.nearestEnd(start, cur, fe, fpx, 2 * CONNECT_PX);
         if (!java.util.Arrays.equals(ct, connectTo)) {
             connectTo = ct;
             elbowAlt = false;
@@ -964,6 +977,14 @@ final class LineView {
         for (int[] el : Plan.elbows(PlanView.lines, tool, start, e, pref)) if (!outside(next(start, el)) && !outside(next(el, e))) els.add(el);
         if (els.isEmpty()) return null;
         return els.get(elbowAlt && els.size() > 1 ? 1 : 0);
+    }
+
+    /** @return where a world point appears on screen in GUI px, or null when behind the camera */
+    private static double[] screen(double x, double y, double z) {
+        double[] ndc = Planner.project(x, y, z);
+        if (ndc == null) return null;
+        var w = net.minecraft.client.Minecraft.getInstance().getWindow();
+        return new double[]{(ndc[0] + 1) / 2 * w.getGuiScaledWidth(), (1 - ndc[1]) / 2 * w.getGuiScaledHeight()};
     }
 
     /** @return the free ends (one segment, not built or sending) of the tool's segments: what a connect may join */
@@ -1480,6 +1501,56 @@ final class LineView {
         else dy = Math.max(-64, Math.min(64, dy + d));
     }
 
+    /**
+     * @return the planned segments Fill gaps acts on: the selection (edit mode), else the selected segment, else every
+     * one of the tool's segments; of those, the unbuilt ones leaving cells uncovered and not filling yet
+     */
+    static List<Integer> fillTargets() {
+        List<Integer> from = new ArrayList<>(edit && !sel.isEmpty() ? sel : PlanView.selectedLine >= 0 ? List.of(PlanView.selectedLine) : List.of());
+        if (from.isEmpty()) for (int i = 0; i < PlanView.lines.size(); i++) if (PlanView.lines.get(i).tool().equals(tool)) from.add(i);
+        List<Integer> out = new ArrayList<>();
+        for (int i : from)
+            if (i < PlanView.lines.size() && i < PlanView.lineShort.size() && PlanView.lineShort.get(i) > 0 && !PlanView.locked(PlanView.lines.get(i))
+                    && !PlanView.lines.get(i).fill()) out.add(i);
+        return out;
+    }
+
+    /**
+     * Fill gaps: the targets ({@link #fillTargets}) close their uncovered cells with one more straight overlapping a
+     * neighbour (the line's fill flag; one undo step). A run whose gap can't close that way (one straight or none, an
+     * overlap as long as a piece) stays as it was, and the hint says how many.
+     *
+     * @return false when there was nothing to fill
+     */
+    static boolean fillGaps() {
+        List<Integer> at = fillTargets();
+        if (at.isEmpty()) return false;
+        List<Plan.Line> ls = new ArrayList<>(PlanView.lines);
+        for (int i : at) ls.set(i, ls.get(i).withFill(true));
+        PieceCatalog.Layout lay = PieceCatalog.layout(ls, PlanView.jointTypes);
+        int stuck = 0;
+        for (int i : at)
+            if (lay.shortened().get(i) > 0) {
+                ls.set(i, ls.get(i).withFill(false));
+                stuck++;
+            }
+        flash = stuck == 0 ? "mccitybuilder.line.filled" : "mccitybuilder.line.fill_stuck";
+        flashArg = stuck == 0 ? at.size() : stuck;
+        flashUntil = System.currentTimeMillis() + 3000;
+        if (stuck == at.size()) {
+            // The trial layout left PieceCatalog's per-layout state behind: lay the plan out again.
+            PlanView.relayout();
+            return true;
+        }
+        checkpoint();
+        for (int k = 0; k < chain.size(); k++) {
+            int ci = PlanView.lines.indexOf(chain.get(k));
+            if (ci >= 0) chain.set(k, ls.get(ci));
+        }
+        PlanView.setLines(ls);
+        return true;
+    }
+
     /** @return true when the segment under the cursor is built (or on its way): right-click never removes it */
     static boolean hoverBuilt() {
         return hoverLine >= 0 && hoverLine < PlanView.lines.size() && PlanView.locked(PlanView.lines.get(hoverLine));
@@ -1582,6 +1653,11 @@ final class LineView {
         for (int[] p : snapPoints) {
             int y = groundY(p[0], p[1]);
             LevelRenderer.renderLineBox(pose, lines, p[0] + 0.2, y + 0.1, p[1] + 0.2, p[0] + 0.8, y + 0.9, p[1] + 0.8, 0.3f, 0.9f, 1f, 1f);
+        }
+        // An open end the cursor is nearing: faint, so it's clear where to aim for a connect.
+        if (connectHint != null && start != null) {
+            int y = groundY(connectHint[0], connectHint[1]);
+            LevelRenderer.renderLineBox(pose, lines, connectHint[0] + 0.1, y, connectHint[1] + 0.1, connectHint[0] + 0.9, y + 1, connectHint[1] + 0.9, 0.3f, 0.9f, 1f, 0.45f);
         }
         if (guide != null) segment(pose, lines, guide[0] + 0.5f, guide[1] + 0.5f, guide[2] + 0.5f, guide[3] + 0.5f, groundY(guide[0], guide[1]) + 1, 0.6f);
         renderSnap(pose, lines);

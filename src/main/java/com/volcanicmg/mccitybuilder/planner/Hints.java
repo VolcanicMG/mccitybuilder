@@ -11,7 +11,7 @@ import java.util.function.ToIntFunction;
  * The planner's "Controls" guide: what each section says and how it is laid out in whole GUI pixels. Pure, so the
  * client and the offline preview share it and SelfCheck can verify it.
  * <p>
- * A row is key caps then one short action; essential rows make the compact guide, "All" shows every row. Cap tokens: {@code #name} = a key cap labelled {@code mccitybuilder.hint.key.name},
+ * A row is key caps then one short action; essential rows make the compact guide, "All" shows every row of the state. Cap tokens: {@code #name} = a key cap labelled {@code mccitybuilder.hint.key.name},
  * {@code @toggle} = a cap with the planner key's current binding, {@code + / ,} = plain separators, anything else a
  * literal cap ({@code Z}). The action is the lang key {@code mccitybuilder.hint.<section>.<n>}. Only behaviour the planner
  * actually implements is listed.
@@ -23,15 +23,29 @@ public final class Hints {
     public static final int HEAD_GAP = 3, SECTION_GAP = 7, COL_GAP = 6, MAX_KEYS = 82;
     public static final List<String> SEPARATORS = List.of("+", "/", ",");
 
-    /** @param essential shown in the compact guide (the rest only with "All") */
-    public record Row(List<String> caps, String action, boolean essential) {
+    /**
+     * @param essential shown in the compact guide (the rest only with "All"); @param wallOnly only for the wall tool
+     *                  (gate); @param gapsOnly only while a planned segment has uncovered cells (Fill gaps)
+     */
+    public record Row(List<String> caps, String action, boolean essential, boolean wallOnly, boolean gapsOnly) {
     }
 
-    /** Section id → rows: "view" (camera) and one per state: "browse", "placing", "adjusting", "planned", "line", "selected". */
+    /** What the shown rows depend on besides the state: the line tool is walls, some segment has a gap. */
+    public record Ctx(boolean wall, boolean gaps) {
+        public static final Ctx NONE = new Ctx(false, false);
+    }
+
+    /**
+     * Section id → rows, one per thing the player can be doing: "view" (camera, while browsing), "browse", "selected" /
+     * "selected_deco", "placing" / "placing_deco", "adjusting", "planned" / "planned_deco", and the road / wall tool's
+     * "line_idle", "line_draw", "line_connect", "line_edit", "line_edit_segment", "line_edit_built", "line_edit_joint".
+     */
     public static final Map<String, List<Row>> SECTIONS = new LinkedHashMap<>();
+    /** The road / wall tool's states: their headings name the tool ({@code mccitybuilder.hint.section.<id>.<road|wall>}). */
+    public static final List<String> LINE_STATES = List.of("line_idle", "line_draw", "line_connect", "line_edit", "line_edit_segment", "line_edit_built", "line_edit_joint");
 
     static {
-        // "*" first: an essential row. One action per row.
+        // Flags first: "*" essential, "w" walls only, "f" only with gaps to fill. One action per row.
         section("view",
                 row("*", "WASD"),
                 row("*", "#wheel"),
@@ -42,22 +56,27 @@ public final class Hints {
                 row("*", "@toggle", "/", "#esc"));
         section("browse",
                 row("*", "#click"),
-                row("*", "#rmb"),
                 row("*", "K"),
                 row("*", "N"),
                 row("*", "B"));
-        section("placing",
-                row("*", "#click"),
-                row("*", "R"),
-                row("M"),
-                row("*", "#shift", "+", "#wheel"),
-                row("G"),
+        section("selected",
+                row("*", "U"),
+                row("*", "P"),
+                row("*", "O"),
+                row("#click"),
                 row("*", "#rmb", "/", "#esc"));
+        section("selected_deco",
+                row("*", "#click"),
+                row("*", "#rmb", "/", "#esc"));
+        String[][] placing = {{"*", "#click"}, {"*", "R"}, {"M"}, {"*", "#shift", "+", "#wheel"}, {"#pgup", "/", "#pgdn"}, {"G"}, {"*", "#rmb", "/", "#esc"}};
+        section("placing", placing);
+        section("placing_deco", placing);
         section("adjusting",
                 row("*", "#arrows"),
                 row("#shift", "+", "#arrows"),
                 row("#drag"),
                 row("*", "#shift", "+", "#wheel"),
+                row("#pgup", "/", "#pgdn"),
                 row("*", "R"),
                 row("M"),
                 row("G"),
@@ -71,48 +90,103 @@ public final class Hints {
                 row("[", "/", "]"),
                 row("*", "#delete"),
                 row("*", "#rmb", "/", "#esc"));
-        section("line",
-                row("*", "#click"),
-                row("#shift"),
-                row("*", "#backspace"),
+        section("planned_deco",
+                row("*", "#arrows"),
+                row("*", "#pgup", "/", "#pgdn"),
+                row("*", "R"),
+                row("M"),
                 row("*", "#delete"),
-                row("R"),
+                row("*", "#rmb", "/", "#esc"));
+        section("line_idle",
+                row("*", "#click"),
                 row("*", "X"),
+                row("*", "#backspace"),
+                row("#delete"),
+                row("C"),
                 row("H"),
                 row("#pgup", "/", "#pgdn"),
                 row("[", "/", "]"),
                 row("-", "/", "="),
+                row("R"),
+                row("w", "G"),
+                row("*", "f", "F"),
+                row("*", "#rmb", "/", "#esc"));
+        section("line_draw",
+                row("*", "#click"),
+                row("*", "#shift"),
+                row("*", "#backspace"),
                 row("*", "C"),
-                row("G"),
+                row("R"),
+                row("H"),
+                row("#pgup", "/", "#pgdn"),
+                row("w", "G"),
+                row("*", "f", "F"),
                 row("*", "#rmb", "/", "#esc"));
-        section("selected",
-                row("*", "U"),
-                row("*", "P"),
-                row("*", "O"),
+        section("line_connect",
+                row("*", "#click"),
+                row("*", "R"),
+                row("*", "#backspace"),
                 row("*", "#rmb", "/", "#esc"));
+        section("line_edit",
+                row("*", "#click"),
+                row("*", "#drag"),
+                row("*", "#tab"),
+                row("#alt", "+", "#click"),
+                row("#delete"),
+                row("*", "X"),
+                row("*", "#esc"));
+        section("line_edit_segment",
+                row("*", "#drag"),
+                row("*", "#delete"),
+                row("*", "R"),
+                row("H"),
+                row("#pgup", "/", "#pgdn"),
+                row("[", "/", "]"),
+                row("-", "/", "="),
+                row("w", "G"),
+                row("*", "f", "F"),
+                row("*", "#esc"));
+        section("line_edit_built",
+                row("*", "#delete"),
+                row("*", "#esc"));
+        section("line_edit_joint",
+                row("*", "C"),
+                row("*", "#drag"),
+                row("*", "#esc"));
     }
 
     private Hints() {
     }
 
-    // Caps of one row; a leading "*" marks it essential.
-    private static List<String> row(String... t) {
-        return List.of(t);
+    // Caps of one row; leading flags: "*" essential, "w" walls only, "f" gaps only.
+    private static String[] row(String... t) {
+        return t;
     }
 
-    @SafeVarargs
-    private static void section(String id, List<String>... rows) {
+    private static void section(String id, String[]... rows) {
         List<Row> out = new ArrayList<>();
         for (int i = 0; i < rows.length; i++) {
-            boolean ess = rows[i].get(0).equals("*");
-            out.add(new Row(ess ? rows[i].subList(1, rows[i].size()) : rows[i], "mccitybuilder.hint." + id + "." + (i + 1), ess));
+            List<String> r = new ArrayList<>(List.of(rows[i]));
+            boolean ess = false, wall = false, gaps = false;
+            while (!r.isEmpty() && List.of("*", "w", "f").contains(r.get(0))) {
+                String f = r.remove(0);
+                ess |= f.equals("*");
+                wall |= f.equals("w");
+                gaps |= f.equals("f");
+            }
+            out.add(new Row(List.copyOf(r), "mccitybuilder.hint." + id + "." + (i + 1), ess, wall, gaps));
         }
         SECTIONS.put(id, out);
     }
 
-    /** @return the section's rows shown: all, or the essential ones (compact) */
-    public static List<Row> rows(String id, boolean all) {
-        return SECTIONS.get(id).stream().filter(r -> all || r.essential()).toList();
+    /** @return the section's rows shown: all, or the essential ones (compact); wall / gap rows only when they apply */
+    public static List<Row> rows(String id, boolean all, Ctx ctx) {
+        return SECTIONS.get(id).stream().filter(r -> (all || r.essential()) && (!r.wallOnly() || ctx.wall()) && (!r.gapsOnly() || ctx.gaps())).toList();
+    }
+
+    /** @return the lang key of a section's heading (the line tool's name the tool) */
+    public static String title(String id, Ctx ctx) {
+        return "mccitybuilder.hint.section." + id + (LINE_STATES.contains(id) ? ctx.wall() ? ".wall" : ".road" : "");
     }
 
     /** @return every lang key the guide uses (titles, sections, caps, actions, the All / Less toggle) */
@@ -120,7 +194,10 @@ public final class Hints {
         List<String> out = new ArrayList<>(List.of("mccitybuilder.hint.title", "mccitybuilder.hint.toggle", "mccitybuilder.hint.all", "mccitybuilder.hint.less",
                 "mccitybuilder.hint.all.tip"));
         for (var en : SECTIONS.entrySet()) {
-            out.add("mccitybuilder.hint.section." + en.getKey());
+            if (LINE_STATES.contains(en.getKey())) {
+                out.add("mccitybuilder.hint.section." + en.getKey() + ".wall");
+                out.add("mccitybuilder.hint.section." + en.getKey() + ".road");
+            } else out.add("mccitybuilder.hint.section." + en.getKey());
             for (Row r : en.getValue()) {
                 out.add(r.action());
                 for (String c : r.caps()) if (c.startsWith("#")) out.add("mccitybuilder.hint.key." + c.substring(1));
@@ -146,16 +223,16 @@ public final class Hints {
      * @param tr    resolves a lang key (and {@code @toggle}) to display text
      * @param width text width in GUI px (the vanilla font)
      */
-    public static Laid layout(List<String> sectionIds, boolean all, Function<String, String> tr, ToIntFunction<String> width) {
+    public static Laid layout(List<String> sectionIds, boolean all, Ctx ctx, Function<String, String> tr, ToIntFunction<String> width) {
         List<Item> out = new ArrayList<>();
         int inner = WIDTH - 2 * PAD, keys = 0;
-        for (String id : sectionIds) for (Row r : rows(id, all)) keys = Math.max(keys, capsWidth(r, tr, width));
+        for (String id : sectionIds) for (Row r : rows(id, all, ctx)) keys = Math.max(keys, capsWidth(r, tr, width));
         int ax = Math.min(keys, MAX_KEYS) + COL_GAP, aw = inner - ax, y = 0;
         for (String id : sectionIds) {
             if (!out.isEmpty()) y += SECTION_GAP - ROW_GAP;
-            out.add(new Item(0, y, inner, tr.apply("mccitybuilder.hint.section." + id), false, true));
+            out.add(new Item(0, y, inner, tr.apply(title(id, ctx)), false, true));
             y += LINE_H + HEAD_GAP;
-            for (Row r : rows(id, all)) {
+            for (Row r : rows(id, all, ctx)) {
                 int x = 0;
                 for (String c : r.caps()) {
                     String label = label(c, tr);

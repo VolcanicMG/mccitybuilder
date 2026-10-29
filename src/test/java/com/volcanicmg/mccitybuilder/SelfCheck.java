@@ -738,13 +738,59 @@ public final class SelfCheck {
         List<Plan.Line> diag = List.of(w.apply(new int[]{20, 0}, new int[]{30, 0}), w.apply(new int[]{5, 5}, new int[]{15, 15}));
         List<int[]> e5 = Plan.elbows(diag, "wall", new int[]{0, 10}, new int[]{20, 0}, 0);
         check(e5.size() == 1 && e5.get(0)[0] == 0 && e5.get(0)[1] == 0, "the diagonal crosses z 10 at x 10: only (0,0)");
-        // The target: only with the cursor on a free end (1.5 blocks, whatever the zoom radius), never on the start's axes.
-        List<int[]> free = List.of(new int[]{20, 0}, new int[]{0, 30});
-        int[] t = LineSnap.connectTarget(new int[]{0, 15}, 20.5, 0.9, free, 1.5);
-        check(t != null && t[0] == 20 && t[1] == 0, "cursor on the open end: connect");
-        check(LineSnap.connectTarget(new int[]{0, 15}, 22.6, 0.5, free, 1.5) == null, "2 blocks off the end: no connect (axis / length snapping as before)");
-        check(LineSnap.connectTarget(new int[]{0, 15}, 0.5, 30.5, free, 1.5) == null, "an end on the start's axis: plain end snapping");
-        check(LineSnap.connectTarget(new int[]{0, 15}, 20.5, 0.5, List.of(), 1.5) == null, "no free end (a joint, a built end): no connect");
+        // The target, in screen space: the cursor within r GUI px of an end's marker; held out to 1.6 r; never on the
+        // start's axes; ends off screen (null) never.
+        List<int[]> free = List.of(new int[]{20, 0}, new int[]{0, 30}, new int[]{40, 40});
+        List<double[]> px = java.util.Arrays.asList(new double[]{200, 100}, new double[]{50, 300}, null);
+        int[] st = {0, 15};
+        int[] t = LineSnap.connectTarget(st, new double[]{208, 104}, free, px, 11, null);
+        check(t != null && t[0] == 20 && t[1] == 0, "cursor on the end's marker: connect");
+        check(LineSnap.connectTarget(st, new double[]{214, 100}, free, px, 11, null) == null, "14 px off: no connect (axis / length snapping as before)");
+        t = LineSnap.connectTarget(st, new double[]{214, 100}, free, px, 11, new int[]{20, 0});
+        check(t != null && t[0] == 20, "connected: holds at 14 px (hysteresis)");
+        check(LineSnap.connectTarget(st, new double[]{220, 100}, free, px, 11, new int[]{20, 0}) == null, "connected: lets go past 1.6 r");
+        check(LineSnap.connectTarget(st, new double[]{50, 300}, free, px, 11, null) == null, "an end on the start's axis: plain end snapping");
+        check(LineSnap.connectTarget(st, new double[]{208, 104}, List.of(), List.of(), 11, null) == null, "no free end (a joint, a built end): no connect");
+        int[] near = LineSnap.nearestEnd(st, new double[]{218, 100}, free, px, 22);
+        check(near != null && near[0] == 20, "approaching within 2 r: the end's marker is hinted");
+    }
+
+    /** Fill gaps: one more straight, one overlapping seam, exact cover; a run without a straight can't; the flag round-trips. */
+    private static void fillGaps() {
+        // 3 straights of 6 in 20 cells leave 2: one more 6 overlaps a neighbour by 4.
+        List<int[]> opts = com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(20, List.of(6, 6, 6), 6);
+        check(!opts.isEmpty(), "gap fill options");
+        for (int[] o : opts) {
+            List<Integer> seq = new java.util.ArrayList<>(List.of(6, 6, 6));
+            seq.add(o[0], 6);
+            int ends = 0, overlaps = 0;
+            for (int k = 0; k < seq.size(); k++) {
+                ends = Math.max(ends, o[2 + k] + seq.get(k));
+                if (k > 0 && o[2 + k] < o[2 + k - 1] + seq.get(k - 1)) overlaps += o[2 + k - 1] + seq.get(k - 1) - o[2 + k];
+                if (k > 0) check(o[2 + k] > o[2 + k - 1], "pieces keep their order");
+            }
+            check(o[2] == 0 && ends == 20 && overlaps == 4, "exact cover from the run's start to its end, one 4-cell overlap: " + java.util.Arrays.toString(o));
+        }
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(4, List.of(), 6).isEmpty(), "no straight in the run: can't fill");
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(3, List.of(2), 6).isEmpty(), "an overlap as long as a piece: can't");
+        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(12, List.of(6), 6).isEmpty(), "no gap: nothing to do");
+        // The seam choice: identical columns match fully, different ones don't.
+        int[] ids = new int[3 * 2 * 6];
+        java.util.Arrays.fill(ids, 5);
+        PieceLayout.Grid a = new PieceLayout.Grid(6, 2, 3, ids, 0), b = new PieceLayout.Grid(6, 2, 3, ids.clone(), 0);
+        int[] ids2 = ids.clone();
+        java.util.Arrays.fill(ids2, 7);
+        PieceLayout.Grid c = new PieceLayout.Grid(6, 2, 3, ids2, 0);
+        check(PieceLayout.seamMatch(a, new int[]{0, 0, 5, 2}, b, new int[]{3, 0, 8, 2}) == 1, "matching overlap scores 1");
+        check(PieceLayout.seamMatch(a, new int[]{0, 0, 5, 2}, c, new int[]{3, 0, 8, 2}) == 0, "different blocks score 0");
+        // The flag: written only when set (older builds read 17 fields), read back either way.
+        Plan.Line l = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, 0, false, false), lf = l.between(0, 5, 20, 5).withFill(true);
+        String txt = Plan.write(List.of(), List.of(l, lf));
+        check(Plan.readLines(txt).equals(List.of(l, lf)), "fill flag round-trips");
+        // An older build reads only L3 rows of exactly 17 fields and skips unknown rows: it must keep every line.
+        check(txt.lines().filter(x -> x.startsWith("L3") && x.split("\t").length == 17).count() == 2, "old parsers keep filled lines (the flag is an F row)");
+        check(txt.lines().anyMatch(x -> x.equals("F\t0\t5\t20\t5")), "the fill flag is its own row");
+        check(lf.between(0, 0, 10, 0).fill() && lf.withFlip(true).fill() && lf.asBuilt().fill(), "copies keep the flag");
     }
 
     /** Edit-mode nodes: a node shared with a built segment can't be dragged (it would move the built end). */
@@ -759,6 +805,7 @@ public final class SelfCheck {
         undoRestore();
         autoConnect();
         builtNodes();
+        fillGaps();
         List<int[][]> segs = new java.util.ArrayList<>();
         segs.add(new int[][]{{0, 0}, {20, 0}});
         // Ends snap to an existing endpoint near the cursor; otherwise to 45° steps from the previous direction.
@@ -2325,8 +2372,14 @@ public final class SelfCheck {
 
     private static void hintsAndLang() throws Exception {
         String lang = Files.readString(Path.of("src/main/resources/assets/mccitybuilder/lang/en_us.json"));
-        for (String id : List.of("view", "browse", "placing", "adjusting", "planned", "selected", "line"))
-            check(Hints.SECTIONS.containsKey(id) && Hints.rows(id, false).size() <= Hints.MAX_ROWS && !Hints.rows(id, false).isEmpty(), "hints section " + id);
+        // Every state: 1 to 6 compact rows; no wall-only row for roads, no Fill gaps row without gaps.
+        Hints.Ctx road = new Hints.Ctx(false, true), wall = new Hints.Ctx(true, true), noGaps = new Hints.Ctx(true, false);
+        for (String id : Hints.SECTIONS.keySet()) {
+            for (Hints.Ctx c : List.of(road, wall, noGaps))
+                check(!Hints.rows(id, false, c).isEmpty() && Hints.rows(id, false, c).size() <= 6, "compact hints, 1-6 rows: " + id + " " + c);
+            check(Hints.rows(id, true, road).stream().noneMatch(Hints.Row::wallOnly), "no wall-only row for roads: " + id);
+            check(Hints.rows(id, true, noGaps).stream().noneMatch(Hints.Row::gapsOnly), "no Fill gaps row without gaps: " + id);
+        }
         for (String k : Hints.langKeys()) check(lang.contains("\"" + k + "\":"), "lang key: " + k);
         for (String c : HutCatalog.CATEGORIES) check(lang.contains("\"mccitybuilder.category." + c + "\":"), "category lang: " + c);
         java.util.function.Function<String, String> tr = k -> {
@@ -2337,9 +2390,10 @@ public final class SelfCheck {
         };
         // Every row, compact and full, inside the panel (6 px a character: wider than the vanilla font's average); the
         // tallest guide shown (state + camera, all rows) fits a 1147x480 GUI under the queue, or degrades to compact.
-        for (String id : List.of("browse", "placing", "adjusting", "planned", "selected", "line"))
+        for (String id : Hints.SECTIONS.keySet())
             for (boolean all : new boolean[]{false, true}) {
-                Hints.Laid l = Hints.layout(id.equals("browse") ? List.of(id, "view") : List.of(id), all, tr, s -> s.length() * 6);
+                if (id.equals("view")) continue;
+                Hints.Laid l = Hints.layout(id.equals("browse") ? List.of(id, "view") : List.of(id), all, wall, tr, s -> s.length() * 6);
                 for (Hints.Item it : l.items())
                     check(it.x() >= 0 && it.x() + it.w() <= Hints.WIDTH - 2 * Hints.PAD, "hint fits: " + id + (all ? " all" : "") + " '" + it.text() + "'");
                 // Actions start at one x (the action column) within a section list.
@@ -2368,27 +2422,40 @@ public final class SelfCheck {
         check(n > 20, "lang literals found: " + n);
     }
 
-    /** The road / wall help screen and coach tips: every string exists and every line fits its box (6 px a character). */
+    /**
+     * The road / wall help (Ponder scenes) and coach tips: every string exists; every scene step parses, references
+     * real segments (colours, joints), keeps its callouts and cursor on cells, and its caption fits the caption area
+     * (3 lines of the viewport, 6 px a character); every tip fits its box.
+     */
     private static void lineHelp(String lang, java.util.function.Function<String, String> tr) {
         java.util.function.ToIntFunction<String> w6 = s -> s.length() * 6;
         for (String k : com.volcanicmg.mccitybuilder.planner.LineHelp.langKeys()) check(lang.contains("\"" + k + "\":"), "help lang key: " + k);
-        int textTop = com.volcanicmg.mccitybuilder.planner.LineHelp.PAD + 30, buttons = com.volcanicmg.mccitybuilder.planner.LineHelp.PAD + 24;
-        for (var pg : com.volcanicmg.mccitybuilder.planner.LineHelp.PAGES) {
-            int room = com.volcanicmg.mccitybuilder.planner.LineHelp.H - textTop - buttons;
-            if (pg.diagram() == null) {
-                check(com.volcanicmg.mccitybuilder.planner.LineHelp.LEGEND.size() * 13 <= room, "legend fits");
-                for (String k : com.volcanicmg.mccitybuilder.planner.LineHelp.LEGEND)
-                    check(16 + w6.applyAsInt(tr.apply("mccitybuilder.help.colours." + k)) <= com.volcanicmg.mccitybuilder.planner.LineHelp.W - 2 * com.volcanicmg.mccitybuilder.planner.LineHelp.PAD, "legend line fits: " + k);
-                continue;
+        for (String k : com.volcanicmg.mccitybuilder.planner.Ponder.langKeys()) check(lang.contains("\"" + k + "\":"), "ponder lang key: " + k);
+        // The viewport at a 1147x480 GUI: the panel is 460 wide, the topics 100.
+        int capW = 460 - 14 - 100 - 6 - 4;
+        for (var t : com.volcanicmg.mccitybuilder.planner.Ponder.TOPICS) {
+            check(!t.steps().isEmpty(), "ponder topic has steps: " + t.id());
+            for (var st : t.steps()) {
+                List<String> cap = com.volcanicmg.mccitybuilder.planner.LineHelp.wrap(tr.apply(st.caption), capW, w6);
+                check(cap.size() <= 3, "ponder caption fits 3 lines: " + st.caption + " " + cap.size());
+                List<com.volcanicmg.mccitybuilder.planner.Ponder.Seg> segs = new java.util.ArrayList<>();
+                for (String spec : st.lines) segs.add(com.volcanicmg.mccitybuilder.planner.Ponder.seg(spec, 9));
+                for (var sg : segs) check(sg.x0() == sg.x1() || sg.z0() == sg.z1(), "ponder segment on an axis: " + st.caption);
+                for (int k : st.colours.keySet()) check(k >= 0 && k < segs.size(), "ponder colour names a segment: " + st.caption);
+                for (String cell : st.joints.keySet()) {
+                    String[] c = cell.split(" ");
+                    int x = com.volcanicmg.mccitybuilder.planner.Ponder.coord(c[0], 9), z = com.volcanicmg.mccitybuilder.planner.Ponder.coord(c[1], 9);
+                    check(segs.stream().anyMatch(sg -> sg.x0() == x && sg.z0() == z || sg.x1() == x && sg.z1() == z), "ponder joint at a segment end: " + st.caption);
+                }
+                for (var c : st.callouts) {
+                    com.volcanicmg.mccitybuilder.planner.Ponder.coord(c.x(), 9);
+                    com.volcanicmg.mccitybuilder.planner.Ponder.coord(c.z(), 9);
+                    check(c.y() > 0 && tr.apply(c.text()).length() <= 40, "ponder callout anchored above the ground, short: " + c.text());
+                }
+                if (st.cursor != null) com.volcanicmg.mccitybuilder.planner.Ponder.coord(st.cursor[0], 9);
             }
-            List<String> ls = com.volcanicmg.mccitybuilder.planner.LineHelp.pageLines(pg, tr, w6);
-            for (String l : ls) check(w6.applyAsInt(l) <= com.volcanicmg.mccitybuilder.planner.LineHelp.TEXT_W || !l.contains(" "), "help line fits: " + l);
-            check(ls.size() * com.volcanicmg.mccitybuilder.planner.LineHelp.LINE_H <= room, "help page fits: " + pg.id() + " " + ls.size() + " lines");
-            int dw = pg.diagram()[0].length() * com.volcanicmg.mccitybuilder.planner.LineHelp.CELL;
-            check(com.volcanicmg.mccitybuilder.planner.LineHelp.TEXT_W + 8 + dw + 4 <= com.volcanicmg.mccitybuilder.planner.LineHelp.W - 2 * com.volcanicmg.mccitybuilder.planner.LineHelp.PAD, "diagram beside the text: " + pg.id());
-            check(pg.diagram().length * com.volcanicmg.mccitybuilder.planner.LineHelp.CELL <= room, "diagram height: " + pg.id());
         }
-        check(com.volcanicmg.mccitybuilder.planner.LineHelp.H + 8 <= 480 && com.volcanicmg.mccitybuilder.planner.LineHelp.W + 8 <= 1147, "help screen fits a 1147x480 GUI");
+        check(com.volcanicmg.mccitybuilder.planner.Ponder.coord("2L-1", 9) == 17 && com.volcanicmg.mccitybuilder.planner.Ponder.coord("-L", 9) == -9, "ponder L coordinates");
         for (String[] t : com.volcanicmg.mccitybuilder.planner.LineHelp.TIPS) {
             List<String> ls = com.volcanicmg.mccitybuilder.planner.LineHelp.wrap(tr.apply("mccitybuilder.tip." + t[0]), com.volcanicmg.mccitybuilder.planner.LineHelp.TIP_W - 2 * com.volcanicmg.mccitybuilder.planner.LineHelp.TIP_PAD, w6);
             check(ls.size() <= 6, "coach tip short enough: " + t[0] + " " + ls.size());

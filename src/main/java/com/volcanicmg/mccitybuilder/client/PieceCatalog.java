@@ -730,6 +730,55 @@ final class PieceCatalog {
                     break;
                 }
             }
+            // Fill gaps (opt-in per segment): one more straight, two neighbours overlapping where their blocks agree best.
+            List<Integer> fillStarts = null;
+            if (l.fill() && left > 0 && gates.isEmpty() && start0 == Integer.MIN_VALUE) {
+                List<Integer> main = PieceLayout.fill(n, lens);
+                int mainLeft = n - main.stream().mapToInt(Integer::intValue).sum();
+                double best = -1;
+                for (int ex : lens) {
+                    if (ex < mainLeft) continue;
+                    for (int[] o : PieceLayout.gapFills(n, main, ex)) {
+                        List<Integer> seq = new ArrayList<>(main);
+                        seq.add(o[0], ex);
+                        List<PieceSets.Piece> ps = new ArrayList<>();
+                        for (int k = 0; k < seq.size(); k++) ps.add(straightOf(straights, width, seq.get(k), l, i * 1000 + k));
+                        int sa = o[1], sb = o[1] + 1;
+                        PieceLayout.Grid ga = grid(l.pack(), ps.get(sa).path(), sturn(ps.get(sa), dir, l.flip())), gb = grid(l.pack(), ps.get(sb).path(), sturn(ps.get(sb), dir, l.flip()));
+                        if (ga == null || gb == null) {
+                            ok &= failed(l.pack(), ps.get(ga == null ? sa : sb).path());
+                            continue;
+                        }
+                        int[] ba = PieceLayout.boxes(a, dir, off[0] + o[2 + sa], List.of(seq.get(sa)), width, shift).get(0),
+                                bb = PieceLayout.boxes(a, dir, off[0] + o[2 + sb], List.of(seq.get(sb)), width, shift).get(0);
+                        // Only an overlap that clears or replaces nothing of the piece pasted first (a poor seam would carve
+                        // holes in the walkway or parapet): the run's order when that is safe, else the two swapped.
+                        boolean bLast = !PieceLayout.destructiveAfter(ga, ba[0], -ga.ground(), ba[1], gb, bb[0], -gb.ground(), bb[1]);
+                        if (!bLast && PieceLayout.destructiveAfter(gb, bb[0], -gb.ground(), bb[1], ga, ba[0], -ga.ground(), ba[1])) continue;
+                        double m = PieceLayout.seamMatch(ga, ba, gb, bb);
+                        // Ties: the shorter overlap, then the seam nearest the run's middle (options come in that order).
+                        double score = m * 1000 - (ex - mainLeft) * 10 - Math.abs(2 * o[1] + 1 - seq.size()) * 0.01;
+                        if (score <= best) continue;
+                        best = score;
+                        tiles.clear();
+                        tiles.addAll(seq);
+                        tilePieces.clear();
+                        tilePieces.addAll(ps);
+                        fillStarts = new ArrayList<>();
+                        for (int k = 0; k < seq.size(); k++) fillStarts.add(off[0] + o[2 + k]);
+                        if (!bLast) {
+                            // The later piece in the list is pasted first (creative batches, work orders): swap them.
+                            java.util.Collections.swap(tiles, sa, sb);
+                            java.util.Collections.swap(tilePieces, sa, sb);
+                            java.util.Collections.swap(fillStarts, sa, sb);
+                        }
+                    }
+                }
+                if (fillStarts != null) {
+                    used = n;
+                    left = 0;
+                }
+            }
             shortened.add(left);
             // What can't be covered goes to a free end, so runs always meet their joints.
             int start = start0 != Integer.MIN_VALUE ? start0 : PieceLayout.runStart(off[0], left, free[0], free[1]);
@@ -737,6 +786,8 @@ final class PieceCatalog {
             List<Integer> runs = new ArrayList<>();
             for (PieceSets.Piece p : tilePieces) runs.add(p.run());
             List<int[]> boxes = PieceLayout.boxes(a, dir, start, runs, width, shift);
+            if (fillStarts != null)
+                for (int k = 0; k < runs.size(); k++) boxes.set(k, PieceLayout.boxes(a, dir, fillStarts.get(k), List.of(runs.get(k)), width, shift).get(0));
             if (reachEnd >= 0) reaches.add(new int[]{i, reachEnd, placed.size() + (reachEnd == 1 ? tilePieces.size() - 1 : 0)});
             for (int k = 0; k < tilePieces.size(); k++) {
                 PieceSets.Piece p = tilePieces.get(k);
@@ -1258,6 +1309,12 @@ final class PieceCatalog {
         return ga != null && gb != null && PieceLayout.destructive(ga, x[0], a.y0(), x[1], gb, y[0], b.y0(), y[1]);
     }
 
+    /** @return true for two straights of one run lying end to end across the same width (Fill gaps overlaps them) */
+    static boolean sameRun(Placed a, Placed b) {
+        int[] x = a.box(), y = b.box();
+        return a.role() == PieceSets.Role.STRAIGHT && b.role() == PieceSets.Role.STRAIGHT && (x[1] == y[1] && x[3] == y[3] || x[0] == y[0] && x[2] == y[2]);
+    }
+
     /** @return {@link #clash}, but true while either piece's blocks are unknown (a run never reaches into what it can't check) */
     private static boolean clashOrUnknown(String packA, Placed a, String packB, Placed b) {
         int[] x = a.box(), y = b.box();
@@ -1330,7 +1387,11 @@ final class PieceCatalog {
         return new Placed(path, turns, new BlockPos(box[0] + o.getX(), y, box[1] + o.getZ()), box, role, blocks(pack, path), y - o.getY(), bp.getSizeY(), level, g[0]);
     }
 
+    /** The help scenes' plate instead of the world's ground while they lay out (null: the world). */
+    static java.util.function.IntBinaryOperator groundOverride;
+
     private static int ground(int x, int z) {
+        if (groundOverride != null) return groundOverride.applyAsInt(x, z);
         Integer g = Planner.groundAt(x, z);
         return g == null ? 64 : g;
     }

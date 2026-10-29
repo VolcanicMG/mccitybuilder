@@ -288,6 +288,60 @@ public final class PieceLayout {
     }
 
     /**
+     * Fill gaps (opt-in per segment): a run of {@code n} cells its straights leave uncovered gets one more straight of
+     * {@code extra} cells, and two neighbouring straights overlap by the excess at one seam (never at a joint: the run
+     * still starts and ends where it did). Every placement of the extra piece and the overlapping seam.
+     *
+     * @param tiles the run's straights in order (lengths)
+     * @return per option {insert index of the extra piece, overlapping seam (between pieces seam and seam + 1 of the new
+     * order), then each piece's start in cells from the run's start}; empty when it can't: no straight in the run, no
+     * gap, or the overlap would reach a whole piece
+     */
+    public static List<int[]> gapFills(int n, List<Integer> tiles, int extra) {
+        List<int[]> out = new ArrayList<>();
+        int total = extra;
+        for (int t : tiles) total += t;
+        int over = total - n;
+        if (tiles.isEmpty() || over < 1) return out;
+        for (int p = 0; p <= tiles.size(); p++) {
+            List<Integer> seq = new ArrayList<>(tiles);
+            seq.add(p, extra);
+            for (int seam = 0; seam + 1 < seq.size(); seam++) {
+                if (over >= Math.min(seq.get(seam), seq.get(seam + 1))) continue;
+                int[] o = new int[2 + seq.size()];
+                o[0] = p;
+                o[1] = seam;
+                int at = 0;
+                for (int k = 0; k < seq.size(); k++) {
+                    o[2 + k] = at;
+                    at += seq.get(k) - (k == seam ? over : 0);
+                }
+                out.add(o);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * How well two overlapping pieces agree where they overlap (world boxes, ground-aligned heights): the share of cells
+     * either one fills with a block where both hold the same block; 1 when nothing differs (the seam doesn't show).
+     */
+    public static double seamMatch(Grid a, int[] boxA, Grid b, int[] boxB) {
+        int x0 = Math.max(boxA[0], boxB[0]), x1 = Math.min(boxA[2], boxB[2]), z0 = Math.max(boxA[1], boxB[1]), z1 = Math.min(boxA[3], boxB[3]);
+        int cells = 0, same = 0;
+        for (int x = x0; x <= x1; x++)
+            for (int z = z0; z <= z1; z++)
+                for (int y = 0; y < a.sy(); y++) {
+                    int yb = y - a.ground() + b.ground();
+                    int ia = a.id(x - boxA[0], y, z - boxA[1]), ib = yb < 0 || yb >= b.sy() ? 0 : b.id(x - boxB[0], yb, z - boxB[1]);
+                    if (ia <= 0 && ib <= 0) continue;
+                    cells++;
+                    if (ia == ib) same++;
+                }
+        return cells == 0 ? 1 : (double) same / cells;
+    }
+
+    /**
      * @param left cells no piece covers
      * @return where the first piece starts (cells from the segment's start): uncovered cells go to a free end, so a
      * run always meets its joint

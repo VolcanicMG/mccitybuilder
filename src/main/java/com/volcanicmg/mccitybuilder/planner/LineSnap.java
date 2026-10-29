@@ -74,16 +74,44 @@ public final class LineSnap {
         return new int[]{start[0] + (int) Math.round(cos * len), start[1] + (int) Math.round(sin * len)};
     }
 
+    /** How far past its radius a connect holds once made (hysteresis: it doesn't flicker at the edge). */
+    public static final double CONNECT_HOLD = 1.6;
+
     /**
-     * Auto-connect's target: the free end nearest the cursor within {@code r} blocks (fixed, not the zoom-scaled snap
-     * radius: the cursor must be on it), off both of the start's axes (an end on one is plain end snapping).
+     * Auto-connect's target, in screen space so it scales with zoom like hovering the end's marker: the free end whose
+     * marker is nearest the cursor within {@code r} GUI px, off both of the start's axes (an end on one is plain end
+     * snapping); the current target holds out to {@link #CONNECT_HOLD} times {@code r}.
      *
-     * @param freeEnds the ends a connect may join (one segment there, not built)
+     * @param ends    the ends a connect may join (one segment there, not built); @param px each one's marker on screen
+     *                (GUI px), null when off screen
+     * @param current the target connected last frame, or null
      * @return that end, or null
      */
-    public static int[] connectTarget(int[] start, double cx, double cz, List<int[]> freeEnds, double r) {
-        int[] e = nearEndpoint(cx, cz, List.<int[][]>of(freeEnds.toArray(new int[0][])), r);
-        return e == null || e[0] == start[0] || e[1] == start[1] ? null : e.clone();
+    public static int[] connectTarget(int[] start, double[] cursor, List<int[]> ends, List<double[]> px, double r, int[] current) {
+        if (current != null)
+            for (int k = 0; k < ends.size(); k++)
+                if (ends.get(k)[0] == current[0] && ends.get(k)[1] == current[1] && px.get(k) != null && off(start, current)
+                        && Math.hypot(px.get(k)[0] - cursor[0], px.get(k)[1] - cursor[1]) <= CONNECT_HOLD * r) return current.clone();
+        return nearestEnd(start, cursor, ends, px, r);
+    }
+
+    /** @return the off-axis end whose marker is nearest the cursor within {@code r} GUI px, or null */
+    public static int[] nearestEnd(int[] start, double[] cursor, List<int[]> ends, List<double[]> px, double r) {
+        int[] best = null;
+        double bd = r;
+        for (int k = 0; k < ends.size(); k++) {
+            if (px.get(k) == null || !off(start, ends.get(k))) continue;
+            double d = Math.hypot(px.get(k)[0] - cursor[0], px.get(k)[1] - cursor[1]);
+            if (d <= bd) {
+                bd = d;
+                best = ends.get(k);
+            }
+        }
+        return best == null ? null : best.clone();
+    }
+
+    private static boolean off(int[] start, int[] e) {
+        return e[0] != start[0] && e[1] != start[1];
     }
 
     /** @return the segment's length in blocks (cells along it, end excluded) */

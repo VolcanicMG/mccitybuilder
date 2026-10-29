@@ -477,7 +477,7 @@ final class PlannerScreen extends Screen {
         g.drawString(font, "?", qx + 5, gy + 3, VanillaUi.INK, false);
         hits.add(new Hit(qx, gy, 14, 14, () -> {
             click();
-            minecraft.setScreen(new LineHelpScreen());
+            minecraft.setScreen(new PonderScreen());
         }, Component.translatable("mccitybuilder.help.button")));
         // Edit mode: a full-width button with a clearly pressed look while on.
         int ey = y + PAD + 11;
@@ -522,21 +522,23 @@ final class PlannerScreen extends Screen {
         }, Component.translatable("mccitybuilder.line.joint.tip"));
         // A gate (walls: the selected segment or the next one), the other side out, edit mode.
         boolean wall = "wall".equals(tool);
-        boolean[] on = {sel != null ? sel.gate() : LineView.gate, sel != null ? sel.flip() : LineView.flip, LineView.wholeMode};
-        String[] keys = {"gate", "flip", LineView.wholeMode ? "select_wall" : "select_segment"};
-        int bw3 = (iw - 4) / 3;
-        for (int i = 0; i < 3; i++) {
+        boolean[] on = {sel != null ? sel.gate() : LineView.gate, sel != null ? sel.flip() : LineView.flip, LineView.wholeMode, false};
+        String[] keys = {"gate", "flip", LineView.wholeMode ? "select_wall" : "select_segment", "fill"};
+        boolean canFill = !LineView.fillTargets().isEmpty();
+        int bw3 = (iw - 6) / 4;
+        for (int i = 0; i < 4; i++) {
             int bx = ix + i * (bw3 + 2);
-            boolean off = i == 0 && !wall, over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
+            boolean off = i == 0 && !wall || i == 3 && !canFill, over = mx >= bx && mx < bx + bw3 && my >= iy && my < iy + 16;
             VanillaUi.button(g, bx, iy, bw3, 16, on[i], off, over);
-            String l = Component.translatable("mccitybuilder.line." + keys[i] + (i == 2 ? ".btn" : "")).getString();
+            String l = Component.translatable("mccitybuilder.line." + keys[i] + (i >= 2 ? ".btn" : "")).getString();
             VanillaUi.buttonLabel(g, font, l, bx, iy, bw3, 16, off ? VanillaUi.INK_DISABLED : VanillaUi.INK);
             int fi = i;
             hits.add(new Hit(bx, iy, bw3, 16, () -> {
-                if (fi == 0 && !wall) return;
+                if (fi == 0 && !wall || fi == 3 && !canFill) return;
                 click();
                 if (fi == 0) LineView.toggleGate();
                 else if (fi == 1) LineView.toggleFlip();
+                else if (fi == 3) LineView.fillGaps();
                 else LineView.wholeMode = !LineView.wholeMode;
             }, Component.translatable(i == 2 ? "mccitybuilder.line.select.tip" : "mccitybuilder.line." + keys[i] + ".tip")));
         }
@@ -560,6 +562,8 @@ final class PlannerScreen extends Screen {
                 if (idx >= 0 && idx < PlanView.linePieces.size()) chainPieces += PlanView.linePieces.get(idx).size();
             }
             info = Component.translatable("mccitybuilder.line.chain", LineView.chain.size(), chainPieces).getString();
+            // The live segment's gap: why and how to fix it (the cursor label stays short).
+            if (LineView.liveShort > 0) info = Component.translatable("mccitybuilder.line.short_fix", LineView.liveShort).getString();
         }
         Component prog = PlanView.progress();
         if (prog != null) info = prog.getString();
@@ -757,7 +761,10 @@ final class PlannerScreen extends Screen {
         if (LineView.snap != null && warn == null)
             warn = Component.translatable("mccitybuilder.line.snap." + LineView.snap, LineView.snapPieces).getString();
         // A connect says so even over a warning (it shares the line).
-        else if ("connect".equals(LineView.snap)) warn = Component.translatable("mccitybuilder.line.snap.connect").getString() + " · " + warn;
+        // A connect says so even over a warning, kept short (the panel's status line says why and how to fix it).
+        else if ("connect".equals(LineView.snap))
+            warn = LineView.liveShort > 0 ? Component.translatable(LineView.liveShort == 1 ? "mccitybuilder.line.connect_gap_one" : "mccitybuilder.line.connect_gap", LineView.liveShort).getString()
+                    : Component.translatable("mccitybuilder.line.snap.connect").getString() + " · " + warn;
         if (LineView.flash != null && System.currentTimeMillis() < LineView.flashUntil) {
             warn = Component.translatable(LineView.flash, LineView.flashArg).getString();
             warnColour = 0xFFFF8080;
@@ -766,9 +773,12 @@ final class PlannerScreen extends Screen {
         int w = font.width(warn);
         // Left of the cursor when it would run into the line panel or off the screen.
         int lx = mx + 10, limit = linePanelBox != null && my + 23 > linePanelBox[1] ? linePanelBox[0] : width - 4;
-        if (lx + w + 6 > limit) lx = Math.max(4, mx - 16 - w);
-        g.fill(lx, my + 10, lx + w + 6, my + 23, 0xC0202020);
-        g.drawString(font, warn, lx + 3, my + 13, LineView.snap != null && warnColour == 0xFFFFC040 && LineView.liveShort == 0 ? 0xFF80E0FF : warnColour, false);
+        if (lx + w + 6 > limit) lx = mx - 16 - w;
+        // Always fully on screen.
+        lx = Math.max(4, Math.min(lx, width - 4 - w - 6));
+        int ly = my + 10 + 13 > height - 4 ? my - 23 : my + 10;
+        g.fill(lx, ly, lx + w + 6, ly + 13, 0xC0202020);
+        g.drawString(font, warn, lx + 3, ly + 3, LineView.snap != null && warnColour == 0xFFFFC040 && LineView.liveShort == 0 ? 0xFF80E0FF : warnColour, false);
     }
 
     /**
@@ -1642,6 +1652,9 @@ final class PlannerScreen extends Screen {
             x = linePanelBox[0] - w - 6;
             y = Math.min(height - h - 4, linePanelBox[1] + 4);
         }
+        // Always fully on screen.
+        x = Math.max(4, Math.min(x, width - 4 - w));
+        y = Math.max(4, Math.min(y, height - 4 - h));
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         g.drawString(font, Component.translatable("mccitybuilder.tip.step", tipStep + 1, LineHelp.TIPS.size()), x + tp, y + tp, 0xFF206080, false);
@@ -1682,16 +1695,17 @@ final class PlannerScreen extends Screen {
     private void guide(GuiGraphics g, int mx, int my) {
         int w = Hints.WIDTH, x = width - 4 - w;
         boolean open = guideFits();
-        String state = Planner.adjusting() ? "adjusting" : Planner.isPlacing() ? "placing" : LineView.active() ? "line" : PlanView.hasSelection() ? "planned"
-                : Planner.selected != null ? "selected" : "browse";
+        String state = guideState();
+        com.volcanicmg.mccitybuilder.planner.Plan.Line sl = PlanView.selectedLine();
+        Hints.Ctx ctx = new Hints.Ctx(sl != null ? sl.isWall() : LineView.wall(), LineView.active() && !LineView.fillTargets().isEmpty());
         // The camera keys only while nothing else is going on; the guide must stay below the queue panel.
         List<String> ids = state.equals("browse") ? List.of(state, "view") : List.of(state);
         boolean all = Config.ALL_HINTS.get();
-        Hints.Laid laid = open ? Hints.layout(ids, all, PlannerScreen::hintText, font::width) : null;
+        Hints.Laid laid = open ? Hints.layout(ids, all, ctx, PlannerScreen::hintText, font::width) : null;
         int room = height - 8 - queueBottom;
         // Too tall: the main controls only, then without the camera, then just the "?" button.
-        if (open && all && Hints.PAD + 20 + laid.height() + Hints.PAD > room) laid = Hints.layout(ids, false, PlannerScreen::hintText, font::width);
-        if (open && Hints.PAD + 20 + laid.height() + Hints.PAD > room) laid = Hints.layout(List.of(state), false, PlannerScreen::hintText, font::width);
+        if (open && all && Hints.PAD + 20 + laid.height() + Hints.PAD > room) laid = Hints.layout(ids, false, ctx, PlannerScreen::hintText, font::width);
+        if (open && Hints.PAD + 20 + laid.height() + Hints.PAD > room) laid = Hints.layout(List.of(state), false, ctx, PlannerScreen::hintText, font::width);
         if (open && Hints.PAD + 20 + laid.height() + Hints.PAD > room) open = false;
         int h = open ? Hints.PAD + 20 + laid.height() + Hints.PAD : 20;
         int y = height - 4 - h;
@@ -1710,6 +1724,15 @@ final class PlannerScreen extends Screen {
                 Config.ALL_HINTS.set(!Config.ALL_HINTS.get());
                 Config.ALL_HINTS.save();
             }, Component.translatable("mccitybuilder.hint.all.tip")));
+            // The road / wall help, left of All while a line tool is on.
+            if (LineView.active()) {
+                String hl = Component.translatable("mccitybuilder.hint.help").getString();
+                int hw = font.width(hl) + 10, hx = ax - 2 - hw;
+                boolean overH = mx >= hx && mx < hx + hw && my >= ay && my < ay + 18;
+                VanillaUi.button(g, hx, ay, hw, 18, false, false, overH);
+                g.drawString(font, hl, hx + 5, ay + 5, VanillaUi.INK, false);
+                hits.add(new Hit(hx, ay, hw, 18, () -> minecraft.setScreen(new PonderScreen()), Component.translatable("mccitybuilder.help.button")));
+            }
             int cx = x + Hints.PAD, cy = y + Hints.PAD + 20;
             for (Hints.Item it : laid.items()) {
                 if (it.cap()) keyCap(g, cx + it.x(), cy + it.y(), it.w(), it.text());
@@ -1726,6 +1749,26 @@ final class PlannerScreen extends Screen {
             Config.SHOW_HINTS.set(!Config.SHOW_HINTS.get());
             Config.SHOW_HINTS.save();
         }, Component.translatable("mccitybuilder.hint.toggle")));
+    }
+
+    /** @return the controls guide's state ({@link Hints#SECTIONS}): what the player is doing right now */
+    private static String guideState() {
+        if (Planner.adjusting()) return "adjusting";
+        if (Planner.isPlacing()) return Planner.deco != null ? "placing_deco" : "placing";
+        if (LineView.active()) {
+            if (LineView.edit) {
+                if (LineView.selectedJoint != null) return "line_edit_joint";
+                com.volcanicmg.mccitybuilder.planner.Plan.Line sl = PlanView.selectedLine();
+                if (sl != null) return PlanView.locked(sl) ? "line_edit_built" : "line_edit_segment";
+                return "line_edit";
+            }
+            if (LineView.start != null) return "connect".equals(LineView.snap) ? "line_connect" : "line_draw";
+            return "line_idle";
+        }
+        if (PlanView.hasSelection()) return PlanView.entries.get(PlanView.selected).isHut() ? "planned" : "planned_deco";
+        if (Planner.selected != null) return "selected";
+        if (Planner.selectedDeco != null) return "selected_deco";
+        return "browse";
     }
 
     private static String hintText(String key) {
@@ -2031,6 +2074,7 @@ final class PlannerScreen extends Screen {
                     if (LineView.active()) LineView.toggleEdit();
                 }
                 case GLFW.GLFW_KEY_G -> LineView.toggleGate();
+                case GLFW.GLFW_KEY_F -> LineView.fillGaps();
                 default -> {
                     return false;
                 }

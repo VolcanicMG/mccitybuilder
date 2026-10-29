@@ -97,10 +97,16 @@ public final class Plan {
      * A drawn road / wall segment and its options. {@code flip}: straights and gates turned 180° (a wall's other side
      * out); {@code height}: one of {@link #FOLLOW} .. {@link #SMOOTH}; {@code dy}: blocks added to that height;
      * {@code base}: the chain's shared ground level ({@link #CHAIN}); {@code built}: already built (kept so new
-     * segments can snap and join onto it; never built again).
+     * segments can snap and join onto it; never built again); {@code fill}: its uncovered cells are closed by one more
+     * straight overlapping a neighbour (Fill gaps, opt-in).
      */
     public record Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
-                       boolean gate, boolean flip, int height, int dy, int base, boolean built) {
+                       boolean gate, boolean flip, int height, int dy, int base, boolean built, boolean fill) {
+        public Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
+                    boolean gate, boolean flip, int height, int dy, int base, boolean built) {
+            this(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, false);
+        }
+
         public Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers, boolean gate) {
             this(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, false, FOLLOW, 0, NO_BASE, false);
         }
@@ -111,24 +117,24 @@ public final class Plan {
 
         /** @return this segment with other ends (a split keeps every option) */
         public Line between(int ax, int az, int bx, int bz) {
-            return new Line(tool, ax, az, bx, bz, pack, family, level, variant, towers, gate, flip, height, dy, base, built);
+            return new Line(tool, ax, az, bx, bz, pack, family, level, variant, towers, gate, flip, height, dy, base, built, fill);
         }
 
         public Line withFlip(boolean f) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, f, height, dy, base, built);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, f, height, dy, base, built, fill);
         }
 
         public Line withHeight(int mode, int d, int b) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, mode, d, b, built);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, mode, d, b, built, fill);
         }
 
         public Line asBuilt() {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, true);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, true, fill);
         }
 
         /** @return this segment as a plain planned one (its built blocks were taken down) */
         public Line asPlanned() {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, false);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, false, fill);
         }
 
         public int[][] ends() {
@@ -136,7 +142,11 @@ public final class Plan {
         }
 
         public Line with(String family, int level, int variant, boolean towers, boolean gate) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, fill);
+        }
+
+        public Line withFill(boolean f) {
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, f);
         }
     }
 
@@ -242,6 +252,9 @@ public final class Plan {
         for (Line l : lines)
             sb.append(String.join("\t", "L3", l.tool(), "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1(), l.pack(), l.family(), "" + l.level(),
                     "" + l.variant(), "" + l.towers(), "" + l.gate(), "" + l.flip(), "" + l.height(), "" + l.dy(), "" + l.base(), "" + l.built())).append('\n');
+        // Fill gaps: its own row type (older builds skip rows they don't know; an extra L3 field would drop the line).
+        for (Line l : lines)
+            if (l.fill()) sb.append(String.join("\t", "F", "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1())).append('\n');
         for (Entry e : entries)
             sb.append(String.join("\t", e.isHut() ? e.hut() : "-", e.pack(), e.path(), "" + e.level(), "" + e.x(), "" + e.y(), "" + e.z(), "" + e.rot(),
                     "" + e.minX(), "" + e.minY(), "" + e.minZ(), "" + e.maxX(), "" + e.maxY(), "" + e.maxZ())).append('\n');
@@ -279,6 +292,12 @@ public final class Plan {
         if (text == null) return out;
         String[] rows = text.split("\n");
         if (rows.length == 0 || !rows[0].startsWith("mccitybuilder-plan\t") && !rows[0].startsWith("colonyplanner-plan\t")) return out;
+        // Fill gaps rows ("F x0 z0 x1 z1"): the segments they name fill their gaps.
+        java.util.Set<String> filled = new java.util.HashSet<>();
+        for (String r : rows) {
+            String[] f = r.split("\t");
+            if (f.length == 5 && f[0].equals("F")) filled.add(f[1].trim() + "," + f[2].trim() + "," + f[3].trim() + "," + f[4].trim());
+        }
         for (int i = 1; i < rows.length; i++) {
             String[] f = rows[i].split("\t");
             boolean v3 = f.length == 17 && f[0].equals("L3");
@@ -293,7 +312,7 @@ public final class Plan {
                     int base = Integer.parseInt(f[15]);
                     if (mode < FOLLOW || mode > SMOOTH || Math.abs(dy) > 64 || base != NO_BASE && Math.abs(base) > 4096) continue;
                     l = new Line(l.tool(), x0, z0, x1, z1, l.pack(), l.family(), l.level(), l.variant(), l.towers(), l.gate(), Boolean.parseBoolean(f[12]),
-                            mode, dy, base, Boolean.parseBoolean(f[16].trim()));
+                            mode, dy, base, Boolean.parseBoolean(f[16].trim()), filled.contains(x0 + "," + z0 + "," + x1 + "," + z1));
                 }
                 out.add(l);
             } catch (NumberFormatException ignored) {

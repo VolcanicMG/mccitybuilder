@@ -561,7 +561,9 @@ final class PlanView {
             for (int k = 0; k < linePieces.get(i).size(); k++)
                 for (int j = i; j < linePieces.size() && j < lines.size(); j++)
                     for (int m = j == i ? k + 1 : 0; m < linePieces.get(j).size(); m++)
-                        if (PieceCatalog.clash(lines.get(i).pack(), linePieces.get(i).get(k), lines.get(j).pack(), linePieces.get(j).get(m))) {
+                        // A filled segment's straights overlap each other on purpose (Fill gaps).
+                        if (!(j == i && lines.get(i).fill() && PieceCatalog.sameRun(linePieces.get(i).get(k), linePieces.get(i).get(m)))
+                                && PieceCatalog.clash(lines.get(i).pack(), linePieces.get(i).get(k), lines.get(j).pack(), linePieces.get(j).get(m))) {
                             pieceBad.get(i).set(k, true);
                             pieceBad.get(j).set(m, true);
                         }
