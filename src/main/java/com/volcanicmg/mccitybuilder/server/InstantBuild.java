@@ -20,6 +20,7 @@ import com.ldtteam.structurize.storage.StructurePackMeta;
 import com.volcanicmg.mccitybuilder.CityBuilder;
 import com.volcanicmg.mccitybuilder.planner.HutCatalog;
 import com.volcanicmg.mccitybuilder.planner.PasteRules;
+import com.volcanicmg.mccitybuilder.planner.PieceLayout;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -82,8 +83,10 @@ public final class InstantBuild {
      * @param pack  place only: style pack; @param path place only: blueprint path; @param rot place only: rotation
      * @param id    above 0: the client wants a {@link BatchResult} with this id once the request finished (accepted)
      *              or was refused (reason "busy" = try again shortly)
+     * @param crop  a road / wall piece only: null, or the window {axis, from, len} of the blueprint to paste / order /
+     *              remove instead of the whole piece (Fill gaps, {@link Crops}); never sent on its own
      */
-    public record Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id, BlockPos from, RotationMirror fromRot)
+    public record Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id, BlockPos from, RotationMirror fromRot, int[] crop)
             implements CustomPacketPayload {
         public Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot) {
             this(mode, pos, level, pack, path, rot, 0, BlockPos.ZERO, RotationMirror.NONE);
@@ -91,6 +94,10 @@ public final class InstantBuild {
 
         public Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id) {
             this(mode, pos, level, pack, path, rot, id, BlockPos.ZERO, RotationMirror.NONE);
+        }
+
+        public Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id, BlockPos from, RotationMirror fromRot) {
+            this(mode, pos, level, pack, path, rot, id, from, fromRot, null);
         }
 
         public static final Type<Request> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "instant_build"));
@@ -119,8 +126,8 @@ public final class InstantBuild {
 
     /** Registers the payload as optional, so clients and servers without the mod still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
-        // Protocol 5: decoration records synced to the planner (DecoSync); mismatched builds refuse the channel cleanly.
-        e.registrar("5").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
+        // Protocol 6: piece batches carry a crop window (Fill gaps); mismatched builds refuse the channel cleanly.
+        e.registrar("6").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
                 .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch)
                 .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r))
                 .playToServer(DecoSync.Query.TYPE, DecoSync.Query.CODEC, DecoSync::handleQuery)
@@ -196,8 +203,15 @@ public final class InstantBuild {
     /** Pieces per batch, and City Builder's open decoration work orders per colony. */
     public static final int MAX_BATCH = 16, MAX_OPEN_ORDERS = 64, MAX_QUEUED = 96;
 
-    /** One road / wall piece: its blueprint path in the pack, anchor position and RotationMirror ordinal. */
-    public record Piece(String path, BlockPos pos, int rot) {
+    /**
+     * One road / wall piece: its blueprint path in the pack, anchor position, RotationMirror ordinal and, for a
+     * cropped straight (Fill gaps), its window {axis (0 = X, 1 = Z), from, len} of the unturned blueprint (else null).
+     */
+    public record Piece(String path, BlockPos pos, int rot, int[] crop) {
+        /** @param path a piece path, a cropped straight's with its window ({@link PieceLayout#cropPath}) */
+        public Piece(String path, BlockPos pos, int rot) {
+            this(PieceLayout.cropBase(path), pos, rot, PieceLayout.cropOf(path));
+        }
     }
 
     /**
@@ -221,6 +235,11 @@ public final class InstantBuild {
                 buf.writeUtf(q.path, 512);
                 buf.writeBlockPos(q.pos);
                 buf.writeByte(q.rot);
+                buf.writeByte(q.crop == null ? -1 : q.crop[0]);
+                if (q.crop != null) {
+                    buf.writeVarInt(q.crop[1]);
+                    buf.writeVarInt(q.crop[2]);
+                }
             }
         }, buf -> {
             int id = buf.readVarInt();
@@ -228,7 +247,13 @@ public final class InstantBuild {
             int mode = buf.readByte();
             int n = Math.min(buf.readVarInt(), MAX_BATCH);
             List<Piece> ps = new ArrayList<>();
-            for (int i = 0; i < n; i++) ps.add(new Piece(buf.readUtf(512), buf.readBlockPos(), buf.readByte()));
+            for (int i = 0; i < n; i++) {
+                String path = buf.readUtf(512);
+                BlockPos pos = buf.readBlockPos();
+                int rot = buf.readByte(), axis = buf.readByte();
+                // Bounds are checked against the blueprint when it has loaded (Crops.crop).
+                ps.add(new Piece(path, pos, rot, axis < 0 ? null : new int[]{axis == 0 ? 0 : 1, buf.readVarInt(), buf.readVarInt()}));
+            }
             return new PieceBatch(id, pack, mode, ps);
         });
 
@@ -310,7 +335,8 @@ public final class InstantBuild {
         lastRequest.put(p.getUUID(), now);
         java.util.ArrayDeque<Request> q = new java.util.ArrayDeque<>();
         for (Piece pc : b.pieces)
-            q.add(new Request(b.mode, pc.pos, 0, b.pack, pc.path, RotationMirror.values()[Math.floorMod(pc.rot, RotationMirror.values().length)]));
+            q.add(new Request(b.mode, pc.pos, 0, b.pack, pc.path, RotationMirror.values()[Math.floorMod(pc.rot, RotationMirror.values().length)], 0, BlockPos.ZERO,
+                    RotationMirror.NONE, pc.crop));
         // A batch arriving while one runs joins its queue (one summary at the end).
         if (running != null) {
             running.addAll(q);
@@ -463,7 +489,22 @@ public final class InstantBuild {
             boolean started = false;
             try {
                 if (bp == null) reject(p, r, "blueprint not found " + pack + " " + path);
-                else started = start(p, level, colonyId, r, pack, path, rot, bp, now);
+                else if (r.crop == null) started = start(p, level, colonyId, r, pack, path, rot, bp, now);
+                else {
+                    // A cropped straight: from here on a piece of the crop pack like any other (records, snapshots, orders).
+                    Blueprint c = Crops.crop(bp, r.crop);
+                    if (c == null) reject(p, r, "bad crop window for " + pack + " " + path);
+                    else {
+                        String cropPath = Crops.packPath(pack, path, r.crop);
+                        try {
+                            Crops.store(c, cropPath);
+                            c.setPackName(Crops.PACK);
+                            started = start(p, level, colonyId, r, Crops.PACK, cropPath, rot, c, now);
+                        } catch (java.io.IOException ex) {
+                            reject(p, r, "can't write crop " + cropPath + ": " + ex);
+                        }
+                    }
+                }
             } catch (RuntimeException ex) {
                 CityBuilder.LOGGER.error("CityBuilder: instant build failed", ex);
                 reject(p, r, "failed: " + ex);

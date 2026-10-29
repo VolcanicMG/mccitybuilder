@@ -287,58 +287,107 @@ public final class PieceLayout {
         return null;
     }
 
+    // ---- Fill gaps: a straight cropped to the gap ----
+
+    // A cropped piece's path: its straight's path, then the window of the unturned blueprint ("#crop:x:2:3").
+    private static final String CROP = "#crop:";
+
     /**
-     * Fill gaps (opt-in per segment): a run of {@code n} cells its straights leave uncovered gets one more straight of
-     * {@code extra} cells, and two neighbouring straights overlap by the excess at one seam (never at a joint: the run
-     * still starts and ends where it did). Every placement of the extra piece and the overlapping seam.
-     *
-     * @param tiles the run's straights in order (lengths)
-     * @return per option {insert index of the extra piece, overlapping seam (between pieces seam and seam + 1 of the new
-     * order), then each piece's start in cells from the run's start}; empty when it can't: no straight in the run, no
-     * gap, or the overlap would reach a whole piece
+     * @param axis 0 = the unturned blueprint's X, 1 = its Z
+     * @return the path of a straight cropped to {@code len} cells from {@code from} along that axis (Fill gaps)
      */
-    public static List<int[]> gapFills(int n, List<Integer> tiles, int extra) {
-        List<int[]> out = new ArrayList<>();
-        int total = extra;
-        for (int t : tiles) total += t;
-        int over = total - n;
-        if (tiles.isEmpty() || over < 1) return out;
-        for (int p = 0; p <= tiles.size(); p++) {
-            List<Integer> seq = new ArrayList<>(tiles);
-            seq.add(p, extra);
-            for (int seam = 0; seam + 1 < seq.size(); seam++) {
-                if (over >= Math.min(seq.get(seam), seq.get(seam + 1))) continue;
-                int[] o = new int[2 + seq.size()];
-                o[0] = p;
-                o[1] = seam;
-                int at = 0;
-                for (int k = 0; k < seq.size(); k++) {
-                    o[2 + k] = at;
-                    at += seq.get(k) - (k == seam ? over : 0);
-                }
-                out.add(o);
-            }
+    public static String cropPath(String path, int axis, int from, int len) {
+        return path + CROP + (axis == 0 ? "x" : "z") + ":" + from + ":" + len;
+    }
+
+    /** @return the straight a (maybe cropped) piece's path names */
+    public static String cropBase(String path) {
+        int i = path.indexOf(CROP);
+        return i < 0 ? path : path.substring(0, i);
+    }
+
+    /** @return a cropped piece's window {axis (0 = X, 1 = Z), from, len}, or null for a whole piece or a malformed one */
+    public static int[] cropOf(String path) {
+        int i = path.indexOf(CROP);
+        if (i < 0) return null;
+        String[] f = path.substring(i + CROP.length()).split(":");
+        try {
+            int[] w = {f[0].equals("x") ? 0 : f[0].equals("z") ? 1 : -1, Integer.parseInt(f[1]), Integer.parseInt(f[2])};
+            return f.length == 3 && w[0] >= 0 && w[1] >= 0 && w[2] >= 1 && w[1] + w[2] <= 512 ? w : null;
+        } catch (RuntimeException e) {
+            return null;
         }
-        return out;
     }
 
     /**
-     * How well two overlapping pieces agree where they overlap (world boxes, ground-aligned heights): the share of cells
-     * either one fills with a block where both hold the same block; 1 when nothing differs (the seam doesn't show).
+     * Turns a window of a piece as placed (turned {@code turns} quarter turns clockwise) into the same cells of its
+     * unturned blueprint, which is what gets cropped (and then turned like the whole piece).
+     *
+     * @param alongX the window runs along the placed piece's X (else its Z); @param from its first cell there
+     * @param sx     the unturned blueprint's X size; @param sz its Z size
+     * @return {axis of the unturned blueprint (0 = X, 1 = Z), from}
      */
-    public static double seamMatch(Grid a, int[] boxA, Grid b, int[] boxB) {
-        int x0 = Math.max(boxA[0], boxB[0]), x1 = Math.min(boxA[2], boxB[2]), z0 = Math.max(boxA[1], boxB[1]), z1 = Math.min(boxA[3], boxB[3]);
-        int cells = 0, same = 0;
-        for (int x = x0; x <= x1; x++)
-            for (int z = z0; z <= z1; z++)
-                for (int y = 0; y < a.sy(); y++) {
-                    int yb = y - a.ground() + b.ground();
-                    int ia = a.id(x - boxA[0], y, z - boxA[1]), ib = yb < 0 || yb >= b.sy() ? 0 : b.id(x - boxB[0], yb, z - boxB[1]);
-                    if (ia <= 0 && ib <= 0) continue;
-                    cells++;
-                    if (ia == ib) same++;
-                }
+    public static int[] unturnedWindow(int turns, boolean alongX, int from, int len, int sx, int sz) {
+        // Structurize's clockwise turn maps (x, z) to (sz-1-z, x).
+        return switch (Math.floorMod(turns, 4)) {
+            case 0 -> new int[]{alongX ? 0 : 1, from};
+            case 1 -> alongX ? new int[]{1, sz - from - len} : new int[]{0, from};
+            case 2 -> alongX ? new int[]{0, sx - from - len} : new int[]{1, sz - from - len};
+            default -> alongX ? new int[]{1, from} : new int[]{0, sx - from - len};
+        };
+    }
+
+    /**
+     * How alike two cross-sections across a run are (ground-aligned): the share of cells either fills with a block
+     * where both hold the same block; 1 when both are empty.
+     *
+     * @param ca a's column (cells along the run axis), @param cb b's; @param alongX the run runs along X
+     */
+    public static double columnMatch(Grid a, int ca, Grid b, int cb, boolean alongX) {
+        int across = Math.min(alongX ? a.sz() : a.sx(), alongX ? b.sz() : b.sx()), cells = 0, same = 0;
+        for (int c = 0; c < across; c++)
+            for (int y = 0; y < a.sy(); y++) {
+                int yb = y - a.ground() + b.ground();
+                int ia = alongX ? a.id(ca, y, c) : a.id(c, y, ca);
+                int ib = yb < 0 || yb >= b.sy() ? 0 : alongX ? b.id(cb, yb, c) : b.id(c, yb, cb);
+                if (ia <= 0 && ib <= 0) continue;
+                cells++;
+                if (ia == ib) same++;
+            }
         return cells == 0 ? 1 : (double) same / cells;
+    }
+
+    /**
+     * Fill gaps: which {@code r} consecutive cells along the run of straight {@code s} (as placed) fill a gap so its
+     * edges continue the pattern of the pieces on both sides. The filler's first cell should look like what follows
+     * {@code lo} in a whole run ({@code hi}'s first cell), its last like what precedes {@code hi} ({@code lo}'s last
+     * cell); a missing neighbour (a joint, a free end) is stood in for by {@code s} itself. Ties: the window cutting
+     * fewer wall-hung decorations off their support ({@code cut}), then the one nearest the piece's middle.
+     *
+     * @param lo the piece just below the gap on the run axis (null: none), @param hi the one just above
+     * @param cut per window start: decorations it cuts off their support (null: none)
+     * @return {the window's first cell along the run axis (lowest coordinate first), its match (0..2), the decorations
+     * it cuts}, or null when {@code s} is too short
+     */
+    public static double[] cropWindow(Grid s, int r, boolean alongX, Grid lo, Grid hi, java.util.function.IntUnaryOperator cut) {
+        int len = alongX ? s.sx() : s.sz();
+        if (r < 1 || r >= len) return null;
+        Grid loRef = lo != null ? lo : s, hiRef = hi != null ? hi : s;
+        int loLast = (alongX ? loRef.sx() : loRef.sz()) - 1;
+        int best = -1, bestCut = 0;
+        double bestM = -1;
+        for (int w = 0; w + r <= len; w++) {
+            double m = columnMatch(s, w, hiRef, 0, alongX) + columnMatch(s, w + r - 1, loRef, loLast, alongX);
+            int c = cut == null ? 0 : cut.applyAsInt(w);
+            boolean better = best < 0 || m > bestM + 1e-9 || m > bestM - 1e-9 && (c < bestCut
+                    || c == bestCut && Math.abs(2 * w + r - len) < Math.abs(2 * best + r - len));
+            if (better) {
+                best = w;
+                bestM = m;
+                bestCut = c;
+            }
+        }
+        return new double[]{best, bestM, bestCut};
     }
 
     /**

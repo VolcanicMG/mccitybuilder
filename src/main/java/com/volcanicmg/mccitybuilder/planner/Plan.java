@@ -97,8 +97,8 @@ public final class Plan {
      * A drawn road / wall segment and its options. {@code flip}: straights and gates turned 180° (a wall's other side
      * out); {@code height}: one of {@link #FOLLOW} .. {@link #SMOOTH}; {@code dy}: blocks added to that height;
      * {@code base}: the chain's shared ground level ({@link #CHAIN}); {@code built}: already built (kept so new
-     * segments can snap and join onto it; never built again); {@code fill}: its uncovered cells are closed by one more
-     * straight overlapping a neighbour (Fill gaps, opt-in).
+     * segments can snap and join onto it; never built again); {@code fill}: its uncovered cells are closed by a straight
+     * cropped to exactly those cells (Fill gaps, opt-in).
      */
     public record Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
                        boolean gate, boolean flip, int height, int dy, int base, boolean built, boolean fill) {

@@ -65,6 +65,7 @@ def colonyJars = [
 dependencies {
     compileOnly files(colonyJars)
     bridgeCompileOnly files(colonyJars)
+    testCompileOnly files(colonyJars)
     // The MineColonies stack for runServer/runClient.
     runtimeOnly files(colonyJars)
 }
@@ -111,6 +112,8 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
 sourceSets.main.resources.srcDir generateModMetadata
 neoForge.ideSyncTask generateModMetadata
 neoForge.addModdingDependenciesTo sourceSets.bridge
+// SelfCheck round-trips the piece payload (Minecraft's byte buffers).
+neoForge.addModdingDependenciesTo sourceSets.test
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'

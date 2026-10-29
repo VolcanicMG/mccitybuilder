@@ -90,8 +90,6 @@ final class LineView {
     static final List<Plan.Line> chain = new ArrayList<>();
     // The live segment (or the piece under the cursor before a chain starts): pieces, conflicts, gap, length and need.
     static List<PieceCatalog.Placed> live = List.of();
-    // The live pieces of filled segments (Fill gaps): their straights overlap each other on purpose, keyed by the segment.
-    private static final java.util.Map<PieceCatalog.Placed, Plan.Line> liveFilled = new java.util.IdentityHashMap<>();
     static List<Boolean> liveBad = List.of();
     static int[] liveGap;
     static int liveShort, liveLen, liveNeed = Integer.MAX_VALUE;
@@ -313,8 +311,6 @@ final class LineView {
             for (int k = 0; k < last; k++)
                 if (onLine(all.get(k), a) || onLine(all.get(k), b) || crossed(all.get(k)) || connect != null && onLine(all.get(k), elbowNow()))
                     for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
-            liveFilled.clear();
-            for (int k = 0; k <= last; k++) if (all.get(k).fill()) for (PieceCatalog.Placed p : lay.lines().get(k)) liveFilled.put(p, all.get(k));
             boolean wasEmpty = live.isEmpty();
             live = ps;
             if (wasEmpty != live.isEmpty() || liveA == null || liveA[0] != a[0] || liveA[1] != a[1] || liveB[0] != b[0] || liveB[1] != b[1]) PlanView.relayout();
@@ -343,9 +339,7 @@ final class LineView {
                 if (start != null && (onLine(PlanView.lines.get(k), a) || onLine(PlanView.lines.get(k), b) || crossed(PlanView.lines.get(k)))) continue;
                 for (PieceCatalog.Placed q : PlanView.linePieces.get(k)) red |= PieceCatalog.clash(pk, p, PlanView.lines.get(k).pack(), q);
             }
-            // Straights of one run overlapping end to end are a filled segment's (Fill gaps), not a clash.
-            for (PieceCatalog.Placed q : live)
-                red |= q != p && !(liveFilled.get(p) != null && liveFilled.get(p) == liveFilled.get(q) && PieceCatalog.sameRun(p, q)) && PieceCatalog.clash(pk, p, pk, q);
+            for (PieceCatalog.Placed q : live) red |= q != p && PieceCatalog.clash(pk, p, pk, q);
             bad.add(red);
             liveClash |= red && !out;
         }
@@ -1516,9 +1510,9 @@ final class LineView {
     }
 
     /**
-     * Fill gaps: the targets ({@link #fillTargets}) close their uncovered cells with one more straight overlapping a
-     * neighbour (the line's fill flag; one undo step). A run whose gap can't close that way (one straight or none, an
-     * overlap as long as a piece) stays as it was, and the hint says how many.
+     * Fill gaps: the targets ({@link #fillTargets}) close their uncovered cells with a straight cropped to exactly
+     * those cells (the line's fill flag; one undo step). A run whose gap can't close that way (its pieces failed to
+     * load) stays as it was, and the hint says how many.
      *
      * @return false when there was nothing to fill
      */

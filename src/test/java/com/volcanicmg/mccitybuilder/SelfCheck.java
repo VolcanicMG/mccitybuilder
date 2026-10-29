@@ -755,34 +755,48 @@ public final class SelfCheck {
         check(near != null && near[0] == 20, "approaching within 2 r: the end's marker is hinted");
     }
 
-    /** Fill gaps: one more straight, one overlapping seam, exact cover; a run without a straight can't; the flag round-trips. */
+    /** Fill gaps: a straight cropped to the gap (path, window turns, window choice), the payload, the flag round-trips. */
     private static void fillGaps() {
-        // 3 straights of 6 in 20 cells leave 2: one more 6 overlaps a neighbour by 4.
-        List<int[]> opts = com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(20, List.of(6, 6, 6), 6);
-        check(!opts.isEmpty(), "gap fill options");
-        for (int[] o : opts) {
-            List<Integer> seq = new java.util.ArrayList<>(List.of(6, 6, 6));
-            seq.add(o[0], 6);
-            int ends = 0, overlaps = 0;
-            for (int k = 0; k < seq.size(); k++) {
-                ends = Math.max(ends, o[2 + k] + seq.get(k));
-                if (k > 0 && o[2 + k] < o[2 + k - 1] + seq.get(k - 1)) overlaps += o[2 + k - 1] + seq.get(k - 1) - o[2 + k];
-                if (k > 0) check(o[2 + k] > o[2 + k - 1], "pieces keep their order");
+        String cp = PieceLayout.cropPath("walls/colonial/straight.blueprint", 1, 2, 3);
+        check(PieceLayout.cropBase(cp).equals("walls/colonial/straight.blueprint") && java.util.Arrays.equals(PieceLayout.cropOf(cp), new int[]{1, 2, 3}), "crop path round-trips");
+        check(PieceLayout.cropOf("walls/a.blueprint") == null && PieceLayout.cropOf("walls/a.blueprint#crop:y:1:2") == null
+                && PieceLayout.cropOf("walls/a.blueprint#crop:x:1") == null && PieceLayout.cropOf("walls/a.blueprint#crop:x:-1:2") == null, "whole or malformed: no crop");
+        check(PieceSets.tool(cp) != null, "a crop still reads as a wall piece");
+        // A window of the piece as placed (turned) is the same cells as its unturned window, cropped, then turned.
+        int[] ids = new int[5 * 2 * 3];
+        for (int k = 0; k < ids.length; k++) ids[k] = k + 1;
+        PieceLayout.Grid g = new PieceLayout.Grid(5, 2, 3, ids, 0);
+        for (int t = 0; t < 4; t++) {
+            PieceLayout.Grid tg = g.turned(t);
+            for (boolean alongX : new boolean[]{true, false}) {
+                int len = alongX ? tg.sx() : tg.sz();
+                for (int r = 1; r < len; r++)
+                    for (int w = 0; w + r <= len; w++) {
+                        int[] u = PieceLayout.unturnedWindow(t, alongX, w, r, 5, 3);
+                        check(sameGrid(cropGrid(tg, alongX ? 0 : 1, w, r), cropGrid(g, u[0], u[1], r).turned(t)), "turned window " + t + " " + alongX + " " + w + "+" + r);
+                    }
             }
-            check(o[2] == 0 && ends == 20 && overlaps == 4, "exact cover from the run's start to its end, one 4-cell overlap: " + java.util.Arrays.toString(o));
         }
-        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(4, List.of(), 6).isEmpty(), "no straight in the run: can't fill");
-        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(3, List.of(2), 6).isEmpty(), "an overlap as long as a piece: can't");
-        check(com.volcanicmg.mccitybuilder.planner.PieceLayout.gapFills(12, List.of(6), 6).isEmpty(), "no gap: nothing to do");
-        // The seam choice: identical columns match fully, different ones don't.
-        int[] ids = new int[3 * 2 * 6];
-        java.util.Arrays.fill(ids, 5);
-        PieceLayout.Grid a = new PieceLayout.Grid(6, 2, 3, ids, 0), b = new PieceLayout.Grid(6, 2, 3, ids.clone(), 0);
-        int[] ids2 = ids.clone();
-        java.util.Arrays.fill(ids2, 7);
-        PieceLayout.Grid c = new PieceLayout.Grid(6, 2, 3, ids2, 0);
-        check(PieceLayout.seamMatch(a, new int[]{0, 0, 5, 2}, b, new int[]{3, 0, 8, 2}) == 1, "matching overlap scores 1");
-        check(PieceLayout.seamMatch(a, new int[]{0, 0, 5, 2}, c, new int[]{3, 0, 8, 2}) == 0, "different blocks score 0");
+        // The window choice: its edges continue the neighbours (what follows lo = hi's first cell, what precedes hi = lo's last).
+        int A = 2, B = 3, D = 4;
+        PieceLayout.Grid s = columns(D, A, B, D, D, D), lo = columns(D, D, D, D, D, B), hi = columns(A, D, D, D, D, D);
+        double[] w = PieceLayout.cropWindow(s, 2, true, lo, hi, null);
+        check(w != null && w[0] == 1 && w[1] == 2, "the window whose edges continue both neighbours: " + java.util.Arrays.toString(w));
+        PieceLayout.Grid flat = columns(D, D, D, D, D, D);
+        check(PieceLayout.cropWindow(flat, 2, true, null, null, null)[0] == 2, "all alike: the piece's middle");
+        check(PieceLayout.cropWindow(flat, 2, true, null, null, x -> x == 2 ? 1 : 0)[0] != 2, "ties: the window cutting no decoration");
+        check(PieceLayout.cropWindow(flat, 6, true, null, null, null) == null && PieceLayout.cropWindow(flat, 0, true, null, null, null) == null, "no window as long as the piece");
+        // The payload: a cropped piece keeps its window; a whole one has none.
+        var buf = new net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), net.minecraft.core.RegistryAccess.EMPTY,
+                net.neoforged.neoforge.network.connection.ConnectionType.NEOFORGE);
+        var sent = new com.volcanicmg.mccitybuilder.server.InstantBuild.PieceBatch(7, "Colonial", com.volcanicmg.mccitybuilder.server.InstantBuild.DECO, List.of(
+                new com.volcanicmg.mccitybuilder.server.InstantBuild.Piece(cp, new net.minecraft.core.BlockPos(1, 64, -3), 2),
+                new com.volcanicmg.mccitybuilder.server.InstantBuild.Piece("walls/colonial/straight.blueprint", new net.minecraft.core.BlockPos(9, 65, -3), 1)));
+        com.volcanicmg.mccitybuilder.server.InstantBuild.PieceBatch.CODEC.encode(buf, sent);
+        var got = com.volcanicmg.mccitybuilder.server.InstantBuild.PieceBatch.CODEC.decode(buf);
+        check(got.id() == 7 && got.pack().equals("Colonial") && got.pieces().size() == 2 && got.pieces().get(0).path().equals("walls/colonial/straight.blueprint")
+                && java.util.Arrays.equals(got.pieces().get(0).crop(), new int[]{1, 2, 3}) && got.pieces().get(0).pos().equals(new net.minecraft.core.BlockPos(1, 64, -3))
+                && got.pieces().get(0).rot() == 2 && got.pieces().get(1).crop() == null && got.pieces().get(1).rot() == 1 && buf.readableBytes() == 0, "piece batch round-trips its crop window");
         // The flag: written only when set (older builds read 17 fields), read back either way.
         Plan.Line l = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, 0, false, false), lf = l.between(0, 5, 20, 5).withFill(true);
         String txt = Plan.write(List.of(), List.of(l, lf));
@@ -791,6 +805,25 @@ public final class SelfCheck {
         check(txt.lines().filter(x -> x.startsWith("L3") && x.split("\t").length == 17).count() == 2, "old parsers keep filled lines (the flag is an F row)");
         check(txt.lines().anyMatch(x -> x.equals("F\t0\t5\t20\t5")), "the fill flag is its own row");
         check(lf.between(0, 0, 10, 0).fill() && lf.withFlip(true).fill() && lf.asBuilt().fill(), "copies keep the flag");
+    }
+
+    /** @return a grid of one cell across, one high, along X: one block id per column */
+    private static PieceLayout.Grid columns(int... col) {
+        return new PieceLayout.Grid(col.length, 1, 1, col.clone(), 0);
+    }
+
+    /** @return the cells of a grid in a window along X (axis 0) or Z */
+    private static PieceLayout.Grid cropGrid(PieceLayout.Grid g, int axis, int from, int len) {
+        int nsx = axis == 0 ? len : g.sx(), nsz = axis == 1 ? len : g.sz();
+        int[] o = new int[nsx * g.sy() * nsz];
+        for (int y = 0; y < g.sy(); y++)
+            for (int z = 0; z < nsz; z++)
+                for (int x = 0; x < nsx; x++) o[(y * nsz + z) * nsx + x] = g.id(x + (axis == 0 ? from : 0), y, z + (axis == 1 ? from : 0));
+        return new PieceLayout.Grid(nsx, g.sy(), nsz, o, g.ground());
+    }
+
+    private static boolean sameGrid(PieceLayout.Grid a, PieceLayout.Grid b) {
+        return a.sx() == b.sx() && a.sy() == b.sy() && a.sz() == b.sz() && java.util.Arrays.equals(a.ids(), b.ids());
     }
 
     /** Edit-mode nodes: a node shared with a built segment can't be dragged (it would move the built end). */

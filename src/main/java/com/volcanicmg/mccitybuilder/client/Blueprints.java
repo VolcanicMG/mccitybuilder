@@ -43,7 +43,8 @@ final class Blueprints {
     static List<String> packs() {
         List<String> out = new ArrayList<>();
         for (StructurePackMeta m : StructurePacks.getPackMetas())
-            if (!m.isDisabled()) out.add(m.getName());
+            // Not Fill gaps' own pack of cropped straights.
+            if (!m.isDisabled() && !m.getName().equals(com.volcanicmg.mccitybuilder.server.Crops.PACK)) out.add(m.getName());
         out.sort(String.CASE_INSENSITIVE_ORDER);
         return out;
     }

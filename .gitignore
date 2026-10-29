@@ -43,3 +43,5 @@ libs
 
 ### Claude Code ###
 .claude/
+# MC log4j output from selfCheck (it loads Minecraft classes for the payload check)
+/logs/

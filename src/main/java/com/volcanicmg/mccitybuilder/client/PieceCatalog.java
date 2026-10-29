@@ -8,6 +8,7 @@ import com.volcanicmg.mccitybuilder.CityBuilder;
 import com.volcanicmg.mccitybuilder.planner.PieceLayout;
 import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import com.volcanicmg.mccitybuilder.planner.Plan;
+import com.volcanicmg.mccitybuilder.server.Crops;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -78,7 +79,10 @@ final class PieceCatalog {
         String key = pack + "|" + path + "|" + turns;
         Blueprint done = rotated.get(key);
         if (done != null || mc.level == null) return done;
-        CompletableFuture<Blueprint> f = loads.computeIfAbsent(key, k -> StructurePacks.getBlueprintFuture(pack, path, true, mc.level.registryAccess()));
+        // A cropped straight (Fill gaps): its straight, cropped the way the server crops it.
+        int[] crop = PieceLayout.cropOf(path);
+        CompletableFuture<Blueprint> f = loads.computeIfAbsent(key, k -> crop == null ? StructurePacks.getBlueprintFuture(pack, path, true, mc.level.registryAccess())
+                : StructurePacks.getBlueprintFuture(pack, PieceLayout.cropBase(path), true, mc.level.registryAccess()).thenApply(b -> b == null ? null : Crops.crop(b, crop)));
         if (!f.isDone()) return null;
         Blueprint bp = f.isCompletedExceptionally() ? null : f.getNow(null);
         if (bp == null) {
@@ -288,8 +292,11 @@ final class PieceCatalog {
         if (gao == null) return null;
         int[] ids = ids(bp);
         // Ground: the local y at ground level, as the anchor math in place() puts it.
+        // A crop may have lost its anchor's tags: its straight's.
+        Blueprint tagged = PieceLayout.cropOf(path) == null ? bp : rotated(pack, PieceLayout.cropBase(path), turns);
+        if (tagged == null) return null;
         PieceLayout.Grid g = new PieceLayout.Grid(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids, bp.getPrimaryBlockOffset().getY() - gao,
-                gao - BlueprintTagUtils.getGroundAnchorOffset(bp, 1));
+                gao - BlueprintTagUtils.getGroundAnchorOffset(tagged, 1));
         grids.put(key, g);
         gridOf.put(g, new Object[]{pack, path, Math.floorMod(turns, 4)});
         return g;
@@ -313,6 +320,8 @@ final class PieceCatalog {
 
     /** @return the piece's ground anchor offset, or null while the pack's pieces load */
     static Integer groundOffset(String pack, String path) {
+        // A crop keeps its straight's primary offset height, so its ground offset too.
+        path = PieceLayout.cropBase(path);
         Map<String, Integer> m = groundOffsets.get(pack);
         if (m == null && families(pack) != null) m = groundOffsets.get(pack);
         if (m == null) return null;
@@ -730,51 +739,56 @@ final class PieceCatalog {
                     break;
                 }
             }
-            // Fill gaps (opt-in per segment): one more straight, two neighbours overlapping where their blocks agree best.
-            List<Integer> fillStarts = null;
+            // Fill gaps (opt-in per segment): a straight of the run cropped to the uncovered cells, in its own cells
+            // (nothing overlaps), its window picked so its edges continue the neighbours' pattern.
+            int fillAt = -1;
+            String fillPath = null;
             if (l.fill() && left > 0 && gates.isEmpty() && start0 == Integer.MIN_VALUE) {
-                List<Integer> main = PieceLayout.fill(n, lens);
-                int mainLeft = n - main.stream().mapToInt(Integer::intValue).sum();
-                double best = -1;
-                for (int ex : lens) {
-                    if (ex < mainLeft) continue;
-                    for (int[] o : PieceLayout.gapFills(n, main, ex)) {
-                        List<Integer> seq = new ArrayList<>(main);
-                        seq.add(o[0], ex);
-                        List<PieceSets.Piece> ps = new ArrayList<>();
-                        for (int k = 0; k < seq.size(); k++) ps.add(straightOf(straights, width, seq.get(k), l, i * 1000 + k));
-                        int sa = o[1], sb = o[1] + 1;
-                        PieceLayout.Grid ga = grid(l.pack(), ps.get(sa).path(), sturn(ps.get(sa), dir, l.flip())), gb = grid(l.pack(), ps.get(sb).path(), sturn(ps.get(sb), dir, l.flip()));
-                        if (ga == null || gb == null) {
-                            ok &= failed(l.pack(), ps.get(ga == null ? sa : sb).path());
+                boolean alongX = dir % 2 == 0, up = dir < 2;
+                int m = tiles.size();
+                // Between two pieces of the run (their faces were made to meet); with fewer, at either end.
+                List<Integer> ats = new ArrayList<>();
+                for (int k = m < 2 ? 0 : 1; k <= (m < 2 ? m : m - 1); k++) ats.add(k);
+                // Sources: the run's own straights, then one of each length of its kind; each path once.
+                Map<String, PieceSets.Piece> srcs = new LinkedHashMap<>();
+                for (int k = 0; k < m; k++) if (tiles.get(k) > left) srcs.putIfAbsent(tilePieces.get(k).path(), tilePieces.get(k));
+                for (int len0 : lens) if (len0 > left) srcs.putIfAbsent(straightOf(straights, width, len0, l, i * 1000 + 999).path(), straightOf(straights, width, len0, l, i * 1000 + 999));
+                double[] best = null;
+                PieceSets.Piece fillSrc = null;
+                for (PieceSets.Piece src : srcs.values()) {
+                    int st = sturn(src, dir, l.flip());
+                    PieceLayout.Grid gs = grid(l.pack(), src.path(), st);
+                    Blueprint bp0 = rotated(l.pack(), src.path(), 0);
+                    if (gs == null || bp0 == null) {
+                        ok &= failed(l.pack(), src.path());
+                        continue;
+                    }
+                    for (int k0 : ats) {
+                        PieceSets.Piece pv = k0 > 0 ? tilePieces.get(k0 - 1) : null, nx = k0 < m ? tilePieces.get(k0) : null;
+                        PieceLayout.Grid gp = pv == null ? null : grid(l.pack(), pv.path(), sturn(pv, dir, l.flip())), gn = nx == null ? null : grid(l.pack(), nx.path(), sturn(nx, dir, l.flip()));
+                        if (pv != null && gp == null || nx != null && gn == null) {
+                            ok &= failed(l.pack(), (pv != null && gp == null ? pv : nx).path());
                             continue;
                         }
-                        int[] ba = PieceLayout.boxes(a, dir, off[0] + o[2 + sa], List.of(seq.get(sa)), width, shift).get(0),
-                                bb = PieceLayout.boxes(a, dir, off[0] + o[2 + sb], List.of(seq.get(sb)), width, shift).get(0);
-                        // Only an overlap that clears or replaces nothing of the piece pasted first (a poor seam would carve
-                        // holes in the walkway or parapet): the run's order when that is safe, else the two swapped.
-                        boolean bLast = !PieceLayout.destructiveAfter(ga, ba[0], -ga.ground(), ba[1], gb, bb[0], -gb.ground(), bb[1]);
-                        if (!bLast && PieceLayout.destructiveAfter(gb, bb[0], -gb.ground(), bb[1], ga, ba[0], -ga.ground(), ba[1])) continue;
-                        double m = PieceLayout.seamMatch(ga, ba, gb, bb);
-                        // Ties: the shorter overlap, then the seam nearest the run's middle (options come in that order).
-                        double score = m * 1000 - (ex - mainLeft) * 10 - Math.abs(2 * o[1] + 1 - seq.size()) * 0.01;
-                        if (score <= best) continue;
-                        best = score;
-                        tiles.clear();
-                        tiles.addAll(seq);
-                        tilePieces.clear();
-                        tilePieces.addAll(ps);
-                        fillStarts = new ArrayList<>();
-                        for (int k = 0; k < seq.size(); k++) fillStarts.add(off[0] + o[2 + k]);
-                        if (!bLast) {
-                            // The later piece in the list is pasted first (creative batches, work orders): swap them.
-                            java.util.Collections.swap(tiles, sa, sb);
-                            java.util.Collections.swap(tilePieces, sa, sb);
-                            java.util.Collections.swap(fillStarts, sa, sb);
-                        }
+                        int r = left;
+                        double[] w = PieceLayout.cropWindow(gs, r, alongX, up ? gp : gn, up ? gn : gp, x -> {
+                            int[] u = PieceLayout.unturnedWindow(st, alongX, x, r, bp0.getSizeX(), bp0.getSizeZ());
+                            return Crops.cut(bp0, new int[]{u[0], u[1], r}).size();
+                        });
+                        if (w == null) continue;
+                        // Ties: the run's middle.
+                        double score = w[1] * 1000 - w[2] * 10 - Math.abs(2 * k0 - m) * 0.01;
+                        if (best != null && score <= best[0]) continue;
+                        int[] u = PieceLayout.unturnedWindow(st, alongX, (int) w[0], r, bp0.getSizeX(), bp0.getSizeZ());
+                        best = new double[]{score};
+                        fillAt = k0;
+                        fillPath = PieceLayout.cropPath(src.path(), u[0], u[1], r);
+                        fillSrc = src;
                     }
                 }
-                if (fillStarts != null) {
+                if (fillAt >= 0) {
+                    tiles.add(fillAt, left);
+                    tilePieces.add(fillAt, fillSrc);
                     used = n;
                     left = 0;
                 }
@@ -784,15 +798,14 @@ final class PieceCatalog {
             int start = start0 != Integer.MIN_VALUE ? start0 : PieceLayout.runStart(off[0], left, free[0], free[1]);
             gaps.add(left == 0 ? null : PieceLayout.boxes(a, dir, start == off[0] ? off[0] + used : off[0], List.of(left), width, shift).get(0));
             List<Integer> runs = new ArrayList<>();
-            for (PieceSets.Piece p : tilePieces) runs.add(p.run());
+            for (int k = 0; k < tilePieces.size(); k++) runs.add(k == fillAt ? tiles.get(k) : tilePieces.get(k).run());
             List<int[]> boxes = PieceLayout.boxes(a, dir, start, runs, width, shift);
-            if (fillStarts != null)
-                for (int k = 0; k < runs.size(); k++) boxes.set(k, PieceLayout.boxes(a, dir, fillStarts.get(k), List.of(runs.get(k)), width, shift).get(0));
             if (reachEnd >= 0) reaches.add(new int[]{i, reachEnd, placed.size() + (reachEnd == 1 ? tilePieces.size() - 1 : 0)});
             for (int k = 0; k < tilePieces.size(); k++) {
                 PieceSets.Piece p = tilePieces.get(k);
-                Placed pl = place(l.pack(), p.path(), sturn(p, dir, l.flip()), boxes.get(k), tiles.get(k) < 0 ? PieceSets.Role.GATE : PieceSets.Role.STRAIGHT);
-                if (pl == null) ok &= failed(l.pack(), p.path());
+                String path = k == fillAt ? fillPath : p.path();
+                Placed pl = place(l.pack(), path, sturn(p, dir, l.flip()), boxes.get(k), tiles.get(k) < 0 ? PieceSets.Role.GATE : PieceSets.Role.STRAIGHT);
+                if (pl == null) ok &= failed(l.pack(), path);
                 else placed.add(pl);
             }
             // Heights: the line's mode for its own pieces in order along the run; joints follow their neighbours below.
@@ -811,6 +824,10 @@ final class PieceCatalog {
                 boolean[] special = new boolean[run.size()];
                 for (int q = 0; q < run.size(); q++) special[q] = placed.get(run.get(q)).role() != PieceSets.Role.STRAIGHT;
                 lv = PieceLayout.shareSeams(lv, special);
+                // A filler (Fill gaps) stands with the higher of its neighbours: one more cell of that piece, not a dent.
+                for (int q = 0; q < run.size() && fillAt >= 0; q++)
+                    if (PieceLayout.cropOf(placed.get(run.get(q)).path()) != null && run.size() > 1)
+                        lv[q] = Math.max(q > 0 ? lv[q - 1] : Integer.MIN_VALUE, q + 1 < run.size() ? lv[q + 1] : Integer.MIN_VALUE);
             }
             for (int q = 0; q < run.size(); q++) placed.set(run.get(q), relevel(l.pack(), placed.get(run.get(q)), lv[q]));
             lineRun.put(i, run);
@@ -1307,12 +1324,6 @@ final class PieceCatalog {
         if (x[0] > y[2] || y[0] > x[2] || x[1] > y[3] || y[1] > x[3] || a.y0() + a.h() <= b.y0() || b.y0() + b.h() <= a.y0()) return false;
         PieceLayout.Grid ga = grid(packA, a.path(), a.turns()), gb = grid(packB, b.path(), b.turns());
         return ga != null && gb != null && PieceLayout.destructive(ga, x[0], a.y0(), x[1], gb, y[0], b.y0(), y[1]);
-    }
-
-    /** @return true for two straights of one run lying end to end across the same width (Fill gaps overlaps them) */
-    static boolean sameRun(Placed a, Placed b) {
-        int[] x = a.box(), y = b.box();
-        return a.role() == PieceSets.Role.STRAIGHT && b.role() == PieceSets.Role.STRAIGHT && (x[1] == y[1] && x[3] == y[3] || x[0] == y[0] && x[2] == y[2]);
     }
 
     /** @return {@link #clash}, but true while either piece's blocks are unknown (a run never reaches into what it can't check) */
