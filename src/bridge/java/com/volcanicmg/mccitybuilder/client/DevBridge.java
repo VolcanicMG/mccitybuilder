@@ -130,8 +130,10 @@ public final class DevBridge {
                 var h = b.getItemHandlerCap();
                 StringBuilder sb = new StringBuilder();
                 for (int i = 3; i + 1 < a.length; i += 2) {
-                    var item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(a[i]));
-                    var left = net.neoforged.neoforge.items.ItemHandlerHelper.insertItemStacked(h, new net.minecraft.world.item.ItemStack(item, Integer.parseInt(a[i + 1])), false);
+                    // An item with components, as /give takes it: minecraft:netherite_pickaxe[enchantments={levels:{efficiency:5}}].
+                    var parsed = new net.minecraft.commands.arguments.item.ItemParser(level.registryAccess()).parse(new com.mojang.brigadier.StringReader(a[i]));
+                    var stack = new net.minecraft.commands.arguments.item.ItemInput(parsed.item(), parsed.components()).createItemStack(Integer.parseInt(a[i + 1]), false);
+                    var left = net.neoforged.neoforge.items.ItemHandlerHelper.insertItemStacked(h, stack, false);
                     sb.append(a[i]).append(" left ").append(left.getCount()).append('\n');
                 }
                 return sb.toString();
@@ -151,6 +153,55 @@ public final class DevBridge {
                 for (int i = 0; i < h.getSlots(); i++)
                     if (!h.getStackInSlot(i).isEmpty()) n.merge(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(h.getStackInSlot(i).getItem()).toString(), h.getStackInSlot(i).getCount(), Integer::sum);
                 return n.toString();
+            });
+            // x y z [fill]: the open requests of a building's workers; "fill" puts each requested stack (exact item and
+            // components, full count) into the building's inventory.
+            case "/requests" -> server(() -> {
+                BlockPos at = new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+                var c = com.minecolonies.api.colony.IColonyManager.getInstance().getColonyByPosFromWorld(level, at);
+                var b = c == null ? null : c.getServerBuildingManager().getBuilding(at);
+                if (b == null) return "no building";
+                boolean fill = a.length > 3 && a[3].equals("fill");
+                StringBuilder sb = new StringBuilder();
+                java.util.List<Integer> ids = new java.util.ArrayList<>(java.util.List.of(-1));
+                for (var cit : c.getCitizenManager().getCitizens()) if (cit.getWorkBuilding() == b) ids.add(cit.getId());
+                for (int id : ids)
+                    for (var rq : b.getOpenRequests(id)) {
+                        var req = rq.getRequest();
+                        sb.append(id).append(": ").append(req.getClass().getSimpleName()).append(' ').append(rq.getState()).append(' ');
+                        if (req instanceof com.minecolonies.api.colony.requestsystem.requestable.Stack st) {
+                            sb.append(st.getStack().getCount() > 0 ? st.getStack().getItem() : "?").append(" x").append(st.getCount());
+                            if (fill) {
+                                var give = st.getStack().copyWithCount(st.getCount());
+                                var left = net.neoforged.neoforge.items.ItemHandlerHelper.insertItemStacked(b.getItemHandlerCap(), give, false);
+                                sb.append(" filled, left ").append(left.getCount());
+                            }
+                        } else if (req instanceof com.minecolonies.api.colony.requestsystem.requestable.IDeliverable d) {
+                            sb.append("count ").append(d.getCount());
+                        }
+                        sb.append(" | ").append(rq.getShortDisplayString().getString()).append('\n');
+                    }
+                return sb.toString();
+            });
+            // x y z: every worker of that building at the top of every skill (99) and full saturation.
+            case "/maxworkers" -> server(() -> {
+                BlockPos at = new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+                var c = com.minecolonies.api.colony.IColonyManager.getInstance().getColonyByPosFromWorld(level, at);
+                var b = c == null ? null : c.getServerBuildingManager().getBuilding(at);
+                if (b == null) return "no building";
+                StringBuilder sb = new StringBuilder();
+                for (var cit : c.getCitizenManager().getCitizens()) {
+                    if (cit.getWorkBuilding() != b) continue;
+                    var sk = cit.getCitizenSkillHandler();
+                    for (var skill : com.minecolonies.api.entity.citizen.Skill.values()) sk.incrementLevel(skill, Math.max(0, 99 - sk.getLevel(skill)));
+                    cit.setSaturation(com.minecolonies.api.colony.ICitizenData.MAX_SATURATION);
+                    cit.markDirty(0);
+                    sb.append(cit.getName()).append(' ').append(sk.getLevel(com.minecolonies.api.entity.citizen.Skill.Adaptability)).append('/')
+                            .append(sk.getLevel(com.minecolonies.api.entity.citizen.Skill.Athletics)).append('\n');
+                }
+                return sb.toString();
             });
             // The colonies' work orders: id, type, location, path, claimed by. "claim <id> <x y z>" hands one to a builder.
             case "/orders" -> server(() -> {
