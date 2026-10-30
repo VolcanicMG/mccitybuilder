@@ -214,7 +214,7 @@ final class PlannerScreen extends Screen {
         if (overUi) return;
         int[] mk = markerAt(mouseX, mouseY);
         if (mk != null) {
-            g.renderComponentTooltip(font, markerTip(OverlayView.markers.get(mk[0])), mouseX, mouseY);
+            CitizenCard.draw(g, font, OverlayView.markers.get(mk[0]), mouseX, mouseY, width, height, MAX_JOB_ICONS - iconsUsed);
             return;
         }
         if (Planner.hovered != null)
@@ -315,6 +315,7 @@ final class PlannerScreen extends Screen {
             }
             drawnMarkers.add(new int[]{i, sx, sy});
         }
+        iconsUsed = icons;
     }
 
     /** A hut-to-citizen link: a 2 px dashed white line on a dark edge, the dashes marching from the hut outwards. */
@@ -351,6 +352,8 @@ final class PlannerScreen extends Screen {
 
     // Item icons drawn per frame at most (each is a model render); armour badges count too.
     private static final int MAX_JOB_ICONS = 96;
+    // Item icons the markers drew this frame (the hover card draws within what is left).
+    private int iconsUsed;
 
     /** An item drawn at {@code scale} of its 16 px size with its top-left at (x, y). */
     private void miniItem(GuiGraphics g, net.minecraft.world.item.ItemStack st, int x, int y, float scale) {
@@ -454,27 +457,6 @@ final class PlannerScreen extends Screen {
         return null;
     }
 
-    private List<Component> markerTip(OverlayView.Marker m) {
-        List<Component> out = new ArrayList<>();
-        ICitizenDataView c = m.citizen();
-        out.add(Component.literal(c == null ? "?" : c.getName()));
-        if (c != null) out.add(c.getJobComponent().copy().withStyle(net.minecraft.ChatFormatting.GRAY));
-        if (m.site() != null && m.icon() != null) out.add(Component.translatable("mccitybuilder.overlay.needs", m.icon().getHoverName()).withStyle(net.minecraft.ChatFormatting.RED));
-        if (!m.held().isEmpty()) out.add(Component.translatable("mccitybuilder.overlay.holding", m.held().getHoverName()).withStyle(net.minecraft.ChatFormatting.GRAY));
-        if (!m.armour().isEmpty()) {
-            // "Iron Chestplate" -> "Iron": the material is the name's first word.
-            String tier = m.armour().getHoverName().getString().split(" ")[0];
-            out.add(Component.translatable("mccitybuilder.overlay.armour", tier, m.armourPieces()).withStyle(net.minecraft.ChatFormatting.GRAY));
-        }
-        if (c != null && c.hasBlockingInteractions()) out.add(Component.translatable("mccitybuilder.overlay.needs_help").withStyle(net.minecraft.ChatFormatting.RED));
-        if (m.site() != null) {
-            out.add(m.site().site() == null ? Component.translatable("mccitybuilder.overlay.idle")
-                    : Component.translatable("mccitybuilder.overlay.site", m.site().site().toShortString()));
-            if (!m.site().needs().isEmpty()) out.add(Component.translatable("mccitybuilder.overlay.waiting").withStyle(net.minecraft.ChatFormatting.GOLD));
-            for (var n : m.site().needs()) out.add(Component.literal(" " + n.missing() + " x " + n.name()));
-        } else out.add(Component.translatable("mccitybuilder.overlay.click_citizen").withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
-        return out;
-    }
 
     private static boolean editorOpen;
     private static final com.volcanicmg.mccitybuilder.planner.PieceSets.Role[] EDIT_ROLES = {com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT,
@@ -1619,8 +1601,8 @@ final class PlannerScreen extends Screen {
         if (b == null) return;
         // Bottom, right of the palette (which can run tall).
         // Creative with the server part adds an instant Clean (placeholders) button; it pastes over pending work orders too.
-        boolean instant = Planner.creative() && Planner.serverInstant();
-        int n = instant ? 5 : 3, w = instant ? PALETTE_W + 88 : PALETTE_W, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
+        boolean instant = Planner.creative() && Planner.serverInstant(), open = !Planner.remoteOpenOff();
+        int n = instant ? 5 : open ? 3 : 2, w = instant ? PALETTE_W + 88 : PALETTE_W, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         g.drawString(font, font.plainSubstrByWidth(name(b) + "  " + levelText(b), w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
@@ -1638,9 +1620,15 @@ final class PlannerScreen extends Screen {
         boolean pending = b.hasWorkOrder() && !instant;
         boolean townHall = b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall.View, family = b.getParent() != null && !b.getParent().equals(BlockPos.ZERO);
         String[] why = {b.isBuildingMaxLevel() ? "mccitybuilder.upgrade.max" : pending ? "mccitybuilder.upgrade.pending" : null,
-                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, Planner.remoteOpenOff(),
+                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : townHall ? "mccitybuilder.move.townhall" : family ? "mccitybuilder.move.family" : null};
+        // Survival without remote windows: no Open button at all (the row closes up).
+        if (!open) {
+            keys = new String[]{keys[0], keys[1], keys[3], keys[4]};
+            run = new Runnable[]{run[0], run[1], run[3], run[4]};
+            why = new String[]{why[0], why[1], why[3], why[4]};
+        }
         buttonRow(g, x, y, w, n, keys, run, why, mx, my);
     }
 
@@ -1928,8 +1916,7 @@ final class PlannerScreen extends Screen {
             OverlayView.Marker m = OverlayView.markers.get(mk[0]);
             click();
             if (m.site() != null) Planner.select(m.site().builder());
-            else if (m.citizen() != null && Planner.remoteOpenOff() != null) toast(Component.translatable(Planner.remoteOpenOff()));
-            else if (m.citizen() != null) new com.minecolonies.core.client.gui.citizen.MainWindowCitizen(m.citizen()).open();
+            else if (m.citizen() != null && !Planner.remoteOpenOff()) new com.minecolonies.core.client.gui.citizen.MainWindowCitizen(m.citizen()).open();
             return true;
         }
         if (button == 1) {
@@ -2035,8 +2022,7 @@ final class PlannerScreen extends Screen {
             // A click without a drag opens the assigned builder's hut.
             else if (dragOver == dragFrom && Planner.colony() != null && dragFrom < shownOrders.size() && shownOrders.get(dragFrom).isClaimed()) {
                 IBuildingView b = Planner.colony().getClientBuildingManager().getBuilding(shownOrders.get(dragFrom).getClaimedBy());
-                if (b != null && Planner.remoteOpenOff() != null) toast(Component.translatable(Planner.remoteOpenOff()));
-                else if (b != null) {
+                if (b != null && !Planner.remoteOpenOff()) {
                     click();
                     b.openGui(false);
                 }
@@ -2223,8 +2209,7 @@ final class PlannerScreen extends Screen {
                     }
                 }
                 case GLFW.GLFW_KEY_O -> {
-                    if (Planner.remoteOpenOff() != null) toast(Component.translatable(Planner.remoteOpenOff()));
-                    else b.openGui(false);
+                    if (!Planner.remoteOpenOff()) b.openGui(false);
                 }
                 default -> {
                 }

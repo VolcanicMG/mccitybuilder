@@ -446,7 +446,9 @@ public final class DevBridge {
                     sb.append(cit.getId()).append(' ').append(cit.getName()).append(" viewEntity=").append(cit.getEntityId()).append(" -> ")
                             .append(byId == null ? "none" : byId.getClass().getSimpleName() + (byId instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce ? " civ=" + ce.getCivilianID() : ""))
                             .append(" | live=").append(live == null ? "none" : live.getId() + " at " + live.blockPosition().toShortString() + " d=" + (int) live.distanceTo(mc.player))
-                            .append(" marker=").append(marked.contains(cit.getId())).append('\n');
+                            .append(" marker=").append(marked.contains(cit.getId())).append(" home=").append(cit.getHomeBuilding()).append(" work=").append(cit.getWorkBuilding())
+                            .append(" sat=").append(cit.getSaturation()).append(" happy=").append(cit.getHappiness())
+                            .append(" asks=").append(cit.getOrderedInteractions().stream().map(h -> h.getPriority() + ":" + (h.getInquiry() == null ? "-" : h.getInquiry().getString())).toList()).append('\n');
                 }
                 return sb + other.toString();
             });
@@ -494,6 +496,39 @@ public final class DevBridge {
                 Thread.sleep(1200);
                 yield r + "; screen now " + client(() -> Minecraft.getInstance().screen == null ? "none" : Minecraft.getInstance().screen.getClass().getSimpleName());
             }
+            // civilian id: moves the mouse onto that citizen's marker as last drawn (GUI coords), or says it isn't drawn.
+            case "/hovercitizen" -> client(() -> {
+                var s = Minecraft.getInstance().screen;
+                for (var m : OverlayView.markers)
+                    if (m.citizen() != null && m.citizen().getId() == Integer.parseInt(a[0])) {
+                        double[] ndc = Planner.project(m.pos().x, m.pos().y, m.pos().z);
+                        if (ndc == null) return "behind camera";
+                        long sx = Math.round((ndc[0] + 1) / 2 * s.width), sy = Math.round((1 - ndc[1]) / 2 * s.height);
+                        // Snap to the nearest marker as last drawn (the projection here can be off by a frame's movement).
+                        var f = s.getClass().getDeclaredField("drawnMarkers");
+                        f.setAccessible(true);
+                        @SuppressWarnings("unchecked") java.util.List<int[]> drawn = (java.util.List<int[]>) f.get(s);
+                        long best = Long.MAX_VALUE, bx = sx, by = sy;
+                        for (int[] d : drawn) {
+                            long dd = (d[1] - sx) * (d[1] - sx) + (d[2] - sy) * (d[2] - sy);
+                            if (dd < best) {
+                                best = dd;
+                                bx = d[1];
+                                by = d[2];
+                            }
+                        }
+                        sx = bx;
+                        sy = by;
+                        mouse(new String[]{"move", String.valueOf(sx), String.valueOf(sy)});
+                        return sx + " " + sy;
+                    }
+                return "no marker";
+            });
+            // on|off: the citizen card as with Shift held.
+            case "/cardfull" -> client(() -> {
+                CitizenCard.showFull = a[0].equals("on");
+                return "ok";
+            });
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");

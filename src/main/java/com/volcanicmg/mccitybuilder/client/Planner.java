@@ -970,9 +970,9 @@ public final class Planner {
         return true;
     }
 
-    /** @return null when hut and citizen windows may open from here (creative, or the server allows it), else why not (a lang key) */
-    static String remoteOpenOff() {
-        return creative() || com.volcanicmg.mccitybuilder.Config.plannerRemoteInventories() ? null : "mccitybuilder.open.remote_off";
+    /** @return true when hut and citizen windows don't open from the planner (survival, the server's plannerRemoteInventories off) */
+    static boolean remoteOpenOff() {
+        return !creative() && !com.volcanicmg.mccitybuilder.Config.plannerRemoteInventories();
     }
 
     /** @return true when the server runs CityBuilder's instant-build handler (singleplayer always does) */
