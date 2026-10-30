@@ -2,6 +2,10 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Multiplayer performance: record pages are built once per change (at most every 2 s per colony) and shared by
+  every watcher; clash checks only compare nearby pieces; others' outlines draw from one cached GPU buffer.
+- Records keep who placed them (protocol 8): only other players' pieces draw grey, your own untracked ones are
+  adopted, and records whose blocks are gone are pruned. Plans are keyed by world seed plus the typed address.
 - Multiplayer: built roads / walls sync to colony mates (locked grey outlines; plans over them turn red; Remove by
   record); a hut Move takes only its own containers; requests hold their chunks loaded while they run (near a
   colony you may change); a dropped paste's locks free on logout; plans are keyed by the world, not the typed
