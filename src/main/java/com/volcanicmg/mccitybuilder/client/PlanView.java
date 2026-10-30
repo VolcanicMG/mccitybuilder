@@ -252,8 +252,8 @@ final class PlanView {
         LineView.checkpoint(true);
         entries.clear();
         selected = -1;
-        // Segments already on their way to the server stay until it answers.
-        lines.removeIf(l -> !sending.containsKey(l));
+        // Built segments and ones on their way to the server stay: Clear only drops what is still a plan.
+        lines.removeIf(l -> !locked(l));
         selectedLine = -1;
         LineView.endChain();
         linesDirty = true;

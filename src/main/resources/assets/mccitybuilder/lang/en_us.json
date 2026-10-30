@@ -398,7 +398,7 @@
   "mccitybuilder.plan.build_sel": "Build",
   "mccitybuilder.plan.build_sel.tip": "Build the selected planned structure",
   "mccitybuilder.plan.clear": "Clear",
-  "mccitybuilder.plan.clear.tip": "Delete the whole plan (structures and segments)",
+  "mccitybuilder.plan.clear.tip": "Delete everything still planned (structures and segments); built ones stay",
   "mccitybuilder.plan.conflict.overlap_plan": "overlaps the plan",
   "mccitybuilder.plan.conflict.overlap_building": "overlaps a building",
   "mccitybuilder.plan.conflict.outside": "outside the colony",
