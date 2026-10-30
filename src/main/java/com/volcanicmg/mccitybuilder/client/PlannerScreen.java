@@ -257,12 +257,32 @@ final class PlannerScreen extends Screen {
             g.drawString(font, t, sx - tw / 2, sy - 4, (alpha + 0x3F) << 24 | col, false);
         }
         List<OverlayView.Marker> ms = OverlayView.markers;
+        // The selected (else hovered) hut's people: a line from the hut to each one outside, and a ring on them.
+        IBuildingView hut = Planner.selected != null ? Planner.selected : Planner.hovered;
+        java.util.Set<Integer> linked = new java.util.HashSet<>();
+        double[] hutNdc = null;
+        if (hut != null) {
+            linked.addAll(hut.getAllAssignedCitizens());
+            BlockPos hp = hut.getPosition();
+            hutNdc = Planner.project(hp.getX() + 0.5, hp.getY() + 1.5, hp.getZ() + 0.5);
+        }
+        int hx = hutNdc == null ? 0 : (int) Math.round((hutNdc[0] + 1) / 2 * width), hy = hutNdc == null ? 0 : (int) Math.round((1 - hutNdc[1]) / 2 * height);
+        if (hutNdc != null)
+            for (OverlayView.Marker m : ms) {
+                if (m.citizen() == null || !linked.contains(m.citizen().getId())) continue;
+                double[] ndc = Planner.project(m.pos().x, m.pos().y, m.pos().z);
+                if (ndc != null) link(g, hx, hy, (int) Math.round((ndc[0] + 1) / 2 * width), (int) Math.round((1 - ndc[1]) / 2 * height));
+            }
         int icons = 0;
         for (int i = 0; i < ms.size(); i++) {
             OverlayView.Marker m = ms.get(i);
             double[] ndc = Planner.project(m.pos().x, m.pos().y, m.pos().z);
             if (ndc == null || Math.abs(ndc[0]) > 1.05 || Math.abs(ndc[1]) > 1.05) continue;
             int sx = (int) Math.round((ndc[0] + 1) / 2 * width), sy = (int) Math.round((1 - ndc[1]) / 2 * height);
+            if (m.citizen() != null && linked.contains(m.citizen().getId())) {
+                g.fill(sx - 10, sy - 10, sx + 10, sy + 10, 0xFFFFFFFF);
+                g.fill(sx - 9, sy - 9, sx + 9, sy + 9, 0xFF202020);
+            }
             if (m.site() != null) {
                 // A builder: what it needs next on red, else the tool it holds, else its hammer badge.
                 boolean needs = m.icon() != null && icons < MAX_JOB_ICONS;
@@ -290,6 +310,22 @@ final class PlannerScreen extends Screen {
                 g.fill(sx - 3, sy - 3, sx + 3, sy + 3, m.color());
             }
             drawnMarkers.add(new int[]{i, sx, sy});
+        }
+    }
+
+    /** A hut-to-citizen link: a 2 px dashed white line on a dark edge, the dashes marching from the hut outwards. */
+    private static void link(GuiGraphics g, int x0, int y0, int x1, int y1) {
+        int n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+        if (n == 0) return;
+        int phase = (int) (System.currentTimeMillis() / 60 % 8);
+        // The dark edge first, so it never covers a dash.
+        for (int i = 0; i <= n; i++) {
+            int x = x0 + (x1 - x0) * i / n, y = y0 + (y1 - y0) * i / n;
+            g.fill(x - 1, y - 1, x + 3, y + 3, 0x28000000);
+        }
+        for (int i = 0; i <= n; i++) {
+            int x = x0 + (x1 - x0) * i / n, y = y0 + (y1 - y0) * i / n;
+            if ((i - phase + 8) % 8 < 5) g.fill(x, y, x + 2, y + 2, 0xE0FFFFFF);
         }
     }
 
