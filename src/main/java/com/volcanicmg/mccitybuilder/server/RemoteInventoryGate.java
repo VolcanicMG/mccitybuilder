@@ -15,7 +15,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
 /**
  * The server side of {@link Config#STRICT_INVENTORY_REACH}: MineColonies opens a citizen's, a hut's, a rack's or
  * a grave's inventory for anyone with hut permission wherever they stand (its open message checks no distance, its
- * menus stay valid), so while the setting is off a survival player's one that opens beyond reach is closed again.
+ * menus stay valid), so while the setting is on a survival player's one that opens beyond reach is closed again.
  * This applies to MineColonies' own remote windows too (a citizen's inventory from the town hall list, a warehouse rack).
  */
 public final class RemoteInventoryGate {
