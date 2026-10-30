@@ -815,4 +815,29 @@ public final class Plan {
         }
         return out;
     }
+
+    /** @return {@code host:port} as typed, normalised: lower case, port 25565 when none, any loopback name as "localhost" */
+    public static String addressKey(String typed) {
+        String a = typed.trim().toLowerCase(java.util.Locale.ROOT), host = a;
+        int port = 25565, c = a.lastIndexOf(':');
+        // host:port, [v6]:port; a bare v6 address (several colons) has no port.
+        if (a.startsWith("[")) {
+            int e = a.indexOf(']');
+            host = e < 0 ? a.substring(1) : a.substring(1, e);
+            if (e >= 0 && a.length() > e + 2 && a.charAt(e + 1) == ':') port = parsePort(a.substring(e + 2), port);
+        } else if (c > 0 && a.indexOf(':') == c) {
+            host = a.substring(0, c);
+            port = parsePort(a.substring(c + 1), port);
+        }
+        if (host.equals("localhost") || host.equals("::1") || host.equals("0.0.0.0") || host.startsWith("127.")) host = "localhost";
+        return host + ":" + port;
+    }
+
+    private static int parsePort(String s, int dflt) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            return dflt;
+        }
+    }
 }

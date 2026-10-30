@@ -134,11 +134,14 @@ public final class Planner {
     private static java.util.List<Deco> others = java.util.List.of(), allDecos = java.util.List.of();
     private static Object othersFor, decosFor;
     private static final java.util.Map<Deco, PieceCatalog.Placed> placedCache = new java.util.HashMap<>();
+    // Who placed each synced record (missing: unknown, recorded before owners were kept).
+    private static final java.util.Map<Deco, java.util.UUID> owners = new java.util.HashMap<>();
 
     /** Logout: colony ids repeat across worlds and servers. */
     static void clearDecos() {
         syncedDecos.clear();
         placedCache.clear();
+        owners.clear();
         decosVersion++;
     }
 
@@ -357,7 +360,14 @@ public final class Planner {
         if (mc.level == null) return;
         String key = mc.level.dimension().location() + "|" + d.colony();
         java.util.List<Deco> out = d.page() == 0 ? new java.util.ArrayList<>() : syncedDecos.computeIfAbsent(key, k -> new java.util.ArrayList<>());
-        for (var r : d.recs()) out.add(new Deco(r.pack(), r.path(), new BlockPos(r.x(), r.y(), r.z()), r.rot()));
+        for (int i = 0; i < d.recs().size(); i++) {
+            var r = d.recs().get(i);
+            Deco dc = new Deco(r.pack(), r.path(), new BlockPos(r.x(), r.y(), r.z()), r.rot());
+            out.add(dc);
+            java.util.UUID o = i < d.owners().size() ? d.owners().get(i) : null;
+            if (o != null) owners.put(dc, o);
+            else owners.remove(dc);
+        }
         syncedDecos.put(key, out);
         decosVersion++;
         if (active && colony != null && d.colony() == colony.getID()) {
@@ -366,13 +376,17 @@ public final class Planner {
         }
     }
 
-    /** @return the colony's recorded road / wall pieces that aren't this player's own built segments' (another player's) */
+    /**
+     * @return the colony's recorded road / wall pieces that aren't in this player's plan's built segments: other
+     * players' ({@link #own} false, drawn grey) and this player's own the plan lost (adopted: fixed, removable, not
+     * drawn); both are clash-checked and selectable
+     */
     static java.util.List<Deco> otherPieces() {
         if (colony == null) return java.util.List.of();
         // Worked out again only for new pages, another colony, or a change in this player's built segments.
-        // ponytail: built segments tracked by their map and its size; a segment rebuilt under the same key keeps the old list until the next page.
         var built = PlanView.builtPieces;
-        java.util.List<Object> now = java.util.List.of(decosVersion, colony.getID(), System.identityHashCode(built), built.size());
+        Minecraft mc = Minecraft.getInstance();
+        java.util.List<Object> now = java.util.List.of(decosVersion, colony.getID(), String.valueOf(mc.level == null ? null : mc.level.dimension()), PlanView.builtVersion);
         if (now.equals(othersFor)) return others;
         java.util.Set<String> mine = new java.util.HashSet<>();
         for (var ps : built.values()) for (var b : ps) mine.add(b.path() + "|" + b.ax() + "|" + b.ay() + "|" + b.az());
@@ -393,6 +407,16 @@ public final class Planner {
             if (p != null) placedCache.put(d, p);
         }
         return p;
+    }
+
+    /**
+     * @return true for a record this player placed (theirs even when their plan lost it: never drawn as someone
+     * else's), or an unknown one in singleplayer; an unknown one on a server counts as someone else's
+     */
+    static boolean own(Deco d) {
+        Minecraft mc = Minecraft.getInstance();
+        java.util.UUID o = owners.get(d);
+        return o == null ? mc.hasSingleplayerServer() : mc.player != null && o.equals(mc.player.getUUID());
     }
 
     /** @return a piece's quarter turns for its RotationMirror ordinal, or -1 (mirrored: pieces never are) */

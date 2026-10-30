@@ -315,7 +315,7 @@
   "mccitybuilder.move_started": "Place the building at its new spot and confirm",
   "mccitybuilder.deco.info": "Decoration · %s",
   "mccitybuilder.deco.no_server": "Needs City Builder on the server",
-  "mccitybuilder.deco.piece": "A road or wall piece someone else built: it can only be removed",
+  "mccitybuilder.deco.piece": "A road or wall piece outside your plan: it can only be removed",
   "mccitybuilder.deco.busy": "The server is busy with another paste; try the decoration again shortly",
   "mccitybuilder.deco.refused": "The server refused that decoration action (see the server log)",
   "mccitybuilder.deco_move": "Move",

@@ -324,7 +324,7 @@ public final class DevBridge {
                     BlockPos p = ctr.offset((i % 100) * 2 - 100, 0, (i / 100) * 2 - 100);
                     boolean crop = i % 100 < cropPct;
                     String pack = crop ? "City Builder Crops" : "Colonial", bp = crop ? "walls/long2_crop_" + ph + "_0badf00d_z9_1.blueprint" : "walls/short2.blueprint";
-                    recs.add(1, pack, bp, p, i % 4, new int[]{p.getX(), p.getY(), p.getZ(), p.getX() + 1, p.getY() + 4, p.getZ() + 1});
+                    recs.add(1, pack, bp, p, i % 4, new int[]{p.getX(), p.getY(), p.getZ(), p.getX() + 1, p.getY() + 4, p.getZ() + 1}, new java.util.UUID(0, 1));
                 }
                 return "added " + n;
             });
@@ -367,6 +367,56 @@ public final class DevBridge {
                 Object hit = null;
                 for (int i = 0; i < 20; i++) hit = Planner.pickAt(at);
                 return String.format("pickAt %.3f ms -> %s, fps %d", (System.nanoTime() - t) / 20e6, hit, Minecraft.getInstance().getFps());
+            });
+            // The plan / line outlines pass (others' grey pieces included): CPU ms per frame, 100 runs into a sink that drops the vertices.
+            case "/renderms" -> client(() -> {
+                var cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+                long[] verts = {0};
+                com.mojang.blaze3d.vertex.VertexConsumer sink = new com.mojang.blaze3d.vertex.VertexConsumer() {
+                    public com.mojang.blaze3d.vertex.VertexConsumer addVertex(float x, float y, float z) {
+                        verts[0]++;
+                        return this;
+                    }
+
+                    public com.mojang.blaze3d.vertex.VertexConsumer setColor(int r, int g, int b, int a) {
+                        return this;
+                    }
+
+                    public com.mojang.blaze3d.vertex.VertexConsumer setUv(float u, float v) {
+                        return this;
+                    }
+
+                    public com.mojang.blaze3d.vertex.VertexConsumer setUv1(int u, int v) {
+                        return this;
+                    }
+
+                    public com.mojang.blaze3d.vertex.VertexConsumer setUv2(int u, int v) {
+                        return this;
+                    }
+
+                    public com.mojang.blaze3d.vertex.VertexConsumer setNormal(float x, float y, float z) {
+                        return this;
+                    }
+                };
+                long t = System.nanoTime();
+                for (int i = 0; i < 100; i++) {
+                    var pose = new com.mojang.blaze3d.vertex.PoseStack();
+                    pose.translate(-cam.x, -cam.y, -cam.z);
+                    PlanView.renderWorld(pose, sink);
+                }
+                double sinkMs = (System.nanoTime() - t) / 100e6;
+                // The same into a real line buffer (what a frame writes before the draw), dropped unbuilt.
+                long t2 = System.nanoTime();
+                for (int i = 0; i < 20; i++)
+                    try (var bytes = new com.mojang.blaze3d.vertex.ByteBufferBuilder(1 << 20)) {
+                        var bb = new com.mojang.blaze3d.vertex.BufferBuilder(bytes, com.mojang.blaze3d.vertex.VertexFormat.Mode.LINES,
+                                com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_COLOR_NORMAL);
+                        var pose = new com.mojang.blaze3d.vertex.PoseStack();
+                        pose.translate(-cam.x, -cam.y, -cam.z);
+                        PlanView.renderWorld(pose, bb);
+                    }
+                return String.format("plan outlines %.3f ms/frame (sink), %.3f ms/frame (line buffer), %d vertices/frame, otherPlaced=%d", sinkMs,
+                        (System.nanoTime() - t2) / 20e6, verts[0] / 100, PlanView.otherPlaced.size());
             });
             // Times the planner's next line layout (client ms), forced now.
             case "/relayoutms" -> client(() -> {

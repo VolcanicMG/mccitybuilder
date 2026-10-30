@@ -60,6 +60,8 @@ final class PlanView {
     static Map<Long, Integer> jointTypes = new HashMap<>();
     /** Built segments' pieces as built ({@link Plan#lineKey}); built segments without them (older plans) are laid out once and frozen. */
     static Map<String, List<Plan.BuiltPiece>> builtPieces = new HashMap<>();
+    /** Bumped whenever {@link #builtPieces} changes (what is derived from it is worked out again only then). */
+    static int builtVersion;
     static List<int[]> lineOffs = new ArrayList<>();
     static List<Integer> lineNeed = new ArrayList<>();
     /** Per joint cell from the last plan layout: {role, uncovered cells, the same with a tower} (edit-mode labels). */
@@ -76,6 +78,8 @@ final class PlanView {
     /** Other players' built pieces ({@link Planner#otherPieces}) as they stand, and their packs: fixed, planned pieces mustn't clash. */
     static List<PieceCatalog.Placed> otherPlaced = new ArrayList<>();
     static List<String> otherPacks = new ArrayList<>();
+    /** The part of {@link #otherPlaced} drawn grey: other players' (this player's own outside the plan stand as they are). */
+    static List<PieceCatalog.Placed> greyPlaced = new ArrayList<>();
     // otherPlaced by the chunks its boxes cover (indexes), and the list of others' pieces it was made for.
     private static Map<Long, List<Integer>> otherByChunk = new HashMap<>();
     private static Object otherFor;
@@ -103,9 +107,11 @@ final class PlanView {
         file = plans.resolve(safe(world)).resolve(name);
         // Plans saved under an older key or name (ColonyPlanner) are read from there until this one is saved.
         Path typedFile = plans.resolve(safe(typed)).resolve(name), seedFile = seed == null ? typedFile : plans.resolve(safe(seed)).resolve(name);
+        // The same world under another address (moved host, other name): its newest plan for this colony.
+        Path sibling = sp || seed == null || Files.exists(file) ? null : newestSibling(plans, safe(seed) + "_", name);
         Path old = mc.gameDirectory.toPath().resolve("colonyplanner").resolve(mc.gameDirectory.toPath().resolve("mccitybuilder").relativize(file));
         try {
-            Path from = Files.exists(file) ? file : !sp && Files.exists(seedFile) ? seedFile : !sp && Files.exists(typedFile) ? typedFile : Files.exists(old) ? old : null;
+            Path from = Files.exists(file) ? file : sibling != null ? sibling : !sp && Files.exists(seedFile) ? seedFile : !sp && Files.exists(typedFile) ? typedFile : Files.exists(old) ? old : null;
             String text = from != null ? Files.readString(from) : null;
             entries = new ArrayList<>(Plan.read(text));
             lines = new ArrayList<>(Plan.readLines(text));
@@ -119,6 +125,7 @@ final class PlanView {
             builtPieces = new HashMap<>();
         }
         PieceCatalog.builtPieces = builtPieces;
+        builtVersion++;
         LineView.resetUndo();
         builtEntries.clear();
         removalLine.clear();
@@ -146,14 +153,21 @@ final class PlanView {
     }
 
     /**
-     * @return the second part: a hash of the server's address as connected (resolved IP and port, so "localhost" and
-     * "127.0.0.1" agree), telling servers apart that share a seed
+     * @return the second part: a hash of the server's address as typed (lower case, default port added, loopback
+     * names as one), telling servers apart that share a seed while staying the same when a host's IP changes
      */
-    private static String serverAddress(Minecraft mc) {
-        var c = mc.getConnection();
-        java.net.SocketAddress a = c == null ? null : c.getConnection().getRemoteAddress();
-        String s = a instanceof java.net.InetSocketAddress in && in.getAddress() != null ? in.getAddress().getHostAddress() + ":" + in.getPort() : String.valueOf(a);
-        return Integer.toHexString(s.hashCode());
+    static String serverAddress(Minecraft mc) {
+        return Integer.toHexString(Plan.addressKey(mc.getCurrentServer() == null ? "" : mc.getCurrentServer().ip).hashCode());
+    }
+
+    /** @return the newest {@code name} in a folder of {@code plans} whose name starts with {@code prefix}, or null */
+    private static Path newestSibling(Path plans, String prefix, String name) {
+        try (var dirs = Files.list(plans)) {
+            return dirs.filter(d -> d.getFileName().toString().startsWith(prefix)).map(d -> d.resolve(name)).filter(Files::exists)
+                    .max(java.util.Comparator.comparingLong(f -> f.toFile().lastModified())).orElse(null);
+        } catch (java.io.IOException e) {
+            return null;
+        }
     }
 
     private static String safe(String s) {
@@ -167,7 +181,9 @@ final class PlanView {
             Files.createDirectories(file.getParent());
             // Joint types of joints that no longer exist (removed, moved, replaced segments) go.
             Plan.pruneJoints(jointTypes, lines);
+            int had = builtPieces.size();
             Plan.pruneBuilt(builtPieces, lines);
+            if (builtPieces.size() != had) builtVersion++;
             Files.writeString(file, Plan.write(entries, lines, jointTypes, builtPieces));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't save plan {}", file, e);
@@ -330,7 +346,7 @@ final class PlanView {
                 floating(pose, lines, linePieces.get(i));
             }
         // Other players' built pieces: faint grey like built records (select one to delete it).
-        if (on || LineView.active()) outline(pose, lines, otherPlaced, List.of(), false, 0.55f, 0.55f, 0.55f, 0.5f);
+        if (on || LineView.active()) drawOthers(pose);
         if (!on) return;
         for (int i = 0; i < entries.size(); i++) {
             Plan.Entry e = entries.get(i);
@@ -339,6 +355,46 @@ final class PlanView {
             if (i == selected) LevelRenderer.renderLineBox(pose, lines, box, 1f, 1f, 1f, 1f);
             else LevelRenderer.renderLineBox(pose, lines, box, bad ? 1f : 0.3f, bad ? 0.25f : 1f, bad ? 0.25f : 0.3f, 0.9f);
         }
+    }
+
+    // Others' outlines as one GPU buffer around a block origin, made again only for a new otherPlaced (thousands of
+    // boxes written into the line batch every frame cost several ms).
+    private static com.mojang.blaze3d.vertex.VertexBuffer otherVbo;
+    private static List<PieceCatalog.Placed> otherVboFor;
+    private static BlockPos otherVboAt = BlockPos.ZERO;
+
+    /** Draws other players' pieces' grey outlines from the cached buffer (rebuilt when {@link #greyPlaced} changed). */
+    private static void drawOthers(PoseStack pose) {
+        List<PieceCatalog.Placed> ps = greyPlaced;
+        if (ps != otherVboFor) {
+            otherVboFor = ps;
+            if (otherVbo != null) otherVbo.close();
+            otherVbo = null;
+            if (ps.isEmpty()) return;
+            otherVboAt = ps.get(0).anchor();
+            try (var bytes = new com.mojang.blaze3d.vertex.ByteBufferBuilder(ps.size() * 24 * 32)) {
+                var bb = new com.mojang.blaze3d.vertex.BufferBuilder(bytes, com.mojang.blaze3d.vertex.VertexFormat.Mode.LINES,
+                        com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_COLOR_NORMAL);
+                PoseStack at = new PoseStack();
+                at.translate(-otherVboAt.getX(), -otherVboAt.getY(), -otherVboAt.getZ());
+                outline(at, bb, ps, List.of(), false, 0.55f, 0.55f, 0.55f, 0.5f);
+                var mesh = bb.build();
+                if (mesh == null) return;
+                otherVbo = new com.mojang.blaze3d.vertex.VertexBuffer(com.mojang.blaze3d.vertex.VertexBuffer.Usage.STATIC);
+                otherVbo.bind();
+                otherVbo.upload(mesh);
+                com.mojang.blaze3d.vertex.VertexBuffer.unbind();
+            }
+        }
+        if (otherVbo == null) return;
+        // The batched lines' own transform: the level's model-view, then this pose (camera offset), then the buffer's origin.
+        var mv = new org.joml.Matrix4f(com.mojang.blaze3d.systems.RenderSystem.getModelViewMatrix()).mul(pose.last().pose())
+                .translate(otherVboAt.getX(), otherVboAt.getY(), otherVboAt.getZ());
+        net.minecraft.client.renderer.RenderType.lines().setupRenderState();
+        otherVbo.bind();
+        otherVbo.drawWithShader(mv, com.mojang.blaze3d.systems.RenderSystem.getProjectionMatrix(), net.minecraft.client.renderer.GameRenderer.getRendertypeLinesShader());
+        com.mojang.blaze3d.vertex.VertexBuffer.unbind();
+        net.minecraft.client.renderer.RenderType.lines().clearRenderState();
     }
 
     static void hide() {
@@ -572,6 +628,7 @@ final class PlanView {
             String k = Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1());
             if (l.built() && !builtPieces.containsKey(k) && lay.lineComplete().get(i) && !linePieces.get(i).isEmpty()) {
                 builtPieces.put(k, PieceCatalog.freeze(l, linePieces.get(i)));
+                builtVersion++;
                 froze = true;
             }
         }
@@ -610,6 +667,7 @@ final class PlanView {
         if (othersLoading) {
             otherPlaced = new ArrayList<>();
             otherPacks = new ArrayList<>();
+            greyPlaced = new ArrayList<>();
             otherByChunk = new HashMap<>();
             othersLoading = false;
             for (Planner.Deco d : os) {
@@ -622,6 +680,7 @@ final class PlanView {
                             otherByChunk.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(cx, cz), c -> new ArrayList<>()).add(otherPlaced.size());
                     otherPlaced.add(p);
                     otherPacks.add(d.pack());
+                    if (!Planner.own(d)) greyPlaced.add(p);
                 }
             }
             otherFor = othersLoading ? null : os;
@@ -967,7 +1026,10 @@ final class PlanView {
                 List<PieceCatalog.Placed> sentAll = acceptedPieces.remove(l);
                 if (at >= 0) {
                     // Its pieces as sent and accepted: fixed from now on (the world has them), whatever a later layout says.
-                    if (sentAll != null && !sentAll.isEmpty()) builtPieces.put(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1()), PieceCatalog.freeze(l, sentAll));
+                    if (sentAll != null && !sentAll.isEmpty()) {
+                        builtPieces.put(Plan.lineKey(l.x0(), l.z0(), l.x1(), l.z1()), PieceCatalog.freeze(l, sentAll));
+                        builtVersion++;
+                    }
                     lines.set(at, l.asBuilt());
                     LineView.builtAgain(l.asBuilt());
                 }

@@ -26,6 +26,8 @@ public final class BuiltRecords extends SavedData {
     private final java.util.Map<Integer, java.util.Map<String, PasteRules.Rec>> byColony = new java.util.HashMap<>();
     // Footprint boxes {x0, y0, z0, x1, y1, z1} per record key (records from before boxes were kept have none).
     private final java.util.Map<String, int[]> boxes = new java.util.HashMap<>();
+    // Who placed or ordered each record (records from before owners were kept have none).
+    private final java.util.Map<String, java.util.UUID> owners = new java.util.HashMap<>();
     private ServerLevel level;
 
     private BuiltRecords() {
@@ -45,6 +47,10 @@ public final class BuiltRecords extends SavedData {
             int[] b = c.getIntArray("box");
             if (b.length == 6 && r.keys.contains(c.getString("key"))) r.boxes.put(c.getString("key"), b);
         }
+        for (Tag t : tag.getList("owners", Tag.TAG_COMPOUND)) {
+            CompoundTag c = (CompoundTag) t;
+            if (c.hasUUID("owner") && r.keys.contains(c.getString("key"))) r.owners.put(c.getString("key"), c.getUUID("owner"));
+        }
         return r;
     }
 
@@ -61,6 +67,14 @@ public final class BuiltRecords extends SavedData {
             bl.add(c);
         });
         tag.put("boxes", bl);
+        ListTag ol = new ListTag();
+        owners.forEach((k, o) -> {
+            CompoundTag c = new CompoundTag();
+            c.putString("key", k);
+            c.putUUID("owner", o);
+            ol.add(c);
+        });
+        tag.put("owners", ol);
         return tag;
     }
 
@@ -73,11 +87,21 @@ public final class BuiltRecords extends SavedData {
         }
     }
 
-    /** {@link #add} with the placement's footprint box {x0, y0, z0, x1, y1, z1}. */
-    public void add(int colony, String pack, String path, BlockPos pos, int rot, int[] box) {
+    /**
+     * {@link #add} with the placement's footprint box {x0, y0, z0, x1, y1, z1} and who placed or ordered it (kept
+     * when the record is there already: a repair or a second paste doesn't change hands).
+     */
+    public void add(int colony, String pack, String path, BlockPos pos, int rot, int[] box, java.util.UUID owner) {
         add(colony, pack, path, pos, rot);
-        boxes.put(PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot), box.clone());
+        String k = PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot);
+        boxes.put(k, box.clone());
+        if (owner != null) owners.putIfAbsent(k, owner);
         setDirty();
+    }
+
+    /** @return who placed or ordered the record, or null (unknown: recorded before owners were kept) */
+    public java.util.UUID owner(int colony, String pack, String path, BlockPos pos, int rot) {
+        return owners.get(PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot));
     }
 
     /** @return record key → footprint box of every live record with a box but {@code except} (a record key) */
@@ -107,6 +131,7 @@ public final class BuiltRecords extends SavedData {
     public void remove(int colony, String pack, String path, BlockPos pos, int rot) {
         String k = PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot);
         boxes.remove(k);
+        owners.remove(k);
         if (keys.remove(k)) {
             var m = byColony.get(colony);
             if (m != null) m.remove(k);

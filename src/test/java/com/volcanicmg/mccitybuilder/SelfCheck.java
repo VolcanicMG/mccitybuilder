@@ -802,11 +802,18 @@ public final class SelfCheck {
         check(src != null && src[0].equals("Colonial") && src[1].equals(PieceLayout.cropPath("walls/colonial/straight.blueprint", 1, 2, 3)), "crop record → source pack and crop path");
         check(PieceLayout.cropSource("walls/colonial/straight_crop_0a1b2c3d_deadbeef_z2_3.blueprint", h -> null) == null
                 && PieceLayout.cropSource("walls/colonial/straight.blueprint", h -> "Colonial") == null, "unknown pack or not a crop: none");
-        var decos = new com.volcanicmg.mccitybuilder.server.DecoSync.Decos(4, 2, List.of(new com.volcanicmg.mccitybuilder.planner.PasteRules.Rec(0, "Colonial", src[1], 5, 70, -9, 3)));
+        java.util.UUID ow = new java.util.UUID(1, 2);
+        var decos = new com.volcanicmg.mccitybuilder.server.DecoSync.Decos(4, 2, List.of(new com.volcanicmg.mccitybuilder.planner.PasteRules.Rec(0, "Colonial", src[1], 5, 70, -9, 3),
+                new com.volcanicmg.mccitybuilder.planner.PasteRules.Rec(0, "Colonial", "walls/short2.blueprint", 6, 70, -9, 0)), java.util.Arrays.asList(ow, null));
         com.volcanicmg.mccitybuilder.server.DecoSync.Decos.CODEC.encode(buf, decos);
         var dg = com.volcanicmg.mccitybuilder.server.DecoSync.Decos.CODEC.decode(buf);
-        check(dg.colony() == 4 && dg.page() == 2 && dg.recs().size() == 1 && dg.recs().get(0).path().equals(src[1]) && dg.recs().get(0).rot() == 3 && buf.readableBytes() == 0,
+        check(dg.colony() == 4 && dg.page() == 2 && dg.recs().size() == 2 && dg.recs().get(0).path().equals(src[1]) && dg.recs().get(0).rot() == 3 && buf.readableBytes() == 0
+                        && ow.equals(dg.owners().get(0)) && dg.owners().get(1) == null,
                 "record page round-trips");
+        // Plan keys: an address as typed, normalised (case, default port, loopback names as one).
+        check(Plan.addressKey("LocalHost").equals("localhost:25565") && Plan.addressKey("127.0.0.1:25565").equals("localhost:25565")
+                && Plan.addressKey("[::1]").equals("localhost:25565") && Plan.addressKey("Play.Example.org:25570").equals("play.example.org:25570")
+                && Plan.addressKey("2001:db8::1").equals("2001:db8::1:25565") && Plan.addressKey("host:bad").equals("host:25565"), "plan address keys");
         // The flag: written only when set (older builds read 17 fields), read back either way.
         Plan.Line l = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, 0, false, false), lf = l.between(0, 5, 20, 5).withFill(true);
         String txt = Plan.write(List.of(), List.of(l, lf));

@@ -130,9 +130,9 @@ public final class InstantBuild {
     /**
      * The payload protocol, part of every payload's id: a client and server of different protocols just don't share
      * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
-     * version check, which disconnects. 7: record pages carry road / wall pieces.
+     * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners.
      */
-    public static final String PROTOCOL = "7";
+    public static final String PROTOCOL = "8";
 
     /** Registers the payload as optional, so clients and servers without the mod (or another protocol) still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
@@ -778,7 +778,7 @@ public final class InstantBuild {
                 // A builder takes it down its own way: what stood before can't come back on top of that.
                 Snapshots.delete(level, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()));
             } else {
-                records.add(colonyId, pack, path, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
+                records.add(colonyId, pack, path, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()}, p.getUUID());
                 // A builder builds it over whatever stands then: an older snapshot of this spot no longer holds.
                 Snapshots.delete(level, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()));
             }
@@ -874,8 +874,12 @@ public final class InstantBuild {
         Handler handler = new Handler(level, r.pos, bp, rot, () -> {
             try {
                 if (r.mode != DECO && r.mode != DECO_REPAIR && r.mode != DECO_MOVE) finish(level, colonyId, r, bp, origin, offset, dataPos, data);
-                if (r.mode == DECO || r.mode == DECO_REPAIR || r.mode == DECO_MOVE)
-                    records.add(colonyId, fPack, fPath, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()});
+                if (r.mode == DECO || r.mode == DECO_REPAIR || r.mode == DECO_MOVE) {
+                    // A moved record stays its placer's.
+                    java.util.UUID owner = r.mode == DECO_MOVE ? records.owner(colonyId, fPack, fPath, r.from, r.fromRot.ordinal()) : null;
+                    records.add(colonyId, fPack, fPath, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()},
+                            owner != null ? owner : p.getUUID());
+                }
                 if (r.mode == MOVE || r.mode == DECO_MOVE) {
                     moveFinish(p, level, colonyId, r, fSrcRot, fSrcOrigin, fSrcFar, pristine, fPack, fPath);
                     if (r.mode == DECO_MOVE) records.remove(colonyId, fPack, fPath, r.from, r.fromRot.ordinal());
