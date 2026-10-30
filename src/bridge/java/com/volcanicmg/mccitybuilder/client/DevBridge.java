@@ -450,6 +450,26 @@ public final class DevBridge {
                 }
                 return sb + other.toString();
             });
+            // "hut x y z" / "citizen <civilian id>": MineColonies' own open-inventory message, as its windows send it (the
+            // planner's gate bypassed), then what screen came up a moment later.
+            case "/openinv" -> {
+                String sent = client(() -> {
+                    var c = Planner.colony();
+                    if (c == null) return "no colony";
+                    if (a[0].equals("hut")) {
+                        var b = c.getClientBuildingManager().getBuilding(new BlockPos(Integer.parseInt(a[1]), Integer.parseInt(a[2]), Integer.parseInt(a[3])));
+                        if (b == null) return "no building";
+                        new com.minecolonies.core.network.messages.server.colony.OpenInventoryMessage(b).sendToServer();
+                    } else {
+                        var cit = c.getCitizen(Integer.parseInt(a[1]));
+                        if (cit == null) return "no citizen";
+                        new com.minecolonies.core.network.messages.server.colony.OpenInventoryMessage(c, cit.getName(), cit.getEntityId()).sendToServer();
+                    }
+                    return "sent";
+                });
+                Thread.sleep(1500);
+                yield sent + "; screen now " + client(() -> Minecraft.getInstance().screen == null ? "none" : Minecraft.getInstance().screen.getClass().getSimpleName());
+            }
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");

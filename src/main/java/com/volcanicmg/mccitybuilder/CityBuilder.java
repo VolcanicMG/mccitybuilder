@@ -26,6 +26,7 @@ public final class CityBuilder {
         container.registerConfig(ModConfig.Type.SERVER, Config.SERVER_SPEC);
         modBus.addListener(com.volcanicmg.mccitybuilder.server.InstantBuild::register);
         com.volcanicmg.mccitybuilder.server.InstantBuild.init();
+        com.volcanicmg.mccitybuilder.server.RemoteInventoryGate.init();
         if (FMLEnvironment.dist == Dist.CLIENT) PlannerClient.init(modBus, container);
     }
 

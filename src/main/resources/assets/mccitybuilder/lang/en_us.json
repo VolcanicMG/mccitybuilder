@@ -54,6 +54,7 @@
   "mccitybuilder.open": "Open hut",
   "mccitybuilder.open.tip": "Open the hut's window (O)",
   "mccitybuilder.citizens.out_of_range": "Citizens here are too far from you to show (about %s blocks): walk closer to see their dots",
+  "mccitybuilder.remote_inventory.closed": "This server keeps hut and citizen inventories to in person in survival: walk up to them",
   "mccitybuilder.open.remote_off": "This server keeps hut and citizen windows (and their inventories) to in person in survival: walk up to them (server setting survivalRemoteInventories)",
   "mccitybuilder.help.button": "How roads and walls work",
   "mccitybuilder.help.title": "How roads and walls work",
