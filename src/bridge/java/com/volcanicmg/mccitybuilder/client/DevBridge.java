@@ -423,7 +423,7 @@ public final class DevBridge {
                 PlanView.relayout();
                 long t = System.nanoTime();
                 PlanView.refreshLines();
-                return String.format("relayout %.2f ms, otherPlaced=%d, lines=%d", (System.nanoTime() - t) / 1e6, PlanView.otherPlaced.size(), PlanView.lines.size());
+                return String.format("relayout %.2f ms, otherPlaced=%d (grey %d), lines=%d", (System.nanoTime() - t) / 1e6, PlanView.otherPlaced.size(), PlanView.greyPlaced.size(), PlanView.lines.size());
             });
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
