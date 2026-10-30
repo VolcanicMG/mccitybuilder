@@ -459,33 +459,27 @@ final class PlannerScreen extends Screen {
 
     /** @return {index, x, y} of the overlay marker under the mouse, or null */
     private int[] markerAt(double mx, double my) {
-        long now = System.currentTimeMillis();
         for (int k = drawnMarkers.size() - 1; k >= 0; k--) {
             int[] d = drawnMarkers.get(k);
             int r = OverlayView.markers.size() > d[0] && OverlayView.markers.get(d[0]).site() != null ? 7 : 5;
             if (Math.abs(mx - d[1]) <= r && Math.abs(my - d[2]) <= r) {
                 stickyId = citizenId(d[0]);
-                stickyUntil = now + STICKY_MS;
                 return d;
             }
         }
-        // A walking citizen slips out from under the cursor: keep it while it stays near, or briefly after.
+        // A walking citizen slips out from under the cursor: keep it only while its marker stays near the cursor.
         if (stickyId == null) return null;
         for (int[] d : drawnMarkers) {
             if (!stickyId.equals(citizenId(d[0]))) continue;
-            boolean near = Math.abs(mx - d[1]) <= STICKY_PX && Math.abs(my - d[2]) <= STICKY_PX;
-            if (near) stickyUntil = now + STICKY_MS;
-            if (near || now < stickyUntil) return d;
+            if (Math.abs(mx - d[1]) <= STICKY_PX && Math.abs(my - d[2]) <= STICKY_PX) return d;
         }
         stickyId = null;
         return null;
     }
 
-    // The citizen last under the cursor, held while its marker stays within STICKY_PX or for STICKY_MS after.
+    // The citizen last under the cursor, held while its marker stays within STICKY_PX (moving the cursor away drops it).
     private static Integer stickyId;
-    private static long stickyUntil;
-    private static final int STICKY_PX = 24;
-    private static final long STICKY_MS = 700;
+    private static final int STICKY_PX = 20;
 
     private static Integer citizenId(int marker) {
         return marker < OverlayView.markers.size() && OverlayView.markers.get(marker).citizen() != null ? OverlayView.markers.get(marker).citizen().getId() : null;
