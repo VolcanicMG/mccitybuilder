@@ -70,6 +70,7 @@ final class OverlayView {
         Map<BlockPos, Overlays.Staff> st = new HashMap<>();
         Map<BlockPos, int[]> ct = new HashMap<>();
         java.util.Set<Integer> builderIds = new java.util.HashSet<>();
+        live = liveCitizens(colony.getID());
         for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) {
             if (b instanceof BuildingBuilder.View) {
                 ICitizenDataView who = null;
@@ -130,7 +131,7 @@ final class OverlayView {
 
     /** A marker with the entity's equipment (vanilla syncs held and worn items to the client). */
     private static Marker marker(Vec3 at, int color, ICitizenDataView c, Site site, net.minecraft.world.item.ItemStack icon) {
-        Entity e = Minecraft.getInstance().level.getEntity(c.getEntityId());
+        Entity e = entity(c);
         net.minecraft.world.item.ItemStack held = net.minecraft.world.item.ItemStack.EMPTY, best = net.minecraft.world.item.ItemStack.EMPTY;
         int pieces = 0;
         if (e instanceof net.minecraft.world.entity.LivingEntity le) {
@@ -158,13 +159,44 @@ final class OverlayView {
      * update, so it lags (indoors, asleep, moved, despawned): never drawn.
      */
     private static Vec3 where(ICitizenDataView c) {
-        if (c == null) return null;
+        Entity e = entity(c);
+        return e == null ? null : e.position().add(0, e.getBbHeight() + 0.3, 0);
+    }
+
+    // The colony's citizen entities this client has (by civilian id), found at the last refresh.
+    private static Map<Integer, Entity> live = Map.of();
+
+    /** @return the colony's loaded citizen entities by civilian id (visitors are guests, not citizens: left out) */
+    private static Map<Integer, Entity> liveCitizens(int colony) {
         Minecraft mc = Minecraft.getInstance();
-        Entity e = mc.level == null ? null : mc.level.getEntity(c.getEntityId());
-        // The view's entity id can outlive the citizen and be reused: only a citizen entity that is this citizen counts.
-        boolean present = e instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce && (ce.getCivilianID() == 0 || ce.getCivilianID() == c.getId());
-        if (!Overlays.showCitizen(present, present && e.isAlive() && !e.isRemoved())) return null;
-        return e.position().add(0, e.getBbHeight() + 0.3, 0);
+        Map<Integer, Entity> out = new HashMap<>();
+        if (mc.level == null) return out;
+        for (Entity e : mc.level.entitiesForRendering())
+            if (e instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce && !(e instanceof com.minecolonies.core.entity.visitor.VisitorCitizen)
+                    && ce.getCivilianID() > 0 && ce.getCitizenColonyHandler().getColonyId() == colony) out.put(ce.getCivilianID(), e);
+        return out;
+    }
+
+    /**
+     * @return the citizen's live entity, or null when this client hasn't got it (out of the player's entity tracking
+     * range, or not spawned). Found by civilian id: the view's entity id goes stale when the entity is reloaded or
+     * respawned (a new id, sent only with the next citizen view update), which left those citizens without a dot.
+     */
+    private static Entity entity(ICitizenDataView c) {
+        if (c == null) return null;
+        Entity e = live.get(c.getId());
+        if (e == null) {
+            Minecraft mc = Minecraft.getInstance();
+            Entity byId = mc.level == null ? null : mc.level.getEntity(c.getEntityId());
+            // The view's entity id can outlive the citizen and be reused: only a citizen entity that is this citizen counts.
+            if (byId instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce && (ce.getCivilianID() == 0 || ce.getCivilianID() == c.getId())) e = byId;
+        }
+        return e != null && Overlays.showCitizen(true, e.isAlive() && !e.isRemoved()) ? e : null;
+    }
+
+    /** @return about how far from the player (blocks) this client is sent citizens: beyond it they have no dot */
+    static int citizenRange() {
+        return com.minecolonies.api.entity.ModEntities.CITIZEN.clientTrackingRange() * 16;
     }
 
     /** World part: builder sites (cyan box, a faint line from the hut) and under-staffed huts (red / amber boxes). */

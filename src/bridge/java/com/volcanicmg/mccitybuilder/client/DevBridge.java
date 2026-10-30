@@ -425,6 +425,31 @@ public final class DevBridge {
                 PlanView.refreshLines();
                 return String.format("relayout %.2f ms, otherPlaced=%d (grey %d), lines=%d", (System.nanoTime() - t) / 1e6, PlanView.otherPlaced.size(), PlanView.greyPlaced.size(), PlanView.lines.size());
             });
+            // The colony's citizens as the overlay sees them: view entity id, what that id is now, the loaded citizen entity with that civilian id, distance, and marker.
+            case "/citizens" -> client(() -> {
+                var mc = Minecraft.getInstance();
+                var c = Planner.colony();
+                if (c == null) return "no colony (planner closed?)";
+                java.util.Map<Integer, net.minecraft.world.entity.Entity> byCiv = new java.util.HashMap<>();
+                StringBuilder sb = new StringBuilder(), other = new StringBuilder();
+                for (var e : mc.level.entitiesForRendering())
+                    if (e instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce) {
+                        if (ce.getCitizenColonyHandler().getColonyId() == c.getID() && !(ce instanceof com.minecolonies.core.entity.visitor.VisitorCitizen)) byCiv.put(ce.getCivilianID(), e);
+                        else other.append("  other ").append(e.getClass().getSimpleName()).append(" civ=").append(ce.getCivilianID()).append(" colony=")
+                                .append(ce.getCitizenColonyHandler().getColonyId()).append(" name=").append(e.getName().getString()).append(" at ").append(e.blockPosition().toShortString()).append('\n');
+                    }
+                java.util.Set<Integer> marked = new java.util.HashSet<>();
+                for (var m : OverlayView.markers) if (m.citizen() != null) marked.add(m.citizen().getId());
+                for (var cit : c.getCitizens().values()) {
+                    var byId = mc.level.getEntity(cit.getEntityId());
+                    var live = byCiv.get(cit.getId());
+                    sb.append(cit.getId()).append(' ').append(cit.getName()).append(" viewEntity=").append(cit.getEntityId()).append(" -> ")
+                            .append(byId == null ? "none" : byId.getClass().getSimpleName() + (byId instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce ? " civ=" + ce.getCivilianID() : ""))
+                            .append(" | live=").append(live == null ? "none" : live.getId() + " at " + live.blockPosition().toShortString() + " d=" + (int) live.distanceTo(mc.player))
+                            .append(" marker=").append(marked.contains(cit.getId())).append('\n');
+                }
+                return sb + other.toString();
+            });
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");

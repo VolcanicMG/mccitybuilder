@@ -2,7 +2,7 @@ package com.volcanicmg.mccitybuilder;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-/** Client settings. */
+/** Client settings, and the server's (synced to clients when they join). */
 public final class Config {
     public static final ModConfigSpec CLIENT_SPEC;
     public static final ModConfigSpec.BooleanValue SHOW_HINTS;
@@ -17,6 +17,8 @@ public final class Config {
     public static final ModConfigSpec.BooleanValue ZOOM_TO_CURSOR;
     public static final ModConfigSpec.BooleanValue SHOW_CITIZENS;
     public static final ModConfigSpec.BooleanValue SHOW_STAFFING;
+    public static final ModConfigSpec SERVER_SPEC;
+    public static final ModConfigSpec.BooleanValue SURVIVAL_REMOTE_INVENTORIES;
 
     static {
         ModConfigSpec.Builder c = new ModConfigSpec.Builder();
@@ -36,6 +38,19 @@ public final class Config {
         SHOW_CITIZENS = c.comment("Planner overlay: show citizens as job-coloured markers (builders always show as hammer badges).").define("showCitizens", true);
         SHOW_STAFFING = c.comment("Planner overlay: show 'assigned/slots' over huts and outline under-staffed ones.").define("showStaffing", true);
         CLIENT_SPEC = c.build();
+        ModConfigSpec.Builder s = new ModConfigSpec.Builder();
+        SURVIVAL_REMOTE_INVENTORIES = s.comment("Survival players may open huts' and citizens' windows (and so their inventories) from the planner, however far away. Off: only in person, as usual; creative always may.")
+                .define("survivalRemoteInventories", false);
+        SERVER_SPEC = s.build();
+    }
+
+    /** @return the server's {@link #SURVIVAL_REMOTE_INVENTORIES}, false when it isn't known (a server without City Builder) */
+    public static boolean survivalRemoteInventories() {
+        try {
+            return SURVIVAL_REMOTE_INVENTORIES.get();
+        } catch (IllegalStateException e) {
+            return false;
+        }
     }
 
     private Config() {

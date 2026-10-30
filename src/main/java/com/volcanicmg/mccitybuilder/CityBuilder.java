@@ -23,6 +23,7 @@ public final class CityBuilder {
     public CityBuilder(IEventBus modBus, ModContainer container) {
         migrateConfig();
         container.registerConfig(ModConfig.Type.CLIENT, Config.CLIENT_SPEC);
+        container.registerConfig(ModConfig.Type.SERVER, Config.SERVER_SPEC);
         modBus.addListener(com.volcanicmg.mccitybuilder.server.InstantBuild::register);
         com.volcanicmg.mccitybuilder.server.InstantBuild.init();
         if (FMLEnvironment.dist == Dist.CLIENT) PlannerClient.init(modBus, container);

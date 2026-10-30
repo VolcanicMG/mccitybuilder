@@ -177,6 +177,7 @@ final class PlannerScreen extends Screen {
         LineView.aim(hit);
         banner(g, colony);
         overlayMarkers(g);
+        citizenRangeHint(g);
         overlayPicker(g, mouseX, mouseY);
         palette(g, mouseX, mouseY);
         queue(g, colony, mouseX, mouseY);
@@ -1059,6 +1060,19 @@ final class PlannerScreen extends Screen {
         g.drawString(font, t, x + 8, 6, VanillaUi.LABEL, false);
     }
 
+    /** Where the view centre is beyond the player's entity tracking range: citizens there aren't sent, so say so (no stale dots). */
+    private void citizenRangeHint(GuiGraphics g) {
+        if (!com.volcanicmg.mccitybuilder.Config.SHOW_CITIZENS.get() || minecraft.player == null || Planner.drone == null) return;
+        var hit = Planner.pick(0.5, 0.5);
+        double x = hit != null ? hit.getLocation().x : Planner.drone.x, z = hit != null ? hit.getLocation().z : Planner.drone.z;
+        int range = OverlayView.citizenRange();
+        if (Math.hypot(x - minecraft.player.getX(), z - minecraft.player.getZ()) <= range) return;
+        String t = Component.translatable("mccitybuilder.citizens.out_of_range", range).getString();
+        int w = font.width(t) + 8, cx = (width - w) / 2, y = height - 16;
+        g.fill(cx, y, cx + w, y + 12, 0x90000000);
+        g.drawString(font, t, cx + 4, y + 2, 0xFFE0E0E0, false);
+    }
+
     private boolean overPanel(double mx, double my) {
         for (int[] p : panels) if (mx >= p[0] && mx < p[0] + p[2] && my >= p[1] && my < p[1] + p[3]) return true;
         return false;
@@ -1624,7 +1638,7 @@ final class PlannerScreen extends Screen {
         boolean pending = b.hasWorkOrder() && !instant;
         boolean townHall = b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall.View, family = b.getParent() != null && !b.getParent().equals(BlockPos.ZERO);
         String[] why = {b.isBuildingMaxLevel() ? "mccitybuilder.upgrade.max" : pending ? "mccitybuilder.upgrade.pending" : null,
-                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, null,
+                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, Planner.remoteOpenOff(),
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : townHall ? "mccitybuilder.move.townhall" : family ? "mccitybuilder.move.family" : null};
         buttonRow(g, x, y, w, n, keys, run, why, mx, my);
@@ -1681,8 +1695,16 @@ final class PlannerScreen extends Screen {
         }
     }
 
-    /** Upgrade: creative pastes at once (any level with CityBuilder on the server, else only level 0 → 1); otherwise a work order. */
+    /**
+     * Upgrade: creative pastes at once (any level with CityBuilder on the server, else only level 0 → 1); survival
+     * opens the hut's own build window (MineColonies' WindowBuildBuilding: needed materials, the builder to assign,
+     * its own request on confirm), which isn't an inventory, so it opens from here whatever the server allows.
+     */
     private void upgrade(IBuildingView b) {
+        if (!Planner.creative() && Planner.colony() != null) {
+            new com.minecolonies.core.client.gui.WindowBuildBuilding(Planner.colony(), b).open();
+            return;
+        }
         boolean pasted = Planner.creative() && Planner.creativeUpgrade(b);
         if (!pasted) Planner.requestBuild(b, BuildRequestMessage.Mode.BUILD);
         toast(Component.translatable(pasted ? "mccitybuilder.upgraded_creative" : "mccitybuilder.requested"));
@@ -1906,6 +1928,7 @@ final class PlannerScreen extends Screen {
             OverlayView.Marker m = OverlayView.markers.get(mk[0]);
             click();
             if (m.site() != null) Planner.select(m.site().builder());
+            else if (m.citizen() != null && Planner.remoteOpenOff() != null) toast(Component.translatable(Planner.remoteOpenOff()));
             else if (m.citizen() != null) new com.minecolonies.core.client.gui.citizen.MainWindowCitizen(m.citizen()).open();
             return true;
         }
@@ -2012,7 +2035,8 @@ final class PlannerScreen extends Screen {
             // A click without a drag opens the assigned builder's hut.
             else if (dragOver == dragFrom && Planner.colony() != null && dragFrom < shownOrders.size() && shownOrders.get(dragFrom).isClaimed()) {
                 IBuildingView b = Planner.colony().getClientBuildingManager().getBuilding(shownOrders.get(dragFrom).getClaimedBy());
-                if (b != null) {
+                if (b != null && Planner.remoteOpenOff() != null) toast(Component.translatable(Planner.remoteOpenOff()));
+                else if (b != null) {
                     click();
                     b.openGui(false);
                 }
@@ -2198,7 +2222,10 @@ final class PlannerScreen extends Screen {
                         repair(b);
                     }
                 }
-                case GLFW.GLFW_KEY_O -> b.openGui(false);
+                case GLFW.GLFW_KEY_O -> {
+                    if (Planner.remoteOpenOff() != null) toast(Component.translatable(Planner.remoteOpenOff()));
+                    else b.openGui(false);
+                }
                 default -> {
                 }
             }

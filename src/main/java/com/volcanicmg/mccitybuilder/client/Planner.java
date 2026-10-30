@@ -971,6 +971,11 @@ public final class Planner {
     }
 
     /** @return true when the server runs CityBuilder's instant-build handler (singleplayer always does) */
+    /** @return null when hut and citizen windows may open from here (creative, or the server allows it), else why not (a lang key) */
+    static String remoteOpenOff() {
+        return creative() || com.volcanicmg.mccitybuilder.Config.survivalRemoteInventories() ? null : "mccitybuilder.open.remote_off";
+    }
+
     static boolean serverInstant() {
         var c = Minecraft.getInstance().getConnection();
         return c != null && c.hasChannel(InstantBuild.Request.TYPE);
