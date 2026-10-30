@@ -1542,7 +1542,7 @@ public final class InstantBuild {
         return false;
     }
 
-    private static boolean isPlaceholder(BlockState s) {
+    static boolean isPlaceholder(BlockState s) {
         var b = s.getBlock();
         return b == ModBlocks.blockSubstitution.get() || b == ModBlocks.blockSolidSubstitution.get() || b == ModBlocks.blockFluidSubstitution.get()
                 || b == ModBlocks.blockTagSubstitution.get() || b == com.minecolonies.api.blocks.ModBlocks.blockWayPoint;

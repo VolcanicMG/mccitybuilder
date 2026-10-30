@@ -359,6 +359,8 @@ public final class Planner {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
         String key = mc.level.dimension().location() + "|" + d.colony();
+        // Page 0 replaces the colony's list, and its old records' owners go with it.
+        if (d.page() == 0 && syncedDecos.get(key) != null) syncedDecos.get(key).forEach(owners::remove);
         java.util.List<Deco> out = d.page() == 0 ? new java.util.ArrayList<>() : syncedDecos.computeIfAbsent(key, k -> new java.util.ArrayList<>());
         for (int i = 0; i < d.recs().size(); i++) {
             var r = d.recs().get(i);

@@ -122,6 +122,8 @@ public final class DecoSync {
         lastSent.clear();
         watching.clear();
         lastQuery.clear();
+        pruned.clear();
+        samples.clear();
     }
 
     static void forget(UUID id) {
@@ -158,11 +160,11 @@ public final class DecoSync {
         for (var e : dirty.entrySet()) {
             ServerLevel level = e.getKey();
             Map<Integer, Long> sent = lastSent.computeIfAbsent(level, k -> new HashMap<>());
-            for (var it = e.getValue().iterator(); it.hasNext(); ) {
-                int colony = it.next();
+            // A copy: building a colony's pages may prune it, which marks it dirty again (sent next window).
+            for (int colony : new ArrayList<>(e.getValue())) {
                 Long last = sent.get(colony);
                 if (last != null && now - last < MIN_RESEND_MS) continue;
-                it.remove();
+                e.getValue().remove(colony);
                 sent.put(colony, now);
                 IColony c = IColonyManager.getInstance().getColonyByWorld(colony, level);
                 if (c == null) continue;
@@ -219,7 +221,7 @@ public final class DecoSync {
 
     /** A colony's records are checked against the world at most this often, this many per check (round robin). */
     static final long PRUNE_EVERY_MS = 30_000;
-    static final int PRUNE_BUDGET = 256;
+    static final int PRUNE_BUDGET = 256, READ_BUDGET = 16;
     // Per "dimension|colony": {last check, where the next one starts}.
     private static final Map<String, long[]> pruned = new HashMap<>();
     // Per "pack|path|rot": cells of the turned blueprint to look for, relative to the anchor, and their blocks (empty: can't tell).
@@ -241,14 +243,16 @@ public final class DecoSync {
         if (all.isEmpty() || c == null) return;
         java.util.Set<net.minecraft.core.BlockPos> ordered = new java.util.HashSet<>();
         for (var wo : c.getWorkManager().getWorkOrders().values()) ordered.add(wo.getLocation());
-        int n = Math.min(PRUNE_BUDGET, all.size()), from = (int) (st[1] % all.size());
-        st[1] = from + n;
+        int n = Math.min(PRUNE_BUDGET, all.size()), from = (int) (st[1] % all.size()), reads = 0, i = 0;
         List<PasteRules.Rec> gone = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
+        for (; i < n; i++) {
             PasteRules.Rec r = all.get((from + i) % all.size());
+            // A few new blueprint reads per check, so a big colony's first check never stalls the tick.
+            if (!samples.containsKey(r.pack() + "|" + r.path() + "|" + r.rot()) && ++reads > READ_BUDGET) break;
             net.minecraft.core.BlockPos at = new net.minecraft.core.BlockPos(r.x(), r.y(), r.z());
             if (!ordered.contains(at) && Boolean.FALSE.equals(standing(level, r, at))) gone.add(r);
         }
+        st[1] = from + i;
         for (PasteRules.Rec r : gone) br.remove(colony, r.pack(), r.path(), new net.minecraft.core.BlockPos(r.x(), r.y(), r.z()), r.rot());
         if (!gone.isEmpty()) CityBuilder.LOGGER.info("CityBuilder: dropped {} records of colony {} whose blocks are gone", gone.size(), colony);
     }
@@ -285,9 +289,8 @@ public final class DecoSync {
                 for (int z = 0; z < bp.getSizeZ(); z++)
                     for (int x = 0; x < bp.getSizeX(); x++) {
                         var b = pal[st[y][z][x]].getBlock();
-                        if (pal[st[y][z][x]].isAir() || b == com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get()
-                                || b == com.ldtteam.structurize.blocks.ModBlocks.blockSolidSubstitution.get() || b == com.ldtteam.structurize.blocks.ModBlocks.blockFluidSubstitution.get())
-                            continue;
+                        // Only blocks that really stand in the world (no placeholders, tag substitutions or waypoints).
+                        if (pal[st[y][z][x]].isAir() || InstantBuild.isPlaceholder(pal[st[y][z][x]])) continue;
                         solid.add(new Object[]{new net.minecraft.core.BlockPos(x - o.getX(), y - o.getY(), z - o.getZ()), b});
                     }
             List<Object[]> out = new ArrayList<>();
