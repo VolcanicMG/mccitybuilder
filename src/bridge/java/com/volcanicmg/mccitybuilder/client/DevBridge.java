@@ -270,6 +270,36 @@ public final class DevBridge {
                 }
                 return "ok";
             });
+            // Multiplayer checks from the client's side: its colony view, its known decorations / others' pieces, its chat.
+            case "/cview" -> client(() -> {
+                var c = Planner.colony();
+                if (c == null) return "no colony (planner closed?)";
+                StringBuilder sb = new StringBuilder();
+                for (var b : c.getClientBuildingManager().getBuildings().values())
+                    sb.append("B ").append(b.getPosition().toShortString()).append(' ').append(b.getBuildingType().getRegistryName()).append(" lv").append(b.getBuildingLevel()).append('\n');
+                for (var o : c.getWorkOrders())
+                    sb.append("O ").append(o.getID()).append(' ').append(o.getWorkOrderType()).append(' ').append(o.getLocation().toShortString()).append(' ').append(o.getStructurePath()).append('\n');
+                for (var d : Planner.decos()) sb.append(d.piece() ? "P " : "D ").append(d.pack()).append(' ').append(d.path()).append(' ').append(d.pos().toShortString()).append(" rot=").append(d.rot()).append('\n');
+                sb.append("otherPlaced=").append(PlanView.otherPlaced.size()).append(" lines=").append(PlanView.lines.size()).append('\n');
+                return sb.toString();
+            });
+            // n: the last n chat lines (command feedback included), newest last.
+            case "/chat" -> client(() -> {
+                var f = net.minecraft.client.gui.components.ChatComponent.class.getDeclaredField("allMessages");
+                f.setAccessible(true);
+                java.util.List<?> all = (java.util.List<?>) f.get(Minecraft.getInstance().gui.getChat());
+                StringBuilder sb = new StringBuilder();
+                for (int i = Math.min(all.size(), a.length > 0 ? Integer.parseInt(a[0]) : 10) - 1; i >= 0; i--)
+                    sb.append(((net.minecraft.client.GuiMessage) all.get(i)).content().getString()).append('\n');
+                return sb.toString();
+            });
+            // pack (spaces as _) path x y z rot: a survival hut placement as the planner sends it (the hut item must be in the inventory).
+            case "/survivalplace" -> client(() -> {
+                new com.ldtteam.structurize.network.messages.BuildToolPlacementMessage(com.ldtteam.structurize.network.messages.BuildToolPlacementMessage.HandlerType.Survival,
+                        "minecolonies", a[0].replace('_', ' '), a[1], new BlockPos(Integer.parseInt(a[2]), Integer.parseInt(a[3]), Integer.parseInt(a[4])),
+                        com.ldtteam.structurize.api.RotationMirror.values()[Integer.parseInt(a[5])]).sendToServer();
+                return "ok";
+            });
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");

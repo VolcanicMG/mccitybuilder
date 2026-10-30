@@ -300,6 +300,20 @@ public final class PieceLayout {
         return path + CROP + (axis == 0 ? "x" : "z") + ":" + from + ":" + len;
     }
 
+    // A crop file's path in the crop pack (Crops.packPath): straight, source pack hash, straight's hash, window.
+    private static final java.util.regex.Pattern CROP_FILE = java.util.regex.Pattern.compile("(.+)_crop_([0-9a-f]{8})_[0-9a-f]{8}_([xz])(\\d+)_(\\d+)\\.blueprint");
+
+    /**
+     * @param packOf the pack name for a source pack hash, or null when no pack has it
+     * @return {source pack, the piece path the planner sends ({@link #cropPath})} for a crop file's path in the crop
+     * pack, or null when it isn't one or its pack is unknown
+     */
+    public static String[] cropSource(String file, java.util.function.Function<String, String> packOf) {
+        java.util.regex.Matcher m = CROP_FILE.matcher(file);
+        String pack = m.matches() ? packOf.apply(m.group(2)) : null;
+        return pack == null ? null : new String[]{pack, cropPath(m.group(1) + ".blueprint", m.group(3).equals("x") ? 0 : 1, Integer.parseInt(m.group(4)), Integer.parseInt(m.group(5)))};
+    }
+
     /** @return the straight a (maybe cropped) piece's path names */
     public static String cropBase(String path) {
         int i = path.indexOf(CROP);

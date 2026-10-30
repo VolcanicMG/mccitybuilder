@@ -1604,7 +1604,9 @@ final class PlannerScreen extends Screen {
             if (Planner.sendDeco(com.volcanicmg.mccitybuilder.server.InstantBuild.DECO_REMOVE_ORDER, d)) toast(Component.translatable("mccitybuilder.deco_remove_sent"));
             Planner.select(null);
         }};
-        buttonRow(g, x, y, w, keys.length, keys, run, creative ? new String[]{off, repairOff, off} : new String[]{repairOff, off}, mx, my);
+        // Another player's road / wall piece: only taken down (a move or repair of one piece would break its run).
+        String pieceOff = off != null ? off : d.piece() ? "mccitybuilder.deco.piece" : null;
+        buttonRow(g, x, y, w, keys.length, keys, run, creative ? new String[]{pieceOff, d.piece() ? pieceOff : repairOff, off} : new String[]{d.piece() ? pieceOff : repairOff, off}, mx, my);
     }
 
     /** The selection panel's buttons: label {@code mccitybuilder.<key>}, tip {@code .tip}, or {@code why[i]} when off. */

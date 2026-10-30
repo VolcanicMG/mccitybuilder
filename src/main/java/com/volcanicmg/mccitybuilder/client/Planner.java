@@ -109,10 +109,19 @@ public final class Planner {
     static PlacementState place = new PlacementState();
     static String invalidReason;
     static IBuildingView selected, hovered;
-    /** A placed decoration: from City Builder's records (server) or a MineColonies decoration controller in view. */
+    /**
+     * A placed decoration: from City Builder's records (server) or a MineColonies decoration controller in view. Also
+     * a road / wall piece the server recorded that this player's plan doesn't hold (another player built it): its
+     * path as the planner sends it (a crop's with its window).
+     */
     record Deco(String pack, String path, BlockPos pos, int rot) {
         String name() {
-            return path.substring(path.lastIndexOf('/') + 1).replace(".blueprint", "");
+            String b = com.volcanicmg.mccitybuilder.planner.PieceLayout.cropBase(path);
+            return b.substring(b.lastIndexOf('/') + 1).replace(".blueprint", "");
+        }
+
+        boolean piece() {
+            return com.volcanicmg.mccitybuilder.planner.PieceSets.tool(com.volcanicmg.mccitybuilder.planner.PieceLayout.cropBase(path)) != null;
         }
     }
 
@@ -329,12 +338,32 @@ public final class Planner {
         bounds = ColonyGeometry.bounds(out, 32);
     }
 
-    /** The server's decoration records for a colony (stored even while the planner is closed). */
+    /** A page of the server's records for a colony (stored even while the planner is closed); page 0 starts over. */
     static void onDecos(com.volcanicmg.mccitybuilder.server.DecoSync.Decos d) {
-        java.util.List<Deco> out = new java.util.ArrayList<>();
+        java.util.List<Deco> out = d.page() == 0 ? new java.util.ArrayList<>() : syncedDecos.computeIfAbsent(d.colony(), k -> new java.util.ArrayList<>());
         for (var r : d.recs()) out.add(new Deco(r.pack(), r.path(), new BlockPos(r.x(), r.y(), r.z()), r.rot()));
         syncedDecos.put(d.colony(), out);
-        if (active && colony != null && d.colony() == colony.getID()) refreshDecos();
+        if (active && colony != null && d.colony() == colony.getID()) {
+            refreshDecos();
+            PlanView.relayout();
+        }
+    }
+
+    /** @return the colony's recorded road / wall pieces that aren't this player's own built segments' (another player's) */
+    static java.util.List<Deco> otherPieces() {
+        if (colony == null) return java.util.List.of();
+        java.util.Set<String> mine = new java.util.HashSet<>();
+        for (var ps : PlanView.builtPieces.values()) for (var b : ps) mine.add(b.path() + "|" + b.ax() + "|" + b.ay() + "|" + b.az());
+        java.util.List<Deco> out = new java.util.ArrayList<>();
+        for (Deco d : syncedDecos.getOrDefault(colony.getID(), java.util.List.of()))
+            if (d.piece() && !mine.contains(d.path() + "|" + d.pos().getX() + "|" + d.pos().getY() + "|" + d.pos().getZ())) out.add(d);
+        return out;
+    }
+
+    /** @return a piece's quarter turns for its RotationMirror ordinal, or -1 (mirrored: pieces never are) */
+    static int turns(int rot) {
+        for (int t = 0; t < 4; t++) if (PieceCatalog.rotation(t).ordinal() == rot) return t;
+        return -1;
     }
 
     /** Re-reads the decoration controllers in the colony's loaded chunks; a selection that is gone is dropped. */
@@ -360,12 +389,17 @@ public final class Planner {
     static java.util.Collection<Deco> decos() {
         java.util.Map<BlockPos, Deco> by = new java.util.LinkedHashMap<>();
         for (Deco d : controllerDecos) by.put(d.pos(), d);
-        if (colony != null) for (Deco d : syncedDecos.getOrDefault(colony.getID(), java.util.List.of())) by.put(d.pos(), d);
+        if (colony != null) for (Deco d : syncedDecos.getOrDefault(colony.getID(), java.util.List.of())) if (!d.piece()) by.put(d.pos(), d);
+        for (Deco d : otherPieces()) by.put(d.pos(), d);
         return by.values();
     }
 
     /** @return the decoration's block box at its anchor, or null while its blueprint loads */
     static int[] box(Deco d) {
+        if (d.piece()) {
+            PieceCatalog.Placed p = turns(d.rot()) < 0 ? null : PieceCatalog.synced(d.pack(), d.path(), d.pos(), turns(d.rot()));
+            return p == null ? null : new int[]{p.box()[0], p.y0(), p.box()[1], p.box()[2], p.y0() + p.h() - 1, p.box()[3]};
+        }
         int[] r = Blueprints.bounds(d.pack(), d.path(), RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)]);
         return r == null ? null : ColonyGeometry.placed(r, d.pos().getX(), d.pos().getY(), d.pos().getZ());
     }
@@ -947,6 +981,11 @@ public final class Planner {
     /** Creative DECO_DELETE or survival DECO_REMOVE_ORDER of a decoration through the server part. @return false without it */
     static boolean sendDeco(int mode, Deco d) {
         if (!serverInstant()) return false;
+        // A road / wall piece goes the way a built segment's removal does: a batch of one (a crop keeps its window).
+        if (d.piece()) {
+            PacketDistributor.sendToServer(new InstantBuild.PieceBatch(PlanView.decoRequest(), d.pack(), mode, java.util.List.of(new InstantBuild.Piece(d.path(), d.pos(), d.rot()))));
+            return true;
+        }
         PacketDistributor.sendToServer(new InstantBuild.Request(mode, d.pos(), 0, d.pack(), d.path(),
                 RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)], PlanView.decoRequest()));
         return true;

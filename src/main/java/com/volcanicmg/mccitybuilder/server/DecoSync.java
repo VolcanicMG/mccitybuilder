@@ -21,13 +21,16 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * The decorations City Builder placed in a colony ({@link BuiltRecords}), for the planner to select them: a planner
- * asks when it opens ({@link Query}) and from then on gets the colony's list again after every change ({@link Decos}).
- * Only for players with hut access there; the server re-checks every action taken on them anyway.
+ * The decorations and road / wall pieces City Builder placed in a colony ({@link BuiltRecords}), for the planner to
+ * select them and lay new segments out against them: a planner asks when it opens ({@link Query}) and from then on
+ * gets the colony's list again after changes ({@link Decos}, in pages). Only for players with hut access there; the
+ * server re-checks every action taken on them anyway.
  */
 public final class DecoSync {
-    /** Records sent per colony at most. */
+    /** Records per {@link Decos} page. */
     static final int MAX_SENT = 1024;
+    // Colonies whose records changed this tick, per dimension: pushed once at the end of the tick.
+    private static final Map<ServerLevel, java.util.Set<Integer>> dirty = new HashMap<>();
     private static final Map<UUID, Integer> watching = new HashMap<>();
     private static final Map<UUID, Long> lastQuery = new HashMap<>();
     private static Consumer<Decos> handler = d -> {
@@ -47,11 +50,16 @@ public final class DecoSync {
         }
     }
 
-    /** Server → client: a colony's decoration records (colony field of each record unused). */
-    public record Decos(int colony, List<PasteRules.Rec> recs) implements CustomPacketPayload {
+    /**
+     * Server → client: a page of a colony's records (colony field of each record unused); page 0 starts the list
+     * again. A cropped piece comes as its source pack and {@link com.volcanicmg.mccitybuilder.planner.PieceLayout#cropPath},
+     * as the planner sends it.
+     */
+    public record Decos(int colony, int page, List<PasteRules.Rec> recs) implements CustomPacketPayload {
         public static final Type<Decos> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "decos"));
         public static final StreamCodec<RegistryFriendlyByteBuf, Decos> CODEC = StreamCodec.of((buf, d) -> {
             buf.writeVarInt(d.colony);
+            buf.writeVarInt(d.page);
             buf.writeVarInt(d.recs.size());
             for (PasteRules.Rec r : d.recs) {
                 buf.writeUtf(r.pack(), 256);
@@ -62,11 +70,11 @@ public final class DecoSync {
                 buf.writeByte(r.rot());
             }
         }, buf -> {
-            int colony = buf.readVarInt(), n = Math.min(buf.readVarInt(), MAX_SENT);
+            int colony = buf.readVarInt(), page = buf.readVarInt(), n = Math.min(buf.readVarInt(), MAX_SENT);
             List<PasteRules.Rec> out = new ArrayList<>();
             for (int i = 0; i < n; i++)
                 out.add(new PasteRules.Rec(colony, buf.readUtf(256), buf.readUtf(512), buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readByte()));
-            return new Decos(colony, out);
+            return new Decos(colony, page, out);
         });
 
         @Override
@@ -104,19 +112,45 @@ public final class DecoSync {
         send(p, p.serverLevel(), q.colony);
     }
 
-    /** A colony's decoration records changed: its watchers in that dimension get the new list. */
+    /** A colony's records changed: its watchers in that dimension get the new list at the end of the tick. */
     static void changed(ServerLevel level, int colony) {
-        IColony c = IColonyManager.getInstance().getColonyByWorld(colony, level);
-        if (c == null) return;
-        for (ServerPlayer p : level.players())
-            if (Integer.valueOf(colony).equals(watching.get(p.getUUID())) && c.getPermissions().hasPermission(p, Action.ACCESS_HUTS)) send(p, level, colony);
+        dirty.computeIfAbsent(level, k -> new java.util.HashSet<>()).add(colony);
+    }
+
+    /** End of a server tick: the colonies changed during it go to their watchers (a piece batch sends once, not per piece). */
+    static void flush() {
+        if (dirty.isEmpty()) return;
+        var now = new HashMap<>(dirty);
+        dirty.clear();
+        now.forEach((level, colonies) -> {
+            for (int colony : colonies) {
+                IColony c = IColonyManager.getInstance().getColonyByWorld(colony, level);
+                if (c == null) continue;
+                for (ServerPlayer p : level.players())
+                    if (Integer.valueOf(colony).equals(watching.get(p.getUUID())) && c.getPermissions().hasPermission(p, Action.ACCESS_HUTS)) send(p, level, colony);
+            }
+        });
     }
 
     private static void send(ServerPlayer p, ServerLevel level, int colony) {
         if (!p.connection.hasChannel(Decos.TYPE)) return;
-        List<PasteRules.Rec> recs = BuiltRecords.of(level).decorations(colony);
-        // ponytail: a colony past MAX_SENT decorations sends only the first ones; page it if colonies get that big.
-        if (recs.size() > MAX_SENT) recs = recs.subList(0, MAX_SENT);
-        PacketDistributor.sendToPlayer(p, new Decos(colony, recs));
+        List<PasteRules.Rec> recs = new ArrayList<>();
+        Map<String, String> packs = null;
+        for (PasteRules.Rec r : BuiltRecords.of(level).records(colony)) {
+            if (!Crops.PACK.equals(r.pack())) {
+                recs.add(r);
+                continue;
+            }
+            if (packs == null) {
+                packs = new HashMap<>();
+                for (var m : com.ldtteam.structurize.storage.StructurePacks.getPackMetas())
+                    packs.put(Crops.hash(m.getName().getBytes(java.nio.charset.StandardCharsets.UTF_8)), m.getName());
+            }
+            String[] src = com.volcanicmg.mccitybuilder.planner.PieceLayout.cropSource(r.path(), packs::get);
+            if (src != null) recs.add(new PasteRules.Rec(r.colony(), src[0], src[1], r.x(), r.y(), r.z(), r.rot()));
+        }
+        // Page 0 always goes (an empty list clears the planner's).
+        for (int from = 0; from == 0 || from < recs.size(); from += MAX_SENT)
+            PacketDistributor.sendToPlayer(p, new Decos(colony, from / MAX_SENT, recs.subList(from, Math.min(recs.size(), from + MAX_SENT))));
     }
 }

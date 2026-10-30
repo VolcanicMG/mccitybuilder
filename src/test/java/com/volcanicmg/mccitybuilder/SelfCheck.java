@@ -797,6 +797,16 @@ public final class SelfCheck {
         check(got.id() == 7 && got.pack().equals("Colonial") && got.pieces().size() == 2 && got.pieces().get(0).path().equals("walls/colonial/straight.blueprint")
                 && java.util.Arrays.equals(got.pieces().get(0).crop(), new int[]{1, 2, 3}) && got.pieces().get(0).pos().equals(new net.minecraft.core.BlockPos(1, 64, -3))
                 && got.pieces().get(0).rot() == 2 && got.pieces().get(1).crop() == null && got.pieces().get(1).rot() == 1 && buf.readableBytes() == 0, "piece batch round-trips its crop window");
+        // A crop record goes to planners as its source pack and the path they send (Crops.packPath's file name).
+        String[] src = PieceLayout.cropSource("walls/colonial/straight_crop_0a1b2c3d_deadbeef_z2_3.blueprint", h -> h.equals("0a1b2c3d") ? "Colonial" : null);
+        check(src != null && src[0].equals("Colonial") && src[1].equals(PieceLayout.cropPath("walls/colonial/straight.blueprint", 1, 2, 3)), "crop record → source pack and crop path");
+        check(PieceLayout.cropSource("walls/colonial/straight_crop_0a1b2c3d_deadbeef_z2_3.blueprint", h -> null) == null
+                && PieceLayout.cropSource("walls/colonial/straight.blueprint", h -> "Colonial") == null, "unknown pack or not a crop: none");
+        var decos = new com.volcanicmg.mccitybuilder.server.DecoSync.Decos(4, 2, List.of(new com.volcanicmg.mccitybuilder.planner.PasteRules.Rec(0, "Colonial", src[1], 5, 70, -9, 3)));
+        com.volcanicmg.mccitybuilder.server.DecoSync.Decos.CODEC.encode(buf, decos);
+        var dg = com.volcanicmg.mccitybuilder.server.DecoSync.Decos.CODEC.decode(buf);
+        check(dg.colony() == 4 && dg.page() == 2 && dg.recs().size() == 1 && dg.recs().get(0).path().equals(src[1]) && dg.recs().get(0).rot() == 3 && buf.readableBytes() == 0,
+                "record page round-trips");
         // The flag: written only when set (older builds read 17 fields), read back either way.
         Plan.Line l = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, 0, false, false), lf = l.between(0, 5, 20, 5).withFill(true);
         String txt = Plan.write(List.of(), List.of(l, lf));

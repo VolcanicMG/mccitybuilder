@@ -73,6 +73,9 @@ final class PlanView {
     static List<Boolean> lineComplete = new ArrayList<>();
     static List<int[]> lineHeights = new ArrayList<>();
     static List<List<Boolean>> pieceBad = new ArrayList<>();
+    /** Other players' built pieces ({@link Planner#otherPieces}) as they stand, and their packs: fixed, planned pieces mustn't clash. */
+    static List<PieceCatalog.Placed> otherPlaced = new ArrayList<>();
+    static List<String> otherPacks = new ArrayList<>();
     /** Bumped whenever the planned lines are laid out again (the live segment re-lays out against them). */
     static int layoutVersion;
     private static boolean linesDirty = true;
@@ -88,14 +91,17 @@ final class PlanView {
     /** Loads the plan for this world and colony (on planner entry). */
     static void load(IColonyView colony) {
         Minecraft mc = Minecraft.getInstance();
-        String world = mc.getSingleplayerServer() != null ? "sp_" + mc.getSingleplayerServer().getWorldData().getLevelName()
-                : "mp_" + (mc.getCurrentServer() != null ? mc.getCurrentServer().ip : "unknown");
-        String dim = colony.getDimension().location().toString();
-        file = mc.gameDirectory.toPath().resolve("mccitybuilder").resolve("plans").resolve(safe(world)).resolve(safe(dim) + "_" + colony.getID() + ".txt");
-        // Plans saved under the old name (ColonyPlanner) are read from there until this one is saved.
+        // Older builds keyed a server's plans by its address as typed.
+        String typed = "mp_" + (mc.getCurrentServer() != null ? mc.getCurrentServer().ip : "unknown");
+        String world = mc.getSingleplayerServer() != null ? "sp_" + mc.getSingleplayerServer().getWorldData().getLevelName() : serverWorld(mc, typed);
+        String dim = colony.getDimension().location().toString(), name = safe(dim) + "_" + colony.getID() + ".txt";
+        Path plans = mc.gameDirectory.toPath().resolve("mccitybuilder").resolve("plans");
+        file = plans.resolve(safe(world)).resolve(name);
+        // Plans saved under an older key or name (ColonyPlanner) are read from there until this one is saved.
+        Path typedFile = plans.resolve(safe(typed)).resolve(name);
         Path old = mc.gameDirectory.toPath().resolve("colonyplanner").resolve(mc.gameDirectory.toPath().resolve("mccitybuilder").relativize(file));
         try {
-            Path from = Files.exists(file) ? file : Files.exists(old) ? old : null;
+            Path from = Files.exists(file) ? file : mc.getSingleplayerServer() == null && Files.exists(typedFile) ? typedFile : Files.exists(old) ? old : null;
             String text = from != null ? Files.readString(from) : null;
             entries = new ArrayList<>(Plan.read(text));
             lines = new ArrayList<>(Plan.readLines(text));
@@ -118,6 +124,21 @@ final class PlanView {
         queue.clear();
         waitingFor = null;
         dirty = true;
+    }
+
+    /**
+     * @return a server world's plan key: the hashed seed the server gives every client (the same whatever address
+     * was typed), or {@code typed} when it can't be read
+     */
+    private static String serverWorld(Minecraft mc, String typed) {
+        try {
+            // ponytail: the client keeps it private; read by reflection (vanilla's own obfuscated seed, nothing new leaves the server).
+            var f = net.minecraft.world.level.biome.BiomeManager.class.getDeclaredField("biomeZoomSeed");
+            f.setAccessible(true);
+            return "mp_" + Long.toHexString(f.getLong(mc.level.getBiomeManager()));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return typed;
+        }
     }
 
     private static String safe(String s) {
@@ -293,6 +314,8 @@ final class PlanView {
                 if (i < lineGaps.size() && lineGaps.get(i) != null && !linePieces.get(i).isEmpty()) gap(pose, lines, lineGaps.get(i), gapY(linePieces.get(i), lineGaps.get(i)));
                 floating(pose, lines, linePieces.get(i));
             }
+        // Other players' built pieces: faint grey like built records (select one to delete it).
+        if (on || LineView.active()) outline(pose, lines, otherPlaced, List.of(), false, 0.55f, 0.55f, 0.55f, 0.5f);
         if (!on) return;
         for (int i = 0; i < entries.size(); i++) {
             Plan.Entry e = entries.get(i);
@@ -565,6 +588,23 @@ final class PlanView {
                             pieceBad.get(i).set(k, true);
                             pieceBad.get(j).set(m, true);
                         }
+        // Other players' built pieces: fixed like built records, so a planned piece (a Fill gaps crop too) breaking into one is red.
+        otherPlaced = new ArrayList<>();
+        otherPacks = new ArrayList<>();
+        boolean othersLoading = false;
+        for (Planner.Deco d : Planner.otherPieces()) {
+            PieceCatalog.Placed p = Planner.turns(d.rot()) < 0 ? null : PieceCatalog.synced(d.pack(), d.path(), d.pos(), Planner.turns(d.rot()));
+            if (p == null) othersLoading |= Planner.turns(d.rot()) >= 0;
+            else {
+                otherPlaced.add(p);
+                otherPacks.add(d.pack());
+            }
+        }
+        for (int i = 0; i < linePieces.size() && i < lines.size(); i++)
+            if (!lines.get(i).built())
+                for (int k = 0; k < linePieces.get(i).size(); k++)
+                    for (int o = 0; o < otherPlaced.size(); o++)
+                        if (PieceCatalog.clash(lines.get(i).pack(), linePieces.get(i).get(k), otherPacks.get(o), otherPlaced.get(o))) pieceBad.get(i).set(k, true);
         for (List<Boolean> bs : pieceBad) lineBad.add(bs.contains(true));
         // Structurize ghosts of every planned piece.
         for (int i = 0; i < linePreviews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_piece_" + i);
@@ -582,7 +622,7 @@ final class PlanView {
                     RenderingCache.queue(Planner.PREVIEW_KEY + "_piece_" + linePreviews++, data);
                 }
         linesDirty = false;
-        waitingForPieces = !lay.complete();
+        waitingForPieces = !lay.complete() || othersLoading;
     }
 
     /** @return the colony's building boxes {x0, y0, z0, x1, y1, z1} */

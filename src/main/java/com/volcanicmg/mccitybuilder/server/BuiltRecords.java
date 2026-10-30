@@ -1,7 +1,6 @@
 package com.volcanicmg.mccitybuilder.server;
 
 import com.volcanicmg.mccitybuilder.planner.PasteRules;
-import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
@@ -16,7 +15,7 @@ import net.minecraft.world.level.saveddata.SavedData;
  * What City Builder itself placed or ordered in a dimension: decorations and road / wall pieces (pack, path, anchor,
  * rotation ordinal, colony). Only an exact record (or, for decorations, a live decoration controller) may be deleted,
  * moved or ordered removed, so a survival player can't have a builder demolish an arbitrary shape; a record goes when
- * its blocks are removed or the order is placed. Decoration changes are pushed to planners watching the colony.
+ * its blocks are removed or the order is placed. Changes are pushed to planners watching the colony.
  * Records placed since snapshots exist also keep their footprint box, so a restore never rewrites a cell another
  * placement still stands on.
  */
@@ -69,7 +68,7 @@ public final class BuiltRecords extends SavedData {
         if (!keys.contains(k)) {
             keys.add(k);
             setDirty();
-            changed(colony, path);
+            changed(colony);
         }
     }
 
@@ -110,21 +109,21 @@ public final class BuiltRecords extends SavedData {
         boxes.remove(k);
         if (keys.remove(k)) {
             setDirty();
-            changed(colony, path);
+            changed(colony);
         }
     }
 
-    /** @return the colony's decoration records (road / wall pieces left out: the line tools own those) */
-    public List<PasteRules.Rec> decorations(int colony) {
+    /** @return the colony's records, decorations and road / wall pieces */
+    public List<PasteRules.Rec> records(int colony) {
         List<PasteRules.Rec> out = new ArrayList<>();
         for (String k : keys) {
             PasteRules.Rec r = PasteRules.parseKey(k);
-            if (r != null && r.colony() == colony && PieceSets.tool(r.path()) == null) out.add(r);
+            if (r != null && r.colony() == colony) out.add(r);
         }
         return out;
     }
 
-    private void changed(int colony, String path) {
-        if (level != null && PieceSets.tool(path == null ? "" : path) == null) DecoSync.changed(level, colony);
+    private void changed(int colony) {
+        if (level != null) DecoSync.changed(level, colony);
     }
 }

@@ -382,6 +382,15 @@ final class PieceCatalog {
                 bp.getSizeY(), level, under(box)[0]);
     }
 
+    /** @return a piece the server recorded (another player's) as it stands, or null while its blueprint loads */
+    static Placed synced(String pack, String path, BlockPos anchor, int turns) {
+        Blueprint bp = rotated(pack, path, turns);
+        if (bp == null) return null;
+        BlockPos o = anchor.subtract(bp.getPrimaryBlockOffset());
+        return frozen(pack, new Plan.BuiltPiece(0, 0, 0, 0, path, turns, anchor.getX(), anchor.getY(), anchor.getZ(), o.getX(), o.getZ(),
+                o.getX() + bp.getSizeX() - 1, o.getZ() + bp.getSizeZ() - 1, PieceSets.Role.OTHER.name()));
+    }
+
     /** @return the pieces of a placed segment as built records */
     static List<Plan.BuiltPiece> freeze(Plan.Line l, List<Placed> ps) {
         List<Plan.BuiltPiece> out = new ArrayList<>();

@@ -129,8 +129,8 @@ public final class InstantBuild {
 
     /** Registers the payload as optional, so clients and servers without the mod still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
-        // Protocol 6: piece batches carry a crop window (Fill gaps); mismatched builds refuse the channel cleanly.
-        e.registrar("6").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
+        // Protocol 7: record pages carry road / wall pieces; mismatched builds refuse the channel cleanly.
+        e.registrar("7").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
                 .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch)
                 .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r))
                 .playToServer(DecoSync.Query.TYPE, DecoSync.Query.CODEC, DecoSync::handleQuery)
@@ -139,7 +139,11 @@ public final class InstantBuild {
 
     /** Prunes per-player state on logout. */
     public static void init() {
+        NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, e -> DecoSync.flush());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
+            // A paste that left Structurize's queue without finishing frees its positions and chunks now, not in BUSY_MS.
+            Runnable gone = pastes.remove(e.getEntity().getUUID());
+            if (gone != null) gone.run();
             lastRequest.remove(e.getEntity().getUUID());
             busyPlayers.remove(e.getEntity().getUUID());
             batches.remove(e.getEntity().getUUID());
@@ -158,6 +162,54 @@ public final class InstantBuild {
     private static final java.nio.file.Path CLIENT_PACKS = java.nio.file.Path.of("blueprints", "clients").toAbsolutePath().normalize();
     // Footprint chunks of running pastes, so overlapping pastes from different anchors can't interleave.
     private static final Map<String, Long> busyChunks = new HashMap<>();
+    // Per player with a paste queued: what frees its locks at logout if that paste is no longer queued.
+    private static final Map<UUID, Runnable> pastes = new HashMap<>();
+    // Chunks a running request keeps loaded, per "player|stamp" (a dedicated server may have nothing loaded where the
+    // planner looks); each request's tickets carry their own id, so releasing one never drops another's.
+    private static final net.minecraft.server.level.TicketType<Long> HOLD = net.minecraft.server.level.TicketType.create("mccitybuilder_paste", Long::compare);
+    private record Hold(long id, List<net.minecraft.world.level.ChunkPos> chunks) {
+    }
+
+    private static final Map<String, Hold> held = new HashMap<>();
+    private static long nextHold;
+
+    /**
+     * Loads the chunks under the block box {@code a}..{@code b} and keeps them loaded for request {@code hk} until
+     * {@link #unhold}; only near a colony the player may change this way (no loading anywhere else).
+     */
+    private static void hold(ServerLevel level, ServerPlayer p, int mode, String hk, BlockPos a, BlockPos b) {
+        int reach = (com.minecolonies.api.IMinecoloniesAPI.getInstance().getConfig().getServer().maxColonySize.get() + 1) * 16;
+        boolean near = false;
+        for (IColony c : IColonyManager.getInstance().getColonies(level))
+            if (Math.abs(c.getCenter().getX() - a.getX()) <= reach && Math.abs(c.getCenter().getZ() - a.getZ()) <= reach && allowed(c, p, mode)) near = true;
+        if (!near) return;
+        Hold h = held.computeIfAbsent(hk, k -> new Hold(nextHold++, new ArrayList<>()));
+        for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++)
+            for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {
+                var c = new net.minecraft.world.level.ChunkPos(cx, cz);
+                if (h.chunks.contains(c)) continue;
+                level.getChunkSource().addRegionTicket(HOLD, c, 0, h.id);
+                h.chunks.add(c);
+                level.getChunk(cx, cz);
+            }
+    }
+
+    private static void unhold(ServerLevel level, String hk) {
+        Hold h = held.remove(hk);
+        if (h != null) for (var c : h.chunks) level.getChunkSource().removeRegionTicket(HOLD, c, 0, h.id);
+    }
+
+    /** @return true while Structurize's queue still holds the operation (true when its queue can't be read: locks then wait out BUSY_MS) */
+    private static boolean queued(Object op) {
+        try {
+            // ponytail: Structurize keeps its queue private; read by reflection.
+            var f = Manager.class.getDeclaredField("scanToolOperationPool");
+            f.setAccessible(true);
+            return ((java.util.Collection<?>) f.get(null)).contains(op);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return true;
+        }
+    }
 
     private static <K> boolean busy(Map<K, Long> m, K k, long now) {
         Long t = m.get(k);
@@ -181,6 +233,7 @@ public final class InstantBuild {
         busyPlayers.remove(p.getUUID(), stamp);
         busyPositions.remove(key(level, r.pos), stamp);
         busyPositions.remove(key(level, r.from), stamp);
+        unhold(level, p.getUUID() + "|" + stamp);
         java.util.Set<Integer> mine = refused.get(p.getUUID());
         if (r.id > 0 && (mine == null || !mine.remove(r.id))) answer(p, r.id, true, "");
         continueBatch(p);
@@ -304,7 +357,7 @@ public final class InstantBuild {
     }
 
     private static void answer(ServerPlayer p, int id, boolean ok, String reason) {
-        if (!p.connection.hasChannel(BatchResult.TYPE)) return;
+        if (p.hasDisconnected() || !p.connection.hasChannel(BatchResult.TYPE)) return;
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(p, new BatchResult(id, ok, reason));
     }
 
@@ -424,6 +477,18 @@ public final class InstantBuild {
         }
         if (!batch) lastRequest.put(p.getUUID(), now);
         ServerLevel level = p.serverLevel();
+        String hk = p.getUUID() + "|" + now;
+        if (r.mode >= PLACE && r.mode <= DECO_REPAIR) {
+            hold(level, p, r.mode, hk, r.pos, r.pos);
+            if (r.mode == MOVE || r.mode == DECO_MOVE) hold(level, p, r.mode, hk, r.from, r.from);
+        }
+        if (load(p, r, level, now)) return true;
+        unhold(level, hk);
+        return false;
+    }
+
+    /** The rest of {@link #submitChecked}, its chunks held. @return true when the blueprint load started (release() then frees them) */
+    private static boolean load(ServerPlayer p, Request r, ServerLevel level, long now) {
         boolean move = r.mode == MOVE || r.mode == DECO_MOVE;
         if (r.mode < PLACE || r.mode > DECO_REPAIR || !level.isLoaded(r.pos) || move && (!level.isLoaded(r.from) || r.from.equals(r.pos))) {
             reject(p, r, "bad mode or unloaded position");
@@ -615,6 +680,9 @@ public final class InstantBuild {
             reject(p, r, "the footprint reaches a building, hut or storage");
             return false;
         }
+        String hk = p.getUUID() + "|" + stamp;
+        hold(level, p, r.mode, hk, origin, far);
+        if (srcOrigin != null) hold(level, p, r.mode, hk, srcOrigin, srcFar);
         // Every chunk under the footprint must be loaded and owned by this colony (MineColonies' own rule).
         for (int cx = origin.getX() >> 4; cx <= far.getX() >> 4; cx++)
             for (int cz = origin.getZ() >> 4; cz <= far.getZ() >> 4; cz++)
@@ -802,11 +870,18 @@ public final class InstantBuild {
                     if (r.mode == DECO_MOVE) records.remove(colonyId, fPack, fPath, r.from, r.fromRot.ordinal());
                 }
             } finally {
+                pastes.remove(p.getUUID());
                 release(p, level, r, stamp);
-                chunks.forEach(busyChunks::remove);
+                chunks.forEach(c -> busyChunks.remove(c, now));
             }
         });
-        Manager.addToQueue(new PlaceStructureOperation(new StructurePlacer(handler), p));
+        PlaceStructureOperation op = new PlaceStructureOperation(new StructurePlacer(handler), p);
+        pastes.put(p.getUUID(), () -> {
+            if (queued(op)) return;
+            release(p, level, r, stamp);
+            chunks.forEach(c -> busyChunks.remove(c, now));
+        });
+        Manager.addToQueue(op);
         done(p);
         if (kept > 0) p.displayClientMessage(Component.translatable("mccitybuilder.kept_storage", kept), false);
         return true;
@@ -867,13 +942,17 @@ public final class InstantBuild {
         RotationMirror oldRot = r.mode == MOVE ? (old.getTileEntity() != null ? old.getTileEntity().getRotationMirror() : old.getRotationMirror()) : r.fromRot;
         RotationMirror diff = oldRot.calcDifferenceTowards(r.rot);
         if (!oldRot.add(diff).equals(r.rot)) diff = r.rot.calcDifferenceTowards(oldRot);
-        // Containers first (the hut's own inventory is a container block entity too, mapped to the new hut).
+        // Containers first (the hut's own inventory is a container block entity too, mapped to the new hut). A hut
+        // takes only its own: the hut block and the containers registered with it (others' storage in the box stays).
+        java.util.Set<BlockPos> own = r.mode == MOVE ? new java.util.HashSet<>(old.getContainers()) : null;
+        if (own != null) own.add(r.from);
         int containers = 0, toPlayer = 0;
         List<ItemStack> spare = new ArrayList<>();
         for (int y = srcOrigin.getY(); y <= srcFar.getY(); y++)
             for (int z = srcOrigin.getZ(); z <= srcFar.getZ(); z++)
                 for (int x = srcOrigin.getX(); x <= srcFar.getX(); x++) {
                     BlockPos w = new BlockPos(x, y, z);
+                    if (own != null && !own.contains(w)) continue;
                     IItemHandler from = handlerAt(level, w);
                     if (from == null || from.getSlots() == 0) continue;
                     BlockPos target = r.pos.offset(diff.applyToPos(w.subtract(r.from)));
