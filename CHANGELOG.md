@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0-SNAPSHOT
+## 1.0.0-beta.1
 
 - Huts: Remove (not the town hall or parent / child buildings), confirmed with a second click. Creative removes
   it at once (its containers' items to you, overflow at your feet; the site cleared and its ground restored; needs
