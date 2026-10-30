@@ -318,17 +318,33 @@ final class PlannerScreen extends Screen {
 
     /** A hut-to-citizen link: a 2 px dashed white line on a dark edge, the dashes marching from the hut outwards. */
     private static void link(GuiGraphics g, int x0, int y0, int x1, int y1) {
+        // Steps as the pixel version took them (the longer axis), so dashes keep their length on diagonals.
         int n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
         if (n == 0) return;
+        float sx = (x1 - x0) / (float) n, sy = (y1 - y0) / (float) n, len = (float) Math.hypot(x1 - x0, y1 - y0);
+        // Unit normal across the line; everything sits 1 px right / down, like the 2 px fills did.
+        float nx = -(y1 - y0) / len, ny = (x1 - x0) / len, cx = x0 + 1, cy = y0 + 1;
         int phase = (int) (System.currentTimeMillis() / 60 % 8);
-        // The dark edge first, so it never covers a dash.
-        for (int i = 0; i <= n; i++) {
-            int x = x0 + (x1 - x0) * i / n, y = y0 + (y1 - y0) * i / n;
-            g.fill(x - 1, y - 1, x + 3, y + 3, 0x28000000);
-        }
-        for (int i = 0; i <= n; i++) {
-            int x = x0 + (x1 - x0) * i / n, y = y0 + (y1 - y0) * i / n;
-            if ((i - phase + 8) % 8 < 5) g.fill(x, y, x + 2, y + 2, 0xE0FFFFFF);
+        var m = g.pose().last().pose();
+        var vc = g.bufferSource().getBuffer(net.minecraft.client.renderer.RenderType.gui());
+        // The dark edge first, so it never covers a dash; then one quad per dash.
+        dash(vc, m, cx, cy, sx, sy, nx, ny, 0, n, 2f, 0x70000000);
+        for (int s = phase - 8; s < n; s += 8) dash(vc, m, cx, cy, sx, sy, nx, ny, Math.max(0, s), Math.min(n, s + 5), 1f, 0xE0FFFFFF);
+        g.flush();
+    }
+
+    /** One quad of a link: steps {@code from}..{@code to} along it, {@code w} px each side, wound like {@link GuiGraphics#fill}. */
+    private static void dash(com.mojang.blaze3d.vertex.VertexConsumer vc, org.joml.Matrix4f m, float cx, float cy, float sx, float sy, float nx, float ny,
+                             float from, float to, float w, int argb) {
+        if (to <= from) return;
+        float ax = cx + sx * from, ay = cy + sy * from, bx = cx + sx * to, by = cy + sy * to;
+        float[] q = {ax + nx * w, ay + ny * w, ax - nx * w, ay - ny * w, bx - nx * w, by - ny * w, bx + nx * w, by + ny * w};
+        float area = 0;
+        for (int i = 0; i < 4; i++) area += q[i * 2] * q[(i * 2 + 3) % 8] - q[(i * 2 + 2) % 8] * q[i * 2 + 1];
+        // fill() winds its corners with a negative signed area in screen space; the other way round would be culled.
+        for (int i = 0; i < 4; i++) {
+            int k = area < 0 ? i : 3 - i;
+            vc.addVertex(m, q[k * 2], q[k * 2 + 1], 0).setColor(argb);
         }
     }
 

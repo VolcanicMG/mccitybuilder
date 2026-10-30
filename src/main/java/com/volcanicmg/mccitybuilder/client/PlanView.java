@@ -76,6 +76,9 @@ final class PlanView {
     /** Other players' built pieces ({@link Planner#otherPieces}) as they stand, and their packs: fixed, planned pieces mustn't clash. */
     static List<PieceCatalog.Placed> otherPlaced = new ArrayList<>();
     static List<String> otherPacks = new ArrayList<>();
+    // otherPlaced by the chunks its boxes cover (indexes), and the list of others' pieces it was made for.
+    private static Map<Long, List<Integer>> otherByChunk = new HashMap<>();
+    private static Object otherFor;
     /** Bumped whenever the planned lines are laid out again (the live segment re-lays out against them). */
     static int layoutVersion;
     private static boolean linesDirty = true;
@@ -91,17 +94,18 @@ final class PlanView {
     /** Loads the plan for this world and colony (on planner entry). */
     static void load(IColonyView colony) {
         Minecraft mc = Minecraft.getInstance();
-        // Older builds keyed a server's plans by its address as typed.
-        String typed = "mp_" + (mc.getCurrentServer() != null ? mc.getCurrentServer().ip : "unknown");
-        String world = mc.getSingleplayerServer() != null ? "sp_" + mc.getSingleplayerServer().getWorldData().getLevelName() : serverWorld(mc, typed);
+        // Older builds keyed a server's plans by its address as typed, then by its seed alone.
+        boolean sp = mc.getSingleplayerServer() != null;
+        String typed = "mp_" + (mc.getCurrentServer() != null ? mc.getCurrentServer().ip : "unknown"), seed = sp ? null : serverSeed(mc);
+        String world = sp ? "sp_" + mc.getSingleplayerServer().getWorldData().getLevelName() : seed == null ? typed : seed + "_" + serverAddress(mc);
         String dim = colony.getDimension().location().toString(), name = safe(dim) + "_" + colony.getID() + ".txt";
         Path plans = mc.gameDirectory.toPath().resolve("mccitybuilder").resolve("plans");
         file = plans.resolve(safe(world)).resolve(name);
         // Plans saved under an older key or name (ColonyPlanner) are read from there until this one is saved.
-        Path typedFile = plans.resolve(safe(typed)).resolve(name);
+        Path typedFile = plans.resolve(safe(typed)).resolve(name), seedFile = seed == null ? typedFile : plans.resolve(safe(seed)).resolve(name);
         Path old = mc.gameDirectory.toPath().resolve("colonyplanner").resolve(mc.gameDirectory.toPath().resolve("mccitybuilder").relativize(file));
         try {
-            Path from = Files.exists(file) ? file : mc.getSingleplayerServer() == null && Files.exists(typedFile) ? typedFile : Files.exists(old) ? old : null;
+            Path from = Files.exists(file) ? file : !sp && Files.exists(seedFile) ? seedFile : !sp && Files.exists(typedFile) ? typedFile : Files.exists(old) ? old : null;
             String text = from != null ? Files.readString(from) : null;
             entries = new ArrayList<>(Plan.read(text));
             lines = new ArrayList<>(Plan.readLines(text));
@@ -127,18 +131,29 @@ final class PlanView {
     }
 
     /**
-     * @return a server world's plan key: the hashed seed the server gives every client (the same whatever address
-     * was typed), or {@code typed} when it can't be read
+     * @return the first part of a server world's plan key: the hashed seed the server gives every client (the same
+     * whatever address was typed), or null when it can't be read
      */
-    private static String serverWorld(Minecraft mc, String typed) {
+    private static String serverSeed(Minecraft mc) {
         try {
             // ponytail: the client keeps it private; read by reflection (vanilla's own obfuscated seed, nothing new leaves the server).
             var f = net.minecraft.world.level.biome.BiomeManager.class.getDeclaredField("biomeZoomSeed");
             f.setAccessible(true);
             return "mp_" + Long.toHexString(f.getLong(mc.level.getBiomeManager()));
         } catch (ReflectiveOperationException | RuntimeException e) {
-            return typed;
+            return null;
         }
+    }
+
+    /**
+     * @return the second part: a hash of the server's address as connected (resolved IP and port, so "localhost" and
+     * "127.0.0.1" agree), telling servers apart that share a seed
+     */
+    private static String serverAddress(Minecraft mc) {
+        var c = mc.getConnection();
+        java.net.SocketAddress a = c == null ? null : c.getConnection().getRemoteAddress();
+        String s = a instanceof java.net.InetSocketAddress in && in.getAddress() != null ? in.getAddress().getHostAddress() + ":" + in.getPort() : String.valueOf(a);
+        return Integer.toHexString(s.hashCode());
     }
 
     private static String safe(String s) {
@@ -589,22 +604,38 @@ final class PlanView {
                             pieceBad.get(j).set(m, true);
                         }
         // Other players' built pieces: fixed like built records, so a planned piece (a Fill gaps crop too) breaking into one is red.
-        otherPlaced = new ArrayList<>();
-        otherPacks = new ArrayList<>();
-        boolean othersLoading = false;
-        for (Planner.Deco d : Planner.otherPieces()) {
-            PieceCatalog.Placed p = Planner.turns(d.rot()) < 0 ? null : PieceCatalog.synced(d.pack(), d.path(), d.pos(), Planner.turns(d.rot()));
-            if (p == null) othersLoading |= Planner.turns(d.rot()) >= 0;
-            else {
-                otherPlaced.add(p);
-                otherPacks.add(d.pack());
+        // Made again only for a new list of them, or while some still load.
+        List<Planner.Deco> os = Planner.otherPieces();
+        boolean othersLoading = otherFor != os;
+        if (othersLoading) {
+            otherPlaced = new ArrayList<>();
+            otherPacks = new ArrayList<>();
+            otherByChunk = new HashMap<>();
+            othersLoading = false;
+            for (Planner.Deco d : os) {
+                PieceCatalog.Placed p = Planner.placed(d);
+                if (p == null) othersLoading |= Planner.turns(d.rot()) >= 0;
+                else {
+                    int[] b = p.box();
+                    for (int cx = b[0] >> 4; cx <= b[2] >> 4; cx++)
+                        for (int cz = b[1] >> 4; cz <= b[3] >> 4; cz++)
+                            otherByChunk.computeIfAbsent(net.minecraft.world.level.ChunkPos.asLong(cx, cz), c -> new ArrayList<>()).add(otherPlaced.size());
+                    otherPlaced.add(p);
+                    otherPacks.add(d.pack());
+                }
             }
+            otherFor = othersLoading ? null : os;
         }
+        // Only the others' pieces in the chunks a planned piece covers.
         for (int i = 0; i < linePieces.size() && i < lines.size(); i++)
             if (!lines.get(i).built())
-                for (int k = 0; k < linePieces.get(i).size(); k++)
-                    for (int o = 0; o < otherPlaced.size(); o++)
-                        if (PieceCatalog.clash(lines.get(i).pack(), linePieces.get(i).get(k), otherPacks.get(o), otherPlaced.get(o))) pieceBad.get(i).set(k, true);
+                for (int k = 0; k < linePieces.get(i).size(); k++) {
+                    int[] b = linePieces.get(i).get(k).box();
+                    for (int cx = b[0] >> 4; cx <= b[2] >> 4 && !pieceBad.get(i).get(k); cx++)
+                        for (int cz = b[1] >> 4; cz <= b[3] >> 4; cz++)
+                            for (int o : otherByChunk.getOrDefault(net.minecraft.world.level.ChunkPos.asLong(cx, cz), List.of()))
+                                if (PieceCatalog.clash(lines.get(i).pack(), linePieces.get(i).get(k), otherPacks.get(o), otherPlaced.get(o))) pieceBad.get(i).set(k, true);
+                }
         for (List<Boolean> bs : pieceBad) lineBad.add(bs.contains(true));
         // Structurize ghosts of every planned piece.
         for (int i = 0; i < linePreviews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_piece_" + i);

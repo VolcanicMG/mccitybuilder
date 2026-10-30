@@ -62,6 +62,8 @@ public final class DevBridge {
         }
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong recvBytes = new java.util.concurrent.atomic.AtomicLong(), recvPages = new java.util.concurrent.atomic.AtomicLong();
+
     private static String route(String path, String body) throws Exception {
         String[] a = body.isEmpty() ? new String[0] : body.split("\\s+");
         return switch (path) {
@@ -310,6 +312,69 @@ public final class DevBridge {
             // mode pack (spaces as _) path x y z rot: a selected decoration's / piece's action as the selection panel sends it.
             case "/senddeco" -> client(() -> Planner.sendDeco(Integer.parseInt(a[0]), new Planner.Deco(a[1].replace('_', ' '), a[2],
                     new BlockPos(Integer.parseInt(a[3]), Integer.parseInt(a[4]), Integer.parseInt(a[5])), Integer.parseInt(a[6]))) ? "sent" : "no server part");
+            // n [crops%]: n synthetic road / wall records for colony 1 on a 2-block grid around its centre (perf checks; the world copy is throwaway).
+            case "/synthrecs" -> server(() -> {
+                var level = Minecraft.getInstance().getSingleplayerServer().overworld();
+                var c = com.minecolonies.api.colony.IColonyManager.getInstance().getColonyByWorld(1, level);
+                var recs = com.volcanicmg.mccitybuilder.server.BuiltRecords.of(level);
+                int n = Integer.parseInt(a[0]), cropPct = a.length > 1 ? Integer.parseInt(a[1]) : 10;
+                String ph = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest("Colonial".getBytes(StandardCharsets.UTF_8)), 0, 4);
+                BlockPos ctr = c.getCenter();
+                for (int i = 0; i < n; i++) {
+                    BlockPos p = ctr.offset((i % 100) * 2 - 100, 0, (i / 100) * 2 - 100);
+                    boolean crop = i % 100 < cropPct;
+                    String pack = crop ? "City Builder Crops" : "Colonial", bp = crop ? "walls/long2_crop_" + ph + "_0badf00d_z9_1.blueprint" : "walls/short2.blueprint";
+                    recs.add(1, pack, bp, p, i % 4, new int[]{p.getX(), p.getY(), p.getZ(), p.getX() + 1, p.getY() + 4, p.getZ() + 1});
+                }
+                return "added " + n;
+            });
+            // Times one DecoSync flush of colony 1 (server ms), then reports what the planner received since the last call.
+            case "/flushms" -> {
+                var server = Minecraft.getInstance().getSingleplayerServer();
+                double ms = server.submit(() -> {
+                    try {
+                        var level = server.overworld();
+                        var ch = com.volcanicmg.mccitybuilder.server.DecoSync.class.getDeclaredMethod("changed", net.minecraft.server.level.ServerLevel.class, int.class);
+                        var fl = com.volcanicmg.mccitybuilder.server.DecoSync.class.getDeclaredMethod("flush");
+                        ch.setAccessible(true);
+                        fl.setAccessible(true);
+                        // What the planner receives, counted as encoded (an integrated server hands the objects over as they are).
+                        com.volcanicmg.mccitybuilder.server.DecoSync.handler(d -> {
+                            var buf = new net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), level.registryAccess(),
+                                    net.neoforged.neoforge.network.connection.ConnectionType.NEOFORGE);
+                            com.volcanicmg.mccitybuilder.server.DecoSync.Decos.CODEC.encode(buf, d);
+                            recvBytes.addAndGet(buf.readableBytes());
+                            recvPages.incrementAndGet();
+                            Planner.onDecos(d);
+                        });
+                        recvBytes.set(0);
+                        recvPages.set(0);
+                        ch.invoke(null, level, 1);
+                        long t = System.nanoTime();
+                        fl.invoke(null);
+                        return (System.nanoTime() - t) / 1e6;
+                    } catch (ReflectiveOperationException e) {
+                        throw new RuntimeException(e);
+                    }
+                }).get();
+                Thread.sleep(2100);
+                yield String.format("flush %.2f ms, received %d pages %d bytes", ms, recvPages.get(), recvBytes.get());
+            }
+            // x y z: times the planner's hover pick there (client ms, 20 runs averaged), and the frame rate.
+            case "/pickms" -> client(() -> {
+                BlockPos at = new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                long t = System.nanoTime();
+                Object hit = null;
+                for (int i = 0; i < 20; i++) hit = Planner.pickAt(at);
+                return String.format("pickAt %.3f ms -> %s, fps %d", (System.nanoTime() - t) / 20e6, hit, Minecraft.getInstance().getFps());
+            });
+            // Times the planner's next line layout (client ms), forced now.
+            case "/relayoutms" -> client(() -> {
+                PlanView.relayout();
+                long t = System.nanoTime();
+                PlanView.refreshLines();
+                return String.format("relayout %.2f ms, otherPlaced=%d, lines=%d", (System.nanoTime() - t) / 1e6, PlanView.otherPlaced.size(), PlanView.lines.size());
+            });
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");

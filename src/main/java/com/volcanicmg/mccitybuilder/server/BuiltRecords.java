@@ -21,7 +21,9 @@ import net.minecraft.world.level.saveddata.SavedData;
  */
 public final class BuiltRecords extends SavedData {
     private static final String NAME = "mccitybuilder_built";
-    private final List<String> keys = new ArrayList<>();
+    private final java.util.Set<String> keys = new java.util.LinkedHashSet<>();
+    // The same records per colony, parsed once (a colony's list is read on every planner sync).
+    private final java.util.Map<Integer, java.util.Map<String, PasteRules.Rec>> byColony = new java.util.HashMap<>();
     // Footprint boxes {x0, y0, z0, x1, y1, z1} per record key (records from before boxes were kept have none).
     private final java.util.Map<String, int[]> boxes = new java.util.HashMap<>();
     private ServerLevel level;
@@ -37,7 +39,7 @@ public final class BuiltRecords extends SavedData {
 
     private static BuiltRecords load(CompoundTag tag, HolderLookup.Provider regs) {
         BuiltRecords r = new BuiltRecords();
-        for (Tag t : tag.getList("built", Tag.TAG_STRING)) r.keys.add(t.getAsString());
+        for (Tag t : tag.getList("built", Tag.TAG_STRING)) r.index(t.getAsString());
         for (Tag t : tag.getList("boxes", Tag.TAG_COMPOUND)) {
             CompoundTag c = (CompoundTag) t;
             int[] b = c.getIntArray("box");
@@ -65,8 +67,7 @@ public final class BuiltRecords extends SavedData {
     /** Remembers a decoration / piece as placed or ordered (idempotent). */
     public void add(int colony, String pack, String path, BlockPos pos, int rot) {
         String k = PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot);
-        if (!keys.contains(k)) {
-            keys.add(k);
+        if (index(k)) {
             setDirty();
             changed(colony);
         }
@@ -92,9 +93,8 @@ public final class BuiltRecords extends SavedData {
      * between the two), or null
      */
     public String recordedPath(int colony, String pack, String prefix, String suffix, BlockPos pos, int rot) {
-        for (String k : keys) {
-            PasteRules.Rec r = PasteRules.parseKey(k);
-            if (r != null && r.colony() == colony && r.pack().equals(pack) && r.x() == pos.getX() && r.y() == pos.getY() && r.z() == pos.getZ() && r.rot() == rot
+        for (PasteRules.Rec r : byColony.getOrDefault(colony, java.util.Map.of()).values()) {
+            if (r.pack().equals(pack) && r.x() == pos.getX() && r.y() == pos.getY() && r.z() == pos.getZ() && r.rot() == rot
                     && r.path().startsWith(prefix) && r.path().endsWith(suffix)) return r.path();
         }
         return null;
@@ -108,6 +108,8 @@ public final class BuiltRecords extends SavedData {
         String k = PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot);
         boxes.remove(k);
         if (keys.remove(k)) {
+            var m = byColony.get(colony);
+            if (m != null) m.remove(k);
             setDirty();
             changed(colony);
         }
@@ -115,12 +117,15 @@ public final class BuiltRecords extends SavedData {
 
     /** @return the colony's records, decorations and road / wall pieces */
     public List<PasteRules.Rec> records(int colony) {
-        List<PasteRules.Rec> out = new ArrayList<>();
-        for (String k : keys) {
-            PasteRules.Rec r = PasteRules.parseKey(k);
-            if (r != null && r.colony() == colony) out.add(r);
-        }
-        return out;
+        return new ArrayList<>(byColony.getOrDefault(colony, java.util.Map.of()).values());
+    }
+
+    /** Adds a record key (an unparsable one is kept for saving only). @return false when it was there already */
+    private boolean index(String k) {
+        if (!keys.add(k)) return false;
+        PasteRules.Rec r = PasteRules.parseKey(k);
+        if (r != null) byColony.computeIfAbsent(r.colony(), c -> new java.util.LinkedHashMap<>()).put(k, r);
+        return true;
     }
 
     private void changed(int colony) {

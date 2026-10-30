@@ -126,12 +126,25 @@ public final class Planner {
     }
 
     static Deco selectedDeco, hoveredDeco, movingDeco;
-    // The server's decoration records per colony id (kept across planner sessions; a reopen's query may be rate limited).
-    private static final java.util.Map<Integer, java.util.List<Deco>> syncedDecos = new java.util.HashMap<>();
+    // The server's records per "dimension|colony id" (kept across planner sessions; a reopen's query may be rate limited).
+    private static final java.util.Map<String, java.util.List<Deco>> syncedDecos = new java.util.HashMap<>();
+    // Bumped per received page: what is derived from the records below is worked out again only then.
+    private static int decosVersion;
+    // Derived, with the inputs they were worked out for: others' pieces, all decorations, and pieces as placed.
+    private static java.util.List<Deco> others = java.util.List.of(), allDecos = java.util.List.of();
+    private static Object othersFor, decosFor;
+    private static final java.util.Map<Deco, PieceCatalog.Placed> placedCache = new java.util.HashMap<>();
 
     /** Logout: colony ids repeat across worlds and servers. */
     static void clearDecos() {
         syncedDecos.clear();
+        placedCache.clear();
+        decosVersion++;
+    }
+
+    private static java.util.List<Deco> synced() {
+        Minecraft mc = Minecraft.getInstance();
+        return colony == null || mc.level == null ? java.util.List.of() : syncedDecos.getOrDefault(mc.level.dimension().location() + "|" + colony.getID(), java.util.List.of());
     }
     private static java.util.List<Deco> controllerDecos = java.util.List.of();
     // The colony's claimed chunks (client claim data, refreshed each second), its border edges and pan bounds.
@@ -340,9 +353,13 @@ public final class Planner {
 
     /** A page of the server's records for a colony (stored even while the planner is closed); page 0 starts over. */
     static void onDecos(com.volcanicmg.mccitybuilder.server.DecoSync.Decos d) {
-        java.util.List<Deco> out = d.page() == 0 ? new java.util.ArrayList<>() : syncedDecos.computeIfAbsent(d.colony(), k -> new java.util.ArrayList<>());
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        String key = mc.level.dimension().location() + "|" + d.colony();
+        java.util.List<Deco> out = d.page() == 0 ? new java.util.ArrayList<>() : syncedDecos.computeIfAbsent(key, k -> new java.util.ArrayList<>());
         for (var r : d.recs()) out.add(new Deco(r.pack(), r.path(), new BlockPos(r.x(), r.y(), r.z()), r.rot()));
-        syncedDecos.put(d.colony(), out);
+        syncedDecos.put(key, out);
+        decosVersion++;
         if (active && colony != null && d.colony() == colony.getID()) {
             refreshDecos();
             PlanView.relayout();
@@ -352,12 +369,30 @@ public final class Planner {
     /** @return the colony's recorded road / wall pieces that aren't this player's own built segments' (another player's) */
     static java.util.List<Deco> otherPieces() {
         if (colony == null) return java.util.List.of();
+        // Worked out again only for new pages, another colony, or a change in this player's built segments.
+        // ponytail: built segments tracked by their map and its size; a segment rebuilt under the same key keeps the old list until the next page.
+        var built = PlanView.builtPieces;
+        java.util.List<Object> now = java.util.List.of(decosVersion, colony.getID(), System.identityHashCode(built), built.size());
+        if (now.equals(othersFor)) return others;
         java.util.Set<String> mine = new java.util.HashSet<>();
-        for (var ps : PlanView.builtPieces.values()) for (var b : ps) mine.add(b.path() + "|" + b.ax() + "|" + b.ay() + "|" + b.az());
+        for (var ps : built.values()) for (var b : ps) mine.add(b.path() + "|" + b.ax() + "|" + b.ay() + "|" + b.az());
         java.util.List<Deco> out = new java.util.ArrayList<>();
-        for (Deco d : syncedDecos.getOrDefault(colony.getID(), java.util.List.of()))
+        for (Deco d : synced())
             if (d.piece() && !mine.contains(d.path() + "|" + d.pos().getX() + "|" + d.pos().getY() + "|" + d.pos().getZ())) out.add(d);
+        placedCache.keySet().retainAll(new java.util.HashSet<>(out));
+        others = out;
+        othersFor = now;
         return out;
+    }
+
+    /** @return another player's piece as it stands (kept until its record goes), or null while its blueprint loads */
+    static PieceCatalog.Placed placed(Deco d) {
+        PieceCatalog.Placed p = placedCache.get(d);
+        if (p == null && turns(d.rot()) >= 0) {
+            p = PieceCatalog.synced(d.pack(), d.path(), d.pos(), turns(d.rot()));
+            if (p != null) placedCache.put(d, p);
+        }
+        return p;
     }
 
     /** @return a piece's quarter turns for its RotationMirror ordinal, or -1 (mirrored: pieces never are) */
@@ -387,17 +422,22 @@ public final class Planner {
 
     /** @return the colony's known decorations, one per anchor (a server record wins over a controller) */
     static java.util.Collection<Deco> decos() {
+        java.util.List<Deco> os = otherPieces();
+        java.util.List<Object> now = java.util.Arrays.asList(System.identityHashCode(os), System.identityHashCode(controllerDecos), decosVersion);
+        if (now.equals(decosFor)) return allDecos;
         java.util.Map<BlockPos, Deco> by = new java.util.LinkedHashMap<>();
         for (Deco d : controllerDecos) by.put(d.pos(), d);
-        if (colony != null) for (Deco d : syncedDecos.getOrDefault(colony.getID(), java.util.List.of())) if (!d.piece()) by.put(d.pos(), d);
-        for (Deco d : otherPieces()) by.put(d.pos(), d);
-        return by.values();
+        for (Deco d : synced()) if (!d.piece()) by.put(d.pos(), d);
+        for (Deco d : os) by.put(d.pos(), d);
+        allDecos = java.util.List.copyOf(by.values());
+        decosFor = now;
+        return allDecos;
     }
 
     /** @return the decoration's block box at its anchor, or null while its blueprint loads */
     static int[] box(Deco d) {
         if (d.piece()) {
-            PieceCatalog.Placed p = turns(d.rot()) < 0 ? null : PieceCatalog.synced(d.pack(), d.path(), d.pos(), turns(d.rot()));
+            PieceCatalog.Placed p = placed(d);
             return p == null ? null : new int[]{p.box()[0], p.y0(), p.box()[1], p.box()[2], p.y0() + p.h() - 1, p.box()[3]};
         }
         int[] r = Blueprints.bounds(d.pack(), d.path(), RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)]);

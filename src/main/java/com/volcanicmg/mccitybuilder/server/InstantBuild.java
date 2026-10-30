@@ -146,6 +146,9 @@ public final class InstantBuild {
     /** Prunes per-player state on logout. */
     public static void init() {
         NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, e -> DecoSync.flush());
+        NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.server.ServerStoppedEvent.class, e -> DecoSync.clear());
+        // Another dimension: its colonies are other ones; the planner asks again when it opens there.
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> DecoSync.forget(e.getEntity().getUUID()));
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
             // A paste that left Structurize's queue without finishing frees its positions and chunks now, not in BUSY_MS.
             Runnable gone = pastes.remove(e.getEntity().getUUID());
