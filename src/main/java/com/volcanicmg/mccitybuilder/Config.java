@@ -18,7 +18,8 @@ public final class Config {
     public static final ModConfigSpec.BooleanValue SHOW_CITIZENS;
     public static final ModConfigSpec.BooleanValue SHOW_STAFFING;
     public static final ModConfigSpec SERVER_SPEC;
-    public static final ModConfigSpec.BooleanValue SURVIVAL_REMOTE_INVENTORIES;
+    public static final ModConfigSpec.BooleanValue PLANNER_REMOTE_INVENTORIES;
+    public static final ModConfigSpec.BooleanValue STRICT_INVENTORY_REACH;
 
     static {
         ModConfigSpec.Builder c = new ModConfigSpec.Builder();
@@ -39,15 +40,17 @@ public final class Config {
         SHOW_STAFFING = c.comment("Planner overlay: show 'assigned/slots' over huts and outline under-staffed ones.").define("showStaffing", true);
         CLIENT_SPEC = c.build();
         ModConfigSpec.Builder s = new ModConfigSpec.Builder();
-        SURVIVAL_REMOTE_INVENTORIES = s.comment("Survival players may open huts' and citizens' windows (and so their inventories) from the planner, however far away. Off: only in person, as usual; creative always may.")
-                .define("survivalRemoteInventories", false);
+        PLANNER_REMOTE_INVENTORIES = s.comment("Survival players may open huts' and citizens' windows (and so their inventories) from City Builder's planner, however far away. Off: the planner's Open, O key, queue rows and citizen markers don't open them in survival (creative always may). Only City Builder's own UI: MineColonies' windows are untouched (see strictInventoryReach).")
+                .define("plannerRemoteInventories", false);
+        STRICT_INVENTORY_REACH = s.comment("Closes every citizen, hut, rack and grave inventory a survival player opens from beyond reach, server-wide: also MineColonies' own remote windows (a citizen's inventory from the town hall list, a warehouse rack). Off: MineColonies' remote windows work as usual.")
+                .define("strictInventoryReach", false);
         SERVER_SPEC = s.build();
     }
 
-    /** @return the server's {@link #SURVIVAL_REMOTE_INVENTORIES}, false when it isn't known (a server without City Builder) */
-    public static boolean survivalRemoteInventories() {
+    /** @return the server's {@link #PLANNER_REMOTE_INVENTORIES}, false when it isn't known (a server without City Builder) */
+    public static boolean plannerRemoteInventories() {
         try {
-            return SURVIVAL_REMOTE_INVENTORIES.get();
+            return PLANNER_REMOTE_INVENTORIES.get();
         } catch (IllegalStateException e) {
             return false;
         }

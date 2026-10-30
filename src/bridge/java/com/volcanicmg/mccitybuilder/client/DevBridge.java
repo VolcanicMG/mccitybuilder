@@ -459,7 +459,14 @@ public final class DevBridge {
                     if (a[0].equals("hut")) {
                         var b = c.getClientBuildingManager().getBuilding(new BlockPos(Integer.parseInt(a[1]), Integer.parseInt(a[2]), Integer.parseInt(a[3])));
                         if (b == null) return "no building";
-                        new com.minecolonies.core.network.messages.server.colony.OpenInventoryMessage(b).sendToServer();
+                        var msg = new com.minecolonies.core.network.messages.server.colony.OpenInventoryMessage(b);
+                        // "hut x y z rx ry rz": the same message aimed at another block (a rack), as a modified client could send it.
+                        if (a.length > 6) {
+                            var f = msg.getClass().getDeclaredField("tePos");
+                            f.setAccessible(true);
+                            f.set(msg, new BlockPos(Integer.parseInt(a[4]), Integer.parseInt(a[5]), Integer.parseInt(a[6])));
+                        }
+                        msg.sendToServer();
                     } else {
                         var cit = c.getCitizen(Integer.parseInt(a[1]));
                         if (cit == null) return "no citizen";
