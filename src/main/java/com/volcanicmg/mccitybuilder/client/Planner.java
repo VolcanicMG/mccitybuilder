@@ -964,6 +964,13 @@ public final class Planner {
         return true;
     }
 
+    /** Creative remove through the server part (building retired, contents to the player, site cleared). @return false without it */
+    static boolean creativeRemove(IBuildingView b) {
+        if (!serverInstant()) return false;
+        PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.REMOVE, b.getPosition(), b.getBuildingLevel(), "", "", RotationMirror.NONE));
+        return true;
+    }
+
     static boolean creativeRepair(IBuildingView b) {
         if (!serverInstant() || b.getBuildingLevel() < 1) return false;
         PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.REPAIR, b.getPosition(), b.getBuildingLevel(), "", "", RotationMirror.NONE));

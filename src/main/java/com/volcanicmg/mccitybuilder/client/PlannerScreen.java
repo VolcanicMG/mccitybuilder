@@ -1636,33 +1636,40 @@ final class PlannerScreen extends Screen {
         // Bottom, right of the palette (which can run tall).
         // Creative with the server part adds an instant Clean (placeholders) button; it pastes over pending work orders too.
         boolean instant = Planner.creative() && Planner.serverInstant(), open = !Planner.remoteOpenOff();
-        int n = instant ? 5 : open ? 3 : 2, w = instant ? PALETTE_W + 88 : PALETTE_W, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
+        int n = instant ? 6 : open ? 4 : 3, w = instant ? PALETTE_W + 136 : PALETTE_W + 44, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         g.drawString(font, font.plainSubstrByWidth(name(b) + "  " + levelText(b), w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
         String info = Component.translatable("mccitybuilder.workers", b.getAllAssignedCitizens().size()).getString()
                 + (b.hasWorkOrder() ? "  " + Component.translatable("mccitybuilder.has_work_order").getString() : "");
         g.drawString(font, font.plainSubstrByWidth(info, w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
-        String[] keys = {"upgrade", "repair", "open", "clean", "move"};
+        String[] keys = {"upgrade", "repair", "open", "clean", "move", "remove"};
         // Open uses the client-side building view, so it works however buried or far the hut block is.
         Runnable[] run = {() -> upgrade(b), () -> repair(b), () -> b.openGui(false), () -> {
             if (Planner.creativeClean(b)) toast(Component.translatable("mccitybuilder.clean_sent"));
         }, () -> {
             if (Planner.startMove(b)) toast(Component.translatable("mccitybuilder.move_started"));
-        }};
+        }, () -> remove(b)};
         // Why a button is off, or null when it is on.
         boolean pending = b.hasWorkOrder() && !instant;
         boolean townHall = b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall.View, family = b.getParent() != null && !b.getParent().equals(BlockPos.ZERO);
         String[] why = {b.isBuildingMaxLevel() ? "mccitybuilder.upgrade.max" : pending ? "mccitybuilder.upgrade.pending" : null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : null,
-                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : townHall ? "mccitybuilder.move.townhall" : family ? "mccitybuilder.move.family" : null};
-        // Survival without remote windows: no Open button at all (the row closes up).
-        if (!open) {
-            keys = new String[]{keys[0], keys[1], keys[3], keys[4]};
-            run = new Runnable[]{run[0], run[1], run[3], run[4]};
-            why = new String[]{why[0], why[1], why[3], why[4]};
+                b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : townHall ? "mccitybuilder.move.townhall" : family ? "mccitybuilder.move.family" : null,
+                removeOff(b)};
+        // Survival: no Clean / Move (instant only), and no Open without remote windows (the row closes up).
+        int[] keep = instant ? new int[]{0, 1, 2, 3, 4, 5} : open ? new int[]{0, 1, 2, 5} : new int[]{0, 1, 5};
+        String[] k2 = new String[keep.length], w2 = new String[keep.length];
+        Runnable[] r2 = new Runnable[keep.length];
+        for (int i = 0; i < keep.length; i++) {
+            k2[i] = keys[keep[i]];
+            r2[i] = run[keep[i]];
+            w2[i] = why[keep[i]];
         }
+        keys = k2;
+        run = r2;
+        why = w2;
         buttonRow(g, x, y, w, n, keys, run, why, mx, my);
     }
 
@@ -1707,7 +1714,11 @@ final class PlannerScreen extends Screen {
             int bx = x + PAD + i * (bw + 2), by = y + PAD + 24;
             boolean off = why[i] != null, over = mx >= bx && mx < bx + bw && my >= by && my < by + 20;
             VanillaUi.button(g, bx, by, bw, 20, false, off, over);
-            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder." + keys[i]).getString(), bx, by, bw, 20, off ? VanillaUi.INK_DISABLED : VanillaUi.INK);
+            // Remove waiting for its second click: red "Sure?" and the time left draining along the bottom, like Clear.
+            float arm = !off && keys[i].equals("remove") ? removeArm() : 0;
+            VanillaUi.buttonLabel(g, font, Component.translatable(arm > 0 ? "mccitybuilder.line.clear_sure" : "mccitybuilder." + keys[i]).getString(), bx, by, bw, 20,
+                    off ? VanillaUi.INK_DISABLED : arm > 0 ? 0xFFFF5555 : VanillaUi.INK);
+            if (arm > 0) g.fill(bx + 2, by + 16, bx + 2 + Math.round((bw - 4) * arm), by + 18, 0xFFFF5555);
             int fi = i;
             hits.add(new Hit(bx, by, bw, 20, () -> {
                 if (off) return;
@@ -1730,6 +1741,46 @@ final class PlannerScreen extends Screen {
         boolean pasted = Planner.creative() && Planner.creativeUpgrade(b);
         if (!pasted) Planner.requestBuild(b, BuildRequestMessage.Mode.BUILD);
         toast(Component.translatable(pasted ? "mccitybuilder.upgraded_creative" : "mccitybuilder.requested"));
+    }
+
+    // Remove's confirm: armed until this time, for this building.
+    private static long removeArmed;
+    private static BlockPos removeArmedFor;
+
+    /** @return how much of Remove's confirm window is left (1 just armed, 0 not armed) */
+    private static float removeArm() {
+        long left = removeArmed - System.currentTimeMillis();
+        return left <= 0 || Planner.selected == null || !Planner.selected.getPosition().equals(removeArmedFor) ? 0 : left / 3000f;
+    }
+
+    /** @return why Remove is off for this building (a lang key), or null */
+    private static String removeOff(IBuildingView b) {
+        if (b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall.View) return "mccitybuilder.remove.townhall";
+        boolean parent = Planner.colony() != null && Planner.colony().getClientBuildingManager().getBuildings().values().stream().anyMatch(o -> b.getID().equals(o.getParent()));
+        if (b.getParent() != null && !b.getParent().equals(BlockPos.ZERO) || parent) return "mccitybuilder.remove.family";
+        if (Planner.creative()) return Planner.serverInstant() ? null : "mccitybuilder.remove.no_server";
+        return b.hasWorkOrder() ? "mccitybuilder.remove.ordered" : null;
+    }
+
+    /**
+     * Remove (button or Delete): the first press arms it for 3 s, the second removes. Creative: City Builder's
+     * instant remove (contents to the player, site cleared); survival: MineColonies' own deconstruct order for a builder.
+     */
+    private void remove(IBuildingView b) {
+        if (removeOff(b) != null) return;
+        if (removeArm() <= 0) {
+            removeArmed = System.currentTimeMillis() + 3000;
+            removeArmedFor = b.getPosition();
+            return;
+        }
+        removeArmed = 0;
+        if (Planner.creative()) {
+            if (Planner.creativeRemove(b)) toast(Component.translatable("mccitybuilder.remove_sent"));
+        } else {
+            Planner.requestBuild(b, BuildRequestMessage.Mode.REMOVE);
+            toast(Component.translatable("mccitybuilder.requested"));
+        }
+        Planner.select(null);
     }
 
     /** Repair: creative with CityBuilder on the server repairs at once; otherwise a builder work order. */
@@ -2230,6 +2281,12 @@ final class PlannerScreen extends Screen {
         IBuildingView b = Planner.selected;
         if (b != null) {
             switch (key) {
+                case GLFW.GLFW_KEY_DELETE -> {
+                    if (removeOff(b) == null) {
+                        click();
+                        remove(b);
+                    }
+                }
                 case GLFW.GLFW_KEY_U -> {
                     if (!b.isBuildingMaxLevel() && (!b.hasWorkOrder() || Planner.creative() && Planner.serverInstant())) {
                         click();

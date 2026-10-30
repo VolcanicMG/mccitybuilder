@@ -73,10 +73,11 @@ public final class InstantBuild {
      * its blueprint; DECO_MOVE = paste a decoration at {@code pos}, copy its containers from {@code from}, delete the
      * old; DECO_REMOVE_ORDER = a survival REMOVE work order for a decoration; DECO_REPAIR = paste a decoration City
      * Builder knows (a record or its live controller) again where it stands, at its turn: like DECO, only differing
-     * blocks are replaced and storage holding items stays (creative).
+     * blocks are replaced and storage holding items stays (creative); REMOVE = retire a building (not the town hall)
+     * and clear its blocks as a move clears its old site, its containers emptied into the player's inventory.
      */
     public static final int PLACE = 0, UPGRADE = 1, REPAIR = 2, DECO = 3, CLEAN = 4, DECO_ORDER = 5, MOVE = 6, DECO_DELETE = 7, DECO_MOVE = 8, DECO_REMOVE_ORDER = 9,
-            DECO_REPAIR = 10;
+            DECO_REPAIR = 10, REMOVE = 11;
     static final long MIN_INTERVAL_MS = 1000;
     static final Map<UUID, Long> lastRequest = new HashMap<>();
 
@@ -489,7 +490,7 @@ public final class InstantBuild {
         if (!batch) lastRequest.put(p.getUUID(), now);
         ServerLevel level = p.serverLevel();
         String hk = p.getUUID() + "|" + now;
-        if (r.mode >= PLACE && r.mode <= DECO_REPAIR) {
+        if (r.mode >= PLACE && r.mode <= REMOVE) {
             hold(level, p, r.mode, hk, r.pos, r.pos);
             if (r.mode == MOVE || r.mode == DECO_MOVE) hold(level, p, r.mode, hk, r.from, r.from);
         }
@@ -501,7 +502,7 @@ public final class InstantBuild {
     /** The rest of {@link #submitChecked}, its chunks held. @return true when the blueprint load started (release() then frees them) */
     private static boolean load(ServerPlayer p, Request r, ServerLevel level, long now) {
         boolean move = r.mode == MOVE || r.mode == DECO_MOVE;
-        if (r.mode < PLACE || r.mode > DECO_REPAIR || !level.isLoaded(r.pos) || move && (!level.isLoaded(r.from) || r.from.equals(r.pos))) {
+        if (r.mode < PLACE || r.mode > REMOVE || !level.isLoaded(r.pos) || move && (!level.isLoaded(r.from) || r.from.equals(r.pos))) {
             reject(p, r, "bad mode or unloaded position");
             return false;
         }
@@ -556,8 +557,13 @@ public final class InstantBuild {
                 reject(p, r, "no building at " + r.pos.toShortString());
                 return false;
             }
+            if (r.mode == REMOVE && (b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall || b.hasParent() || !b.getChildren().isEmpty())) {
+                reject(p, r, "the town hall and parent / child buildings can't be removed: " + r.pos.toShortString());
+                return false;
+            }
             String bp = b.getBlueprintPath() == null ? null : b.getBlueprintPath().endsWith(".blueprint") ? b.getBlueprintPath() : b.getBlueprintPath() + ".blueprint";
-            path = HutCatalog.levelPath(bp, r.level);
+            // A level 0 hut (only its block) is cleared against nothing; level 1 just to have a blueprint to load.
+            path = HutCatalog.levelPath(bp, r.mode == REMOVE ? Math.max(1, r.level) : r.level);
             pack = b.getStructurePack();
             if (!levelOk(r, b) || path == null || pack == null || !StructurePacks.hasPack(pack)) {
                 reject(p, r, "bad level step " + b.getBuildingLevel() + " -> " + r.level + " or no blueprint path");
@@ -627,9 +633,10 @@ public final class InstantBuild {
         if (st != null) st[0]++;
     }
 
-    /** UPGRADE: current + 1 within the max; REPAIR: the current level, built. */
+    /** UPGRADE: current + 1 within the max; REPAIR: the current level, built; REMOVE: the current level. */
     private static boolean levelOk(Request r, IBuilding b) {
         int cur = b.getBuildingLevel();
+        if (r.mode == REMOVE) return r.level == cur;
         return r.mode == UPGRADE ? r.level == cur + 1 && r.level <= b.getMaxBuildingLevel() : r.level == cur && cur >= 1;
     }
 
@@ -741,6 +748,7 @@ public final class InstantBuild {
             return false;
         }
         if (r.mode == CLEAN) return clean(p, r, level, colony, bp, origin, offset);
+        if (r.mode == REMOVE) return removeHut(p, r, level, colony, pack, path, rot, bp, origin, far);
         if (r.mode == DECO_ORDER || r.mode == DECO_REMOVE_ORDER) {
             // What MineColonies' DecorationBuildRequestMessage does (MANAGE_HUTS, one order per location), after our
             // footprint checks: the builder then gathers the materials and builds it.
@@ -1517,6 +1525,59 @@ public final class InstantBuild {
      * fancy placement would have used; waypoints are registered with the colony like a fancy paste does. Nothing else
      * is touched (storage and huts are never placeholders). @return false (nothing is queued)
      */
+    /**
+     * REMOVE, on the server thread after every check: the building's own containers and its hut block are emptied
+     * into the player's inventory (what doesn't fit is dropped at the player, never voided), its work orders are
+     * cancelled, it is retired the way breaking its hut retires it ({@code destroy}: citizens unassigned), its hut block
+     * goes (no item: MineColonies drops none for a creative break), then the site is cleared as a move clears its old
+     * one (all levels merged, back to the snapshot when there is one, storage with contents and other buildings kept).
+     *
+     * @return false (nothing is pasted; the caller releases the busy marks)
+     */
+    private static boolean removeHut(ServerPlayer p, Request r, ServerLevel level, IColony colony, String pack, String path, RotationMirror rot, Blueprint bp,
+                                     BlockPos origin, BlockPos far) {
+        IBuilding b = colony.getServerBuildingManager().getBuilding(r.pos);
+        if (b == null || b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall) {
+            reject(p, r, "no building to remove at " + r.pos.toShortString());
+            return false;
+        }
+        java.util.Set<BlockPos> own = new java.util.LinkedHashSet<>(b.getContainers());
+        own.add(r.pos);
+        int stacks = 0, dropped = 0;
+        for (BlockPos w : own) {
+            IItemHandler from = handlerAt(level, w);
+            if (from == null) continue;
+            for (int i = 0; i < from.getSlots(); i++) {
+                ItemStack st = from.extractItem(i, Integer.MAX_VALUE, false);
+                if (st.isEmpty()) continue;
+                stacks++;
+                if (!p.getInventory().add(st)) {
+                    dropped++;
+                    p.drop(st, false);
+                }
+            }
+        }
+        for (var wo : new ArrayList<>(colony.getWorkManager().getWorkOrders().values()))
+            if (wo.getLocation().equals(r.pos)) colony.getWorkManager().removeWorkOrder(wo.getID());
+        b.destroy();
+        if (level.getBlockState(r.pos).getBlock() instanceof AbstractBlockHut<?>) level.removeBlock(r.pos, false);
+        int removed = 0;
+        if (r.level >= 1) {
+            Blueprint all = levels(level, pack, path, r.level, rot, bp);
+            BlockPos o = origin, f = far;
+            if (all != bp) {
+                o = r.pos.subtract(all.getPrimaryBlockOffset());
+                f = o.offset(all.getSizeX() - 1, all.getSizeY() - 1, all.getSizeZ() - 1);
+            }
+            removed = restoreOrDelete(p, r, level, colony, all, o, f, Snapshots.hutKey(level, colony.getID(), r.pos), "", r.pos, false);
+        }
+        done(p);
+        p.displayClientMessage(Component.translatable("mccitybuilder.removed", stacks, dropped, Math.max(0, removed)), false);
+        // A claim refusing part of the clean-up: the building is gone, part of its site stays.
+        if (removed < 0) p.displayClientMessage(Component.translatable("mccitybuilder.moved_kept"), false);
+        return false;
+    }
+
     private static boolean clean(ServerPlayer p, Request r, ServerLevel level, IColony colony, Blueprint bp, BlockPos origin, BlockPos offset) {
         short[][][] st = bp.getStructure();
         BlockState[] palette = bp.getPalette();
