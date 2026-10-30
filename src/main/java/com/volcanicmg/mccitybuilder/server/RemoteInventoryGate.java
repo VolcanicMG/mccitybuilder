@@ -29,8 +29,9 @@ public final class RemoteInventoryGate {
         NeoForge.EVENT_BUS.addListener(PlayerContainerEvent.Open.class, e -> {
             if (e.getEntity() instanceof ServerPlayer p && tooFar(p, e.getContainer())) {
                 p.closeContainer();
+                // In chat: the planner hides the action bar.
                 p.displayClientMessage(Component.translatableWithFallback("mccitybuilder.remote_inventory.closed",
-                        "This server keeps hut and citizen inventories to in person in survival: walk up to them"), true);
+                        "This server keeps hut and citizen inventories to in person in survival: walk up to them"), false);
             }
         });
     }
