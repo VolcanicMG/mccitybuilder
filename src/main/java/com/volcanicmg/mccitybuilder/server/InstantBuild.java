@@ -178,7 +178,8 @@ public final class InstantBuild {
      * {@link #unhold}; only near a colony the player may change this way (no loading anywhere else).
      */
     private static void hold(ServerLevel level, ServerPlayer p, int mode, String hk, BlockPos a, BlockPos b) {
-        int reach = (com.minecolonies.api.IMinecoloniesAPI.getInstance().getConfig().getServer().maxColonySize.get() + 1) * 16;
+        // ponytail: twice the claim size around the centre (buildings claim beyond it); the colony's real claim map needs the chunk loaded.
+        int reach = 2 * (com.minecolonies.api.IMinecoloniesAPI.getInstance().getConfig().getServer().maxColonySize.get() + 1) * 16;
         boolean near = false;
         for (IColony c : IColonyManager.getInstance().getColonies(level))
             if (Math.abs(c.getCenter().getX() - a.getX()) <= reach && Math.abs(c.getCenter().getZ() - a.getZ()) <= reach && allowed(c, p, mode)) near = true;
