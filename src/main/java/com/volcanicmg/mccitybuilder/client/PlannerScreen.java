@@ -214,7 +214,15 @@ final class PlannerScreen extends Screen {
         if (overUi) return;
         int[] mk = markerAt(mouseX, mouseY);
         if (mk != null) {
-            CitizenCard.draw(g, font, OverlayView.markers.get(mk[0]), mouseX, mouseY, width, height, MAX_JOB_ICONS - iconsUsed);
+            OverlayView.Marker m = OverlayView.markers.get(mk[0]);
+            try {
+                CitizenCard.draw(g, font, m, mouseX, mouseY, width, height, MAX_JOB_ICONS - iconsUsed);
+            } catch (RuntimeException e) {
+                // A MineColonies change must not close the planner: the name alone, logged once.
+                if (!cardFailed) com.volcanicmg.mccitybuilder.CityBuilder.LOGGER.warn("CityBuilder: citizen card failed", e);
+                cardFailed = true;
+                if (m.citizen() != null) g.renderTooltip(font, Component.literal(m.citizen().getName()), mouseX, mouseY);
+            }
             return;
         }
         if (Planner.hovered != null)
@@ -349,6 +357,8 @@ final class PlannerScreen extends Screen {
             vc.addVertex(m, q[k * 2], q[k * 2 + 1], 0).setColor(argb);
         }
     }
+
+    private static boolean cardFailed;
 
     // Item icons drawn per frame at most (each is a model render); armour badges count too.
     private static final int MAX_JOB_ICONS = 96;

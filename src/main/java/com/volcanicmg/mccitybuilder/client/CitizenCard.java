@@ -219,7 +219,7 @@ final class CitizenCard {
         if (ct.more() > 0) probLines.add(Component.translatable("mccitybuilder.citizen.more", ct.more()).getVisualOrderText());
         List<FormattedCharSequence> foot = new ArrayList<>();
         for (Component f : ct.footer()) foot.addAll(font.split(f, inner - (ct.wear().isEmpty() ? 0 : 0)));
-        int chipRows = chipRows(font, ct.factors(), inner), skillRows = (ct.skills().size() + 1) / 2;
+        int chipRows = chipRows(font, ct.factors(), inner - 12), skillRows = (ct.skills().size() + 1) / 2;
         int h = 20 + (probLines.isEmpty() ? 0 : probLines.size() * 10 + 6) + (ct.status() == null ? 0 : 14) + ct.stats().size() * ROW + chipRows * 11 + skillRows * 10 + 2
                 + (ct.wear().isEmpty() ? 0 : 18) + foot.size() * 10;
         int x = mx + 12, y = my - 12;

@@ -2,6 +2,10 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Citizen hover card: name, job and workplace; why they can't work (MineColonies' own requests, unemployed,
+  homeless, sick, hungry, unhappy); status; health, food and happiness bars with happiness factors; the job's
+  skills (Shift: every skill and factor). In survival without remote inventories, the hut Open button is hidden
+  and clicking a citizen does nothing.
 - Survival: Upgrade opens MineColonies' own build window for the hut (materials, builder pick). Server config
   `plannerRemoteInventories` (default false): the aerial planner doesn't open hut / citizen windows or inventories in
   survival. Server config `strictInventoryReach` (default false): closes every hut, rack, grave or citizen inventory
