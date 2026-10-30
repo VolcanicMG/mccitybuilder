@@ -103,7 +103,7 @@ public final class InstantBuild {
             this(mode, pos, level, pack, path, rot, id, from, fromRot, null);
         }
 
-        public static final Type<Request> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "instant_build"));
+        public static final Type<Request> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "instant_build_" + PROTOCOL));
         public static final StreamCodec<RegistryFriendlyByteBuf, Request> CODEC = StreamCodec.of((buf, r) -> {
             buf.writeByte(r.mode);
             buf.writeBlockPos(r.pos);
@@ -127,10 +127,16 @@ public final class InstantBuild {
     private InstantBuild() {
     }
 
-    /** Registers the payload as optional, so clients and servers without the mod still connect. */
+    /**
+     * The payload protocol, part of every payload's id: a client and server of different protocols just don't share
+     * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
+     * version check, which disconnects. 7: record pages carry road / wall pieces.
+     */
+    public static final String PROTOCOL = "7";
+
+    /** Registers the payload as optional, so clients and servers without the mod (or another protocol) still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
-        // Protocol 7: record pages carry road / wall pieces; mismatched builds refuse the channel cleanly.
-        e.registrar("7").optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
+        e.registrar(PROTOCOL).optional().playToServer(Request.TYPE, Request.CODEC, InstantBuild::handle)
                 .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch)
                 .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r))
                 .playToServer(DecoSync.Query.TYPE, DecoSync.Query.CODEC, DecoSync::handleQuery)
@@ -285,7 +291,7 @@ public final class InstantBuild {
             return mode == DECO_ORDER || mode == DECO_REMOVE_ORDER;
         }
 
-        public static final Type<PieceBatch> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "piece_batch"));
+        public static final Type<PieceBatch> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "piece_batch_" + PROTOCOL));
         public static final StreamCodec<RegistryFriendlyByteBuf, PieceBatch> CODEC = StreamCodec.of((buf, b) -> {
             buf.writeVarInt(b.id);
             buf.writeUtf(b.pack, 256);
@@ -328,7 +334,7 @@ public final class InstantBuild {
      * a planned segment until all its batches are accepted.
      */
     public record BatchResult(int id, boolean accepted, String reason) implements CustomPacketPayload {
-        public static final Type<BatchResult> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "batch_result"));
+        public static final Type<BatchResult> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "batch_result_" + PROTOCOL));
         public static final StreamCodec<RegistryFriendlyByteBuf, BatchResult> CODEC = StreamCodec.of((buf, r) -> {
             buf.writeVarInt(r.id);
             buf.writeBoolean(r.accepted);

@@ -41,7 +41,7 @@ public final class DecoSync {
 
     /** Client → server: send me this colony's decoration records (and their changes from now on). */
     public record Query(int colony) implements CustomPacketPayload {
-        public static final Type<Query> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "deco_query"));
+        public static final Type<Query> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "deco_query_" + InstantBuild.PROTOCOL));
         public static final StreamCodec<RegistryFriendlyByteBuf, Query> CODEC = StreamCodec.of((buf, q) -> buf.writeVarInt(q.colony), buf -> new Query(buf.readVarInt()));
 
         @Override
@@ -56,7 +56,7 @@ public final class DecoSync {
      * as the planner sends it.
      */
     public record Decos(int colony, int page, List<PasteRules.Rec> recs) implements CustomPacketPayload {
-        public static final Type<Decos> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "decos"));
+        public static final Type<Decos> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "decos_" + InstantBuild.PROTOCOL));
         public static final StreamCodec<RegistryFriendlyByteBuf, Decos> CODEC = StreamCodec.of((buf, d) -> {
             buf.writeVarInt(d.colony);
             buf.writeVarInt(d.page);
