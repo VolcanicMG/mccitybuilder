@@ -300,6 +300,16 @@ public final class DevBridge {
                         com.ldtteam.structurize.api.RotationMirror.values()[Integer.parseInt(a[5])]).sendToServer();
                 return "ok";
             });
+            // x y z: the planner's survival Build request for the building there (MineColonies' BuildRequestMessage).
+            case "/buildreq" -> client(() -> {
+                var b = Planner.colony() == null ? null : Planner.colony().getClientBuildingManager().getBuilding(new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2])));
+                if (b == null) return "no building";
+                Planner.requestBuild(b, com.minecolonies.core.network.messages.server.colony.building.BuildRequestMessage.Mode.BUILD);
+                return "ok";
+            });
+            // mode pack (spaces as _) path x y z rot: a selected decoration's / piece's action as the selection panel sends it.
+            case "/senddeco" -> client(() -> Planner.sendDeco(Integer.parseInt(a[0]), new Planner.Deco(a[1].replace('_', ' '), a[2],
+                    new BlockPos(Integer.parseInt(a[3]), Integer.parseInt(a[4]), Integer.parseInt(a[5])), Integer.parseInt(a[6]))) ? "sent" : "no server part");
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");
