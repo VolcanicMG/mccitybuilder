@@ -477,6 +477,23 @@ public final class DevBridge {
                 Thread.sleep(1500);
                 yield sent + "; screen now " + client(() -> Minecraft.getInstance().screen == null ? "none" : Minecraft.getInstance().screen.getClass().getSimpleName());
             }
+            // x y z: the server opens the rack there for this (singleplayer) player as MineColonies' rack block does; then the screen.
+            case "/openrack" -> {
+                String r = server(() -> {
+                    var sp = Minecraft.getInstance().getSingleplayerServer();
+                    var p = sp.getPlayerList().getPlayers().get(0);
+                    BlockPos at = new BlockPos(Integer.parseInt(a[0]), Integer.parseInt(a[1]), Integer.parseInt(a[2]));
+                    if (!(p.level().getBlockEntity(at) instanceof com.minecolonies.api.tileentities.AbstractTileEntityRack rack)) return "no rack";
+                    var other = rack.getOtherChest();
+                    p.openMenu(rack, buf -> {
+                        buf.writeBlockPos(at);
+                        buf.writeBlockPos(other == null ? BlockPos.ZERO : other.getBlockPos());
+                    });
+                    return "opened";
+                });
+                Thread.sleep(1200);
+                yield r + "; screen now " + client(() -> Minecraft.getInstance().screen == null ? "none" : Minecraft.getInstance().screen.getClass().getSimpleName());
+            }
             case "/states" -> client(() -> states(a[0].replace('_', ' '), a[1], Integer.parseInt(a[2])));
             case "/cropcheck" -> cropCheck(a[0].replace('_', ' '), a[1]);
             default -> throw new IllegalArgumentException("paths: /state /cmd /planner /camera /mouse /key /type /project /pick /pack /window /screenshot /blocks /cropcheck");
