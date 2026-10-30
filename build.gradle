@@ -34,6 +34,8 @@ neoForge {
         server {
             server()
             programArgument '--nogui'
+            // A dedicated test server's folder (mods, config, world): -PserverDir=<dir>
+            if (findProperty('serverDir')) gameDirectory = file(findProperty('serverDir'))
         }
         // A copy of a pack profile (mods, config, world): -PbridgeDir=<game dir> -PbridgeUser=<name> -PbridgeUuid=<uuid>
         bridge {
@@ -43,6 +45,8 @@ neoForge {
             systemProperty 'mccitybuilder.bridge', findProperty('bridgePort') ?: '25599'
             if (findProperty('bridgeUser')) programArguments.addAll '--username', findProperty('bridgeUser'), '--uuid', findProperty('bridgeUuid')
             if (findProperty('bridgeWorld')) programArguments.addAll '--quickPlaySingleplayer', findProperty('bridgeWorld')
+            // Join a server instead (multiplayer tests): -PbridgeServer=localhost:25565
+            if (findProperty('bridgeServer')) programArguments.addAll '--quickPlayMultiplayer', findProperty('bridgeServer')
         }
     }
 

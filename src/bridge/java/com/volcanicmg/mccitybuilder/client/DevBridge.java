@@ -476,7 +476,6 @@ public final class DevBridge {
 
     private static String blocks(String[] a) throws Exception {
         var server = Minecraft.getInstance().getSingleplayerServer();
-        if (server == null) return "no integrated server";
         int[] v = new int[6];
         for (int i = 0; i < 6; i++) v[i] = Integer.parseInt(a[i]);
         boolean states = a.length > 6;
@@ -484,8 +483,11 @@ public final class DevBridge {
         BlockPos hi = new BlockPos(Math.max(v[0], v[3]), Math.max(v[1], v[4]), Math.max(v[2], v[5]));
         long cells = (long) (hi.getX() - lo.getX() + 1) * (hi.getY() - lo.getY() + 1) * (hi.getZ() - lo.getZ() + 1);
         if (cells > 200_000) return "box too big: " + cells;
-        return server.submit(() -> {
-            var level = Minecraft.getInstance().player == null ? server.overworld() : server.getLevel(Minecraft.getInstance().player.level().dimension());
+        // On a server: the blocks this client has loaded (unloaded chunks read as air).
+        java.util.concurrent.Executor ex = server != null ? server : Minecraft.getInstance();
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            net.minecraft.world.level.Level level = server == null ? Minecraft.getInstance().level
+                    : Minecraft.getInstance().player == null ? server.overworld() : server.getLevel(Minecraft.getInstance().player.level().dimension());
             Map<String, Character> legend = new LinkedHashMap<>();
             String sym = "#abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@$%&*+=?";
             var layers = new StringBuilder();
@@ -507,6 +509,6 @@ public final class DevBridge {
             var sb = new StringBuilder("origin=").append(lo.toShortString()).append('\n');
             legend.forEach((k, c) -> sb.append(c).append(' ').append(k).append('\n'));
             return sb.append(layers).toString();
-        }).get(20, TimeUnit.SECONDS);
+        }, ex).get(20, TimeUnit.SECONDS);
     }
 }
