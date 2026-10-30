@@ -1152,7 +1152,6 @@ public final class InstantBuild {
         return solid == 0 || same * 2 >= solid;
     }
 
-    /** @return the block's item handler (any side), or null */
     /**
      * Puts a stack in the player's inventory and the rest on the ground at them. Not {@code Inventory.add}: for a
      * creative player that voids what doesn't fit.
@@ -1165,6 +1164,7 @@ public final class InstantBuild {
         return !fits;
     }
 
+    /** @return the block's item handler (any side), or null */
     private static IItemHandler handlerAt(ServerLevel level, BlockPos pos) {
         BlockState st = level.getBlockState(pos);
         BlockEntity be = level.getBlockEntity(pos);

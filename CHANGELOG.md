@@ -2,6 +2,11 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Huts: Remove (not the town hall or parent / child buildings), confirmed with a second click. Creative removes
+  it at once (its containers' items to you, overflow at your feet; the site cleared and its ground restored; needs
+  MineColonies' break-huts permission); survival makes MineColonies' own deconstruct order for a builder.
+- Items handed to a full creative inventory now drop at your feet instead of vanishing (move, delete, remove).
+- Plan Clear keeps built segments; a walking citizen's card stays up while its marker stays near the cursor.
 - Citizen hover card: name, job and workplace; why they can't work (MineColonies' own requests, unemployed,
   homeless, sick, hungry, unhappy); status; health, food and happiness bars with happiness factors; the job's
   skills (Shift: every skill and factor). In survival without remote inventories, the hut Open button is hidden
