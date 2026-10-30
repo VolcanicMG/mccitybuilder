@@ -2,6 +2,12 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Survival: Upgrade opens MineColonies' own build window for the hut (materials, builder pick). Server config
+  `plannerRemoteInventories` (default false): the aerial planner doesn't open hut / citizen windows or inventories in
+  survival. Server config `strictInventoryReach` (default false): closes every hut, rack, grave or citizen inventory
+  opened from beyond reach in survival, MineColonies' own remote windows included (e.g. the town hall citizen list).
+- Citizen markers find their live entity by citizen id (a reloaded entity's new id no longer hides its dot); a hint
+  says when citizens there are beyond your tracking range.
 - Multiplayer performance: record pages are built once per change (at most every 2 s per colony) and shared by
   every watcher; clash checks only compare nearby pieces; others' outlines draw from one cached GPU buffer.
 - Records keep who placed them (protocol 8): only other players' pieces draw grey, your own untracked ones are
