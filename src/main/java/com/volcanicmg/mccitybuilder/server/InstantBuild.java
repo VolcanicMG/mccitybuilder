@@ -445,7 +445,9 @@ public final class InstantBuild {
     /** @return the colony's permission check for this request (PLACE needs PLACE_HUTS as well, like MineColonies) */
     static boolean allowed(IColony colony, ServerPlayer p, int mode) {
         boolean places = mode == PLACE || mode == DECO || mode == DECO_REPAIR || mode == MOVE || mode == DECO_MOVE;
-        return colony.getPermissions().hasPermission(p, Action.MANAGE_HUTS) && (!places || colony.getPermissions().hasPermission(p, Action.PLACE_HUTS));
+        // Removing a hut is what breaking it is: MineColonies' BREAK_HUTS too.
+        return colony.getPermissions().hasPermission(p, Action.MANAGE_HUTS) && (!places || colony.getPermissions().hasPermission(p, Action.PLACE_HUTS))
+                && (mode != REMOVE || colony.getPermissions().hasPermission(p, Action.BREAK_HUTS));
     }
 
     /** @return true for the survival-allowed modes: builder work orders */
@@ -1008,7 +1010,7 @@ public final class InstantBuild {
             }
             if (left.isEmpty()) continue;
             toPlayer++;
-            if (!p.getInventory().add(left)) p.drop(left, false);
+            give(p, left);
         }
         if (r.mode == MOVE) {
             // Citizens: each assigning module of the old building hands its citizens to the same module of the new one.
@@ -1151,6 +1153,18 @@ public final class InstantBuild {
     }
 
     /** @return the block's item handler (any side), or null */
+    /**
+     * Puts a stack in the player's inventory and the rest on the ground at them. Not {@code Inventory.add}: for a
+     * creative player that voids what doesn't fit.
+     *
+     * @return true when some of it was dropped
+     */
+    private static boolean give(ServerPlayer p, ItemStack st) {
+        boolean fits = p.getInventory().getSlotWithRemainingSpace(st) >= 0 || p.getInventory().getFreeSlot() >= 0;
+        p.getInventory().placeItemBackInInventory(st);
+        return !fits;
+    }
+
     private static IItemHandler handlerAt(ServerLevel level, BlockPos pos) {
         BlockState st = level.getBlockState(pos);
         BlockEntity be = level.getBlockEntity(pos);
@@ -1368,7 +1382,7 @@ public final class InstantBuild {
             if (h == null) continue;
             for (int s = 0; s < h.getSlots(); s++) {
                 ItemStack st2 = h.extractItem(s, Integer.MAX_VALUE, false);
-                if (!st2.isEmpty() && !p.getInventory().add(st2)) p.drop(st2, false);
+                if (!st2.isEmpty()) give(p, st2);
             }
         }
         // Liquids first, without neighbour updates, then every cell bottom up (supports before what stands on them).
@@ -1545,16 +1559,15 @@ public final class InstantBuild {
         own.add(r.pos);
         int stacks = 0, dropped = 0;
         for (BlockPos w : own) {
+            // A registered container in an unloaded chunk keeps its items (never load chunks for this).
+            if (!level.isLoaded(w)) continue;
             IItemHandler from = handlerAt(level, w);
             if (from == null) continue;
             for (int i = 0; i < from.getSlots(); i++) {
                 ItemStack st = from.extractItem(i, Integer.MAX_VALUE, false);
                 if (st.isEmpty()) continue;
                 stacks++;
-                if (!p.getInventory().add(st)) {
-                    dropped++;
-                    p.drop(st, false);
-                }
+                if (give(p, st)) dropped++;
             }
         }
         for (var wo : new ArrayList<>(colony.getWorkManager().getWorkOrders().values()))
