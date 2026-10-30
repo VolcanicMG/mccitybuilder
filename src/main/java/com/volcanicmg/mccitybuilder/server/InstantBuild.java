@@ -172,7 +172,8 @@ public final class InstantBuild {
     private static final Map<UUID, Runnable> pastes = new HashMap<>();
     // Chunks a running request keeps loaded, per "player|stamp" (a dedicated server may have nothing loaded where the
     // planner looks); each request's tickets carry their own id, so releasing one never drops another's.
-    private static final net.minecraft.server.level.TicketType<Long> HOLD = net.minecraft.server.level.TicketType.create("mccitybuilder_paste", Long::compare);
+    // Expires on its own after 5 min (BUSY_MS), so a paste that never finishes never pins its chunks.
+    private static final net.minecraft.server.level.TicketType<Long> HOLD = net.minecraft.server.level.TicketType.create("mccitybuilder_paste", Long::compare, 20 * 300);
     private record Hold(long id, List<net.minecraft.world.level.ChunkPos> chunks) {
     }
 

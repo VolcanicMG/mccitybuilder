@@ -2,6 +2,12 @@
 
 ## 1.0.0-SNAPSHOT
 
+- Multiplayer: built roads / walls sync to colony mates (locked grey outlines; plans over them turn red; Remove by
+  record); a hut Move takes only its own containers; requests hold their chunks loaded while they run (near a
+  colony you may change); a dropped paste's locks free on logout; plans are keyed by the world, not the typed
+  address (old files still read); the protocol is in every payload id (protocol 7), so mismatched builds connect
+  without City Builder's channels instead of being disconnected.
+- A selected or hovered hut draws dashed lines to its workers / residents outside and rings their markers.
 - Move: the old site is cleared against an untouched copy of the blueprint (no building-shaped dirt left).
 - Fill gaps: crop files keep their block entities' own coordinates (some crops failed to load for builders);
   a crop file written wrong by an older build is rewritten the next time it is sent.
