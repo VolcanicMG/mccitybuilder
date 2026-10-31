@@ -22,6 +22,8 @@ import net.minecraft.world.level.ChunkPos;
 final class BuildUp {
     /** A building with no hut view yet keeps its target this long; an order of ours that never shows up is given up after this. */
     private static final long GRACE_MS = 60_000, ANSWER_MS = 45_000;
+    // No request this soon after a target is set or (re)loaded: the view gets to show an order already out (BUILD toggles).
+    private static final long SETTLE_MS = 5_000;
     // Per hut: when its target was set or loaded, the level an order was seen at, and the level / time our request went at.
     private static final Map<BlockPos, Long> since = new HashMap<>(), sentMs = new HashMap<>();
     private static final Map<BlockPos, Integer> orderedAt = new HashMap<>(), sentFor = new HashMap<>();
@@ -104,7 +106,7 @@ final class BuildUp {
         Integer s = sentFor.get(at);
         if (s != null && s == level) return now - sentMs.getOrDefault(at, now) > ANSWER_MS ? "refused" : null;
         // Level 0: the placement's own build request (Planner.expectBuilding) comes first.
-        if (level < 1 || !fresh) return null;
+        if (level < 1 || !fresh || now - since.getOrDefault(at, now) < SETTLE_MS) return null;
         sentFor.put(at, level);
         sentMs.put(at, now);
         new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, BlockPos.ZERO).sendToServer();
