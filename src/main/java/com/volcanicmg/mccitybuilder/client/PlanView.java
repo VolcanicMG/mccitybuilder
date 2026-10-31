@@ -198,6 +198,9 @@ final class PlanView {
         file = null;
         colonyId = -1;
         targets = new HashMap<>();
+        // Blueprints loaded on this connection throw "World mismatch" on the next one.
+        loads.clear();
+        rotated.clear();
     }
 
     private static void save() {
