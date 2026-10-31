@@ -848,8 +848,9 @@ public final class Planner {
         }
         BlueprintPreviewData data = new BlueprintPreviewData(false);
         data.setRenderBlocksNice(true);
-        data.setBlueprint(placingHut.blueprint());
+        // Turn first: setBlueprint applies the turn to the (shared) blueprint once, not NONE then back.
         data.setRotationMirror(rotation);
+        data.setBlueprint(placingHut.blueprint());
         data.setPos(at);
         RenderingCache.queue(PREVIEW_KEY, data);
     }

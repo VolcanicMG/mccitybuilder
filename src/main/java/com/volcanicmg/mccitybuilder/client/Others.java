@@ -47,9 +47,10 @@ final class Others {
     private static int planColony = -1;
     /** Mates' blueprints previewed at once (nearest the camera first); each costs a Structurize render buffer. */
     static final int MAX_PREVIEWS = 24;
-    // Queued previews by what they show ("pack|path|rot|x|y|z") → their slot (key PREVIEW_KEY_mate_slot), and freed slots.
+    // Queued previews by what they show (see previews()) → their slot (key PREVIEW_KEY_mate_slot), and freed slots.
     private static final Map<String, Integer> previews = new HashMap<>();
     private static final java.util.ArrayDeque<Integer> freeSlots = new java.util.ArrayDeque<>();
+    private static final Map<String, BlockPos> previewAt = new HashMap<>();
     private static int nextSlot;
 
     private Others() {
@@ -172,40 +173,52 @@ final class Others {
      * on, the nearest {@link #MAX_PREVIEWS} with a loaded blueprint; one that stays keeps its slot (no rebuild).
      */
     private static void previews() {
+        // A ghost's key is its owner and design (a move only shifts it); a plan entry's includes where it stands.
         record Want(String key, String pack, String path, int rot, BlockPos at) {
         }
         List<Want> all = new ArrayList<>();
         for (var g : ghostsHere())
-            if (g.kind() != PlanShare.LINE) all.add(new Want(null, g.pack(), g.path(), g.rot(), g.pos()));
+            if (g.kind() != PlanShare.LINE) all.add(new Want("g|" + g.owner() + "|" + g.pack() + "|" + g.path() + "|" + g.rot(), g.pack(), g.path(), g.rot(), g.pos()));
         if (PlanView.on || LineView.active())
-            for (var s : plansHere()) for (Plan.Entry e : s.entries()) all.add(new Want(null, e.pack(), e.path(), e.rot(), new BlockPos(e.x(), e.y(), e.z())));
+            for (var s : plansHere())
+                for (Plan.Entry e : s.entries())
+                    all.add(new Want("p|" + e.pack() + "|" + e.path() + "|" + e.rot() + "|" + e.x() + "|" + e.y() + "|" + e.z(), e.pack(), e.path(), e.rot(), new BlockPos(e.x(), e.y(), e.z())));
         var cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
         all.sort(java.util.Comparator.comparingDouble(w -> w.at().distToCenterSqr(cam)));
         Map<String, Want> want = new java.util.LinkedHashMap<>();
-        for (Want w : all) {
+        // Only the nearest few start loads (not every design in every mate's plan).
+        for (Want w : all.subList(0, Math.min(all.size(), 2 * MAX_PREVIEWS))) {
             if (want.size() >= MAX_PREVIEWS) break;
-            if (PlanView.blueprint(w.pack(), w.path(), w.rot()) == null) continue;
-            String k = w.pack() + "|" + w.path() + "|" + w.rot() + "|" + w.at().getX() + "|" + w.at().getY() + "|" + w.at().getZ();
-            want.putIfAbsent(k, w);
+            if (PlanView.blueprint(w.pack(), w.path(), w.rot()) != null) want.putIfAbsent(w.key(), w);
         }
         for (var it = previews.entrySet().iterator(); it.hasNext(); ) {
             var en = it.next();
             if (want.containsKey(en.getKey())) continue;
             RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_mate_" + en.getValue());
             freeSlots.add(en.getValue());
+            previewAt.remove(en.getKey());
             it.remove();
         }
         for (var en : want.entrySet()) {
-            if (previews.containsKey(en.getKey())) continue;
             Want w = en.getValue();
+            Integer had = previews.get(en.getKey());
+            if (had != null) {
+                // Moved: the queued preview follows (no rebuild).
+                BlueprintPreviewData data = RenderingCache.getBlueprintPreviewData(Planner.PREVIEW_KEY + "_mate_" + had);
+                if (data != null && !w.at().equals(previewAt.get(en.getKey()))) data.setPos(w.at());
+                previewAt.put(en.getKey(), w.at());
+                continue;
+            }
             int slot = freeSlots.isEmpty() ? nextSlot++ : freeSlots.poll();
             BlueprintPreviewData data = new BlueprintPreviewData(false);
             data.setRenderBlocksNice(true);
-            data.setBlueprint(PlanView.blueprint(w.pack(), w.path(), w.rot()));
+            // Turn first: setBlueprint applies the turn to the shared blueprint once, not NONE then back.
             data.setRotationMirror(RotationMirror.values()[Math.floorMod(w.rot(), RotationMirror.values().length)]);
+            data.setBlueprint(PlanView.blueprint(w.pack(), w.path(), w.rot()));
             data.setPos(w.at());
             RenderingCache.queue(Planner.PREVIEW_KEY + "_mate_" + slot, data);
             previews.put(en.getKey(), slot);
+            previewAt.put(en.getKey(), w.at());
         }
     }
 
@@ -213,6 +226,7 @@ final class Others {
     private static void hidePreviews() {
         for (int slot : previews.values()) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_mate_" + slot);
         previews.clear();
+        previewAt.clear();
         freeSlots.clear();
         nextSlot = 0;
     }

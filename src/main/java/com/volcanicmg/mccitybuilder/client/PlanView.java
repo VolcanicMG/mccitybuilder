@@ -355,8 +355,9 @@ final class PlanView {
                 }
                 BlueprintPreviewData data = new BlueprintPreviewData(false);
                 data.setRenderBlocksNice(true);
-                data.setBlueprint(bp);
+                // Turn first: setBlueprint applies the turn to the (shared) blueprint once, not NONE then back.
                 data.setRotationMirror(RotationMirror.values()[e.rot()]);
+                data.setBlueprint(bp);
                 data.setPos(new BlockPos(e.x(), e.y(), e.z()));
                 RenderingCache.queue(Planner.PREVIEW_KEY + "_plan_" + i, data);
                 previews = i + 1;
@@ -746,8 +747,9 @@ final class PlanView {
                     if (bp == null) continue;
                     BlueprintPreviewData data = new BlueprintPreviewData(false);
                     data.setRenderBlocksNice(true);
-                    data.setBlueprint(bp);
+                    // Turn first: setBlueprint applies the turn to the (shared) blueprint once, not NONE then back.
                     data.setRotationMirror(PieceCatalog.rotation(p.turns()));
+                    data.setBlueprint(bp);
                     data.setPos(p.anchor());
                     RenderingCache.queue(Planner.PREVIEW_KEY + "_piece_" + linePreviews++, data);
                 }

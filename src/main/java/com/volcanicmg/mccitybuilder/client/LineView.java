@@ -1115,8 +1115,9 @@ final class LineView {
             if (bp == null) continue;
             BlueprintPreviewData data = new BlueprintPreviewData(false);
             data.setRenderBlocksNice(true);
-            data.setBlueprint(bp);
+            // Turn first: setBlueprint applies the turn to the (shared) blueprint once, not NONE then back.
             data.setRotationMirror(PieceCatalog.rotation(p.turns()));
+            data.setBlueprint(bp);
             data.setPos(p.anchor());
             RenderingCache.queue(Planner.PREVIEW_KEY + "_live_" + n++, data);
         }
