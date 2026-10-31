@@ -2,6 +2,10 @@
 
 ## 1.0.0-beta.1
 
+- Survival: pick a hut's level before placing (live and in plan mode). The ghost shows that level; the hut is placed
+  at level 1 as MineColonies requires, then your builder is ordered up one level at a time until it gets there
+  ("Building up to level N" in the hut's panel, x to stop). Cancelling an order, picking up or removing the hut ends
+  it; targets are saved with the plan and resume when the planner opens again.
 - Multiplayer: colony mates see each other's planner (protocol 9). The ghost someone has out (a hut, decoration, a
   move, or the road / wall segment being drawn) shows as an outline in their colour with their name; their plan's
   entries and planned segments show the same way in plan mode, and stay visible after they log off (kept by the

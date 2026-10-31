@@ -242,7 +242,14 @@ public final class Plan {
 
     /** @return entries, lines, joint types and the built segments' pieces (rows {@code P}) */
     public static String write(List<Entry> entries, List<Line> lines, java.util.Map<Long, Integer> joints, java.util.Map<String, List<BuiltPiece>> built) {
+        return write(entries, lines, joints, built, List.of());
+    }
+
+    /** @return all of the above plus survival level targets {x, y, z, level} (rows {@code T}; older builds skip them) */
+    public static String write(List<Entry> entries, List<Line> lines, java.util.Map<Long, Integer> joints, java.util.Map<String, List<BuiltPiece>> built,
+                               List<int[]> targets) {
         StringBuilder sb = new StringBuilder("mccitybuilder-plan\t" + VERSION + "\n");
+        for (int[] t : targets) sb.append("T\t").append(t[0]).append('\t').append(t[1]).append('\t').append(t[2]).append('\t').append(t[3]).append('\n');
         for (var en : new java.util.TreeMap<>(built).entrySet())
             for (BuiltPiece b : en.getValue())
                 sb.append(String.join("\t", "P", "" + b.x0(), "" + b.z0(), "" + b.x1(), "" + b.z1(), b.path(), "" + b.turns(), "" + b.ax(), "" + b.ay(), "" + b.az(),
@@ -259,6 +266,23 @@ public final class Plan {
             sb.append(String.join("\t", e.isHut() ? e.hut() : "-", e.pack(), e.path(), "" + e.level(), "" + e.x(), "" + e.y(), "" + e.z(), "" + e.rot(),
                     "" + e.minX(), "" + e.minY(), "" + e.minZ(), "" + e.maxX(), "" + e.maxY(), "" + e.maxZ())).append('\n');
         return sb.toString();
+    }
+
+    /** @return the survival level targets in {@code text} ({x, y, z, level}, rows {@code T}); damaged rows and levels outside 1..64 are skipped */
+    public static List<int[]> readTargets(String text) {
+        List<int[]> out = new ArrayList<>();
+        if (text == null) return out;
+        for (String row : text.split("\n")) {
+            String[] f = row.split("\t");
+            if (f.length != 5 || !f[0].equals("T")) continue;
+            try {
+                int[] t = {Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3]), Integer.parseInt(f[4].trim())};
+                if (t[3] >= 1 && t[3] <= 64) out.add(t);
+            } catch (NumberFormatException ignored) {
+                // A damaged row: skip it.
+            }
+        }
+        return out;
     }
 
     /** @return the entries in {@code text}; unreadable lines (or a wrong header) are skipped, never thrown */

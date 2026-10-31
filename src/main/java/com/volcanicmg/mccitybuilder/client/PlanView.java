@@ -118,13 +118,19 @@ final class PlanView {
             lines = new ArrayList<>(Plan.readLines(text));
             jointTypes = new java.util.HashMap<>(Plan.readJoints(text));
             builtPieces = new HashMap<>(Plan.readBuilt(text));
+            targets = new HashMap<>();
+            for (int[] t : Plan.readTargets(text)) targets.put(new BlockPos(t[0], t[1], t[2]), t[3]);
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't read plan {}", file, e);
             entries = new ArrayList<>();
             lines = new ArrayList<>();
             jointTypes = new HashMap<>();
             builtPieces = new HashMap<>();
+            targets = new HashMap<>();
         }
+        colonyId = colony.getID();
+        colonyDim = colony.getDimension();
+        BuildUp.loaded();
         PieceCatalog.builtPieces = builtPieces;
         builtVersion++;
         LineView.resetUndo();
@@ -176,6 +182,24 @@ final class PlanView {
         return s.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
+    /** Survival: hut position → the level its builder orders go up to ({@link BuildUp}); saved with the plan. */
+    static Map<BlockPos, Integer> targets = new HashMap<>();
+    /** The colony (and its dimension) the plan and targets were loaded for; -1 until a planner opens (and after logout). */
+    static int colonyId = -1;
+    static net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> colonyDim;
+
+    /** The targets changed: saved with the plan. */
+    static void targetsChanged() {
+        save();
+    }
+
+    /** Logout: nothing of this server's plan stays loaded. */
+    static void unload() {
+        file = null;
+        colonyId = -1;
+        targets = new HashMap<>();
+    }
+
     private static void save() {
         dirty = true;
         Others.planChanged();
@@ -187,7 +211,9 @@ final class PlanView {
             int had = builtPieces.size();
             Plan.pruneBuilt(builtPieces, lines);
             if (builtPieces.size() != had) builtVersion++;
-            Files.writeString(file, Plan.write(entries, lines, jointTypes, builtPieces));
+            List<int[]> ts = new ArrayList<>();
+            targets.forEach((p, lv) -> ts.add(new int[]{p.getX(), p.getY(), p.getZ(), lv}));
+            Files.writeString(file, Plan.write(entries, lines, jointTypes, builtPieces, ts));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't save plan {}", file, e);
         }
@@ -467,11 +493,12 @@ final class PlanView {
                 continue;
             }
             BlockPos at = new BlockPos(e.x(), e.y(), e.z());
-            // Survival places level 1 (the builder builds up); the planned level stays a plan.
+            // Survival places level 1; the builder is then ordered up to the planned level one level at a time (BuildUp).
             String path = HutCatalog.levelPath(e.path(), 1);
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", e.pack(), path == null ? e.path() : path, at,
                     RotationMirror.values()[e.rot()]).sendToServer();
             Planner.expectBuilding(at);
+            if (e.level() > 1) BuildUp.set(at, e.level());
         }
         entries = keep;
         selected = -1;

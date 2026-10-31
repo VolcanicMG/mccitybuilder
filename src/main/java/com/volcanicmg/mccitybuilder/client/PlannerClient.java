@@ -39,6 +39,7 @@ public final class PlannerClient {
             while (TOGGLE.consumeClick()) Planner.guard(Planner::toggle);
             Planner.guard(Planner::tick);
             Planner.guard(Others::tick);
+            Planner.guard(BuildUp::tick);
         });
         NeoForge.EVENT_BUS.addListener(RenderFrameEvent.Pre.class, e -> Planner.guard(() -> Planner.updateCamera(e.getPartialTick().getGameTimeDeltaPartialTick(true))));
         // In planner view the player's hand and HUD are hidden; our screen draws the UI.
@@ -84,6 +85,9 @@ public final class PlannerClient {
             Planner.clearDecos();
             Planner.guard(Others::flush);
             Others.clear();
+            // Level targets belong to that server's plan.
+            PlanView.unload();
+            BuildUp.loaded();
         });
     }
 

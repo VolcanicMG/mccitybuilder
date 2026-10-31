@@ -815,7 +815,7 @@ public final class Planner {
      * includes the ground offset.
      */
     private static void updatePreview() {
-        if (placingHut == null) placingHut = deco != null ? deco : Blueprints.get(PlannerScreen.pack(), placing, placingAlt, creative() ? placingLevel : 1);
+        if (placingHut == null) placingHut = deco != null ? deco : Blueprints.get(PlannerScreen.pack(), placing, placingAlt, placingLevel);
         invalidReason = validate();
         BlockPos at = anchor();
         if (placingHut == null || at == null) {
@@ -889,7 +889,7 @@ public final class Planner {
         }
         // Plan mode: the ghost goes into the plan instead (the plan's own checks show conflicts).
         if (PlanView.on && isPlacing() && placingHut != null && at != null) {
-            PlanView.add(placing, placingHut, deco != null ? 0 : creative() ? placingLevel : 1, at, rotation);
+            PlanView.add(placing, placingHut, deco != null ? 0 : placingLevel, at, rotation);
             stopPlacing();
             return true;
         }
@@ -916,9 +916,12 @@ public final class Planner {
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Pretty, "", placingHut.pack(), placingHut.path(),
                     at, rotation).sendToServer();
         } else {
-            new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", placingHut.pack(), placingHut.path(),
+            // Survival places level 1 (MineColonies' rule); a higher chosen level is reached by orders one level at a time.
+            String one = HutCatalog.levelPath(placingHut.path(), 1);
+            new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", placingHut.pack(), one != null ? one : placingHut.path(),
                     at, rotation).sendToServer();
             pendingBuilds.put(at, System.currentTimeMillis());
+            if (placingLevel > 1) BuildUp.set(at, placingLevel);
         }
         recent.remove(placing);
         recent.add(0, placing);

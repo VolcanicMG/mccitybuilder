@@ -1199,8 +1199,8 @@ final class PlannerScreen extends Screen {
         decoScroll = Math.max(0, Math.min(decoScroll, drows.size() - DECO_ROWS));
         int gridH = decoMode ? Math.max(1, Math.min(drows.size(), DECO_ROWS)) * DECO_ROW_H : rows * SLOT;
         Map<String, Integer> need = Planner.placingHut != null ? Blueprints.cost(Planner.placingHut) : null;
-        // The placing block; creative adds a level picker row.
-        int placingH = !Planner.isPlacing() ? 12 : 62 + (Planner.creative() && Planner.placing != null ? 20 : 0);
+        // The placing block; a hut adds a level picker row.
+        int placingH = !Planner.isPlacing() ? 12 : 62 + (levelPicker() ? 20 : 0);
         int fixedH = PAD + 20 + 16 + 4 + 20 + 20 + (recent.isEmpty() ? 0 : 10 + SLOT + 4) + gridH + 6 + placingH + 12 + 10 + PAD;
         // As many material rows as fit on screen (at least 3, at most 12).
         int costRows = Math.max(3, Math.min(COST_ROWS, (height - 8 - fixedH) / 10));
@@ -1317,16 +1317,17 @@ final class PlannerScreen extends Screen {
         iconButton(g, "down", ix + iw - 20, yy + 32, mx, my, () -> Planner.raise(-1), Component.translatable("mccitybuilder.lower"));
         if (Planner.creative()) g.drawString(font, Component.translatable("mccitybuilder.creative_instant"), ix + 1, yy + 50, 0xFF2050A0, false);
         else if (Planner.deco != null) g.drawString(font, Component.translatable("mccitybuilder.deco_survival"), ix + 1, yy + 50, 0xFF2050A0, false);
-        if (Planner.creative() && Planner.placing != null) {
-            // Level picker: 1 .. the highest level the style pack has a blueprint for.
+        if (levelPicker()) {
+            // Level picker: 1 .. the highest level the style pack has a blueprint for (survival: placed at 1, then built up to it).
             Blueprints.Hut one = Blueprints.alt(pack(), Planner.placing, Planner.placingAlt);
             int max = one == null ? 1 : Blueprints.maxLevel(one);
-            picker(g, ix, yy + 62, iw, Component.translatable("mccitybuilder.paste_level", Planner.placingLevel, max).getString(), mx, my, d -> {
+            boolean c = Planner.creative();
+            picker(g, ix, yy + 62, iw, Component.translatable(c ? "mccitybuilder.paste_level" : "mccitybuilder.build_level", Planner.placingLevel, max).getString(), mx, my, d -> {
                 Planner.setPlacingLevel(Math.floorMod(Planner.placingLevel - 1 + d, max) + 1);
                 click();
-            }, Component.translatable("mccitybuilder.paste_level.tip"));
+            }, Component.translatable(c ? "mccitybuilder.paste_level.tip" : "mccitybuilder.build_level.tip"));
         }
-        yy += Planner.creative() && Planner.placing != null ? 82 : 62;
+        yy += levelPicker() ? 82 : 62;
         // Design picker for huts the style pack has alternatives for (a move keeps the building's own).
         List<Blueprints.Hut> alts = Planner.placing == null || Planner.moving != null ? null : Blueprints.alts(pack(), Planner.placing);
         if (alts != null && alts.size() > 1) {
@@ -1630,6 +1631,11 @@ final class PlannerScreen extends Screen {
 
     // ---- selection ----
 
+    /** @return true when the placing panel offers a level: a hut (survival: not while moving, which is creative anyway) */
+    private static boolean levelPicker() {
+        return Planner.placing != null && (Planner.creative() || Planner.moving == null);
+    }
+
     private void selection(GuiGraphics g, int mx, int my) {
         if (Planner.selectedDeco != null) {
             decoSelection(g, mx, my, Planner.selectedDeco);
@@ -1646,6 +1652,20 @@ final class PlannerScreen extends Screen {
         g.drawString(font, font.plainSubstrByWidth(name(b) + "  " + levelText(b), w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
         String info = Component.translatable("mccitybuilder.workers", b.getAllAssignedCitizens().size()).getString()
                 + (b.hasWorkOrder() ? "  " + Component.translatable("mccitybuilder.has_work_order").getString() : "");
+        // Survival build-up target: shown with an x that cancels it (the current order stays).
+        int upTo = BuildUp.target(b.getPosition());
+        if (upTo > 0) {
+            String t = Component.translatable("mccitybuilder.build_up", upTo).getString();
+            int tx = x + w - PAD - font.width(t) - 10, ty = y + PAD + 11;
+            info = font.plainSubstrByWidth(info, tx - x - PAD - 4);
+            g.drawString(font, t, tx, ty, 0xFF2050A0, false);
+            boolean over = mx >= x + w - PAD - 8 && mx < x + w - PAD && my >= ty - 1 && my < ty + 9;
+            g.drawString(font, "x", x + w - PAD - 6, ty, over ? 0xFFFF4040 : 0xFFA02020, false);
+            hits.add(new Hit(x + w - PAD - 8, ty - 1, 8, 10, () -> {
+                click();
+                BuildUp.cancel(b.getPosition());
+            }, Component.translatable("mccitybuilder.build_up.cancel")));
+        }
         g.drawString(font, font.plainSubstrByWidth(info, w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
         // An unbuilt hut (placed by hand, or its order cancelled): the same action reads Build.
         // Survival, unbuilt: Pick up (the hut back to the inventory) stands in for Remove.

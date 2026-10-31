@@ -679,6 +679,11 @@ public final class SelfCheck {
         check(back.equals(List.of(a, b)), "plan round trip: " + back);
         check(com.volcanicmg.mccitybuilder.planner.Plan.read("not a plan\n" + text.substring(text.indexOf('\n') + 1)).isEmpty(), "wrong header = empty plan");
         check(a.moved(1, 0, -2).minX() == 6 && a.moved(1, 0, -2).z() == 8, "moving moves the box");
+        // Level targets: their own rows, invisible to the entry / line readers.
+        String withT = Plan.write(List.of(a), List.of(), Map.of(), Map.of(), List.of(new int[]{10, 64, 10, 3}, new int[]{1, 2, 3, 99}));
+        var ts = Plan.readTargets(withT + "T\tx\t1\t2\t3\n");
+        check(ts.size() == 1 && java.util.Arrays.equals(ts.get(0), new int[]{10, 64, 10, 3}), "targets round trip, bad levels and rows skipped");
+        check(Plan.read(withT).equals(List.of(a)) && Plan.readLines(withT).isEmpty(), "target rows don't disturb entries or lines");
         // Shared plans: what a server keeps from a client.
         check(Plan.shareable(a, 0, 0, 200, -64, 320) && Plan.shareable(b, 0, 0, 200, -64, 320), "plain entries are shareable");
         check(!Plan.shareable(a, 1000, 0, 200, -64, 320), "an entry far from the colony isn't");
