@@ -276,14 +276,19 @@ final class PlannerScreen extends Screen {
             if (ndc == null || Math.abs(ndc[0]) > 1 || Math.abs(ndc[1]) > 1) continue;
             int[] c = en.getValue();
             String t = c[0] + "/" + c[1];
+            // The hut's name on a line above its count.
+            IBuildingView b = Planner.colony() == null ? null : Planner.colony().getClientBuildingManager().getBuilding(p);
+            String n = b == null ? "" : font.plainSubstrByWidth(name(b), 120);
             int sx = (int) Math.round((ndc[0] + 1) / 2 * width), sy = (int) Math.round((1 - ndc[1]) / 2 * height), tw = font.width(t);
-            int[] r = {sx - tw / 2 - 2, sy - 6, sx + tw / 2 + 2, sy + 5};
+            int half = Math.max(tw, font.width(n)) / 2, top = n.isEmpty() ? sy - 6 : sy - 16;
+            int[] r = {sx - half - 2, top, sx + half + 2, sy + 5};
             boolean overlap = false;
             for (int[] o : labels) overlap |= r[0] < o[2] && o[0] < r[2] && r[1] < o[3] && o[1] < r[3];
             if (overlap) continue;
             labels.add(r);
             int col = c[0] == 0 ? 0xFF6060 : c[0] < c[1] ? 0xFFC040 : 0x70E070;
             g.fill(r[0], r[1], r[2], r[3], alpha << 24);
+            if (!n.isEmpty()) g.drawString(font, n, sx - font.width(n) / 2, sy - 14, (alpha + 0x3F) << 24 | 0xFFFFFF, false);
             g.drawString(font, t, sx - tw / 2, sy - 4, (alpha + 0x3F) << 24 | col, false);
         }
         int icons = 0;
