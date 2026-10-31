@@ -272,7 +272,9 @@ public final class Plan {
     public static List<int[]> readTargets(String text) {
         List<int[]> out = new ArrayList<>();
         if (text == null) return out;
-        for (String row : text.split("\n")) {
+        String[] rows = text.split("\n");
+        if (rows.length == 0 || !rows[0].startsWith("mccitybuilder-plan\t")) return out;
+        for (String row : rows) {
             String[] f = row.split("\t");
             if (f.length != 5 || !f[0].equals("T")) continue;
             try {

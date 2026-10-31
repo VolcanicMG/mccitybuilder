@@ -684,6 +684,7 @@ public final class SelfCheck {
         var ts = Plan.readTargets(withT + "T\tx\t1\t2\t3\n");
         check(ts.size() == 1 && java.util.Arrays.equals(ts.get(0), new int[]{10, 64, 10, 3}), "targets round trip, bad levels and rows skipped");
         check(Plan.read(withT).equals(List.of(a)) && Plan.readLines(withT).isEmpty(), "target rows don't disturb entries or lines");
+        check(Plan.readTargets("not a plan\nT\t1\t2\t3\t4\n").isEmpty(), "targets need the plan header");
         // Shared plans: what a server keeps from a client.
         check(Plan.shareable(a, 0, 0, 200, -64, 320) && Plan.shareable(b, 0, 0, 200, -64, 320), "plain entries are shareable");
         check(!Plan.shareable(a, 1000, 0, 200, -64, 320), "an entry far from the colony isn't");
