@@ -287,6 +287,23 @@ public final class DevBridge {
             });
             // Shared ghosts and plans: what this client knows of mates' (and what it last sent).
             case "/others" -> client(Others::dump);
+            // Leave the server the way the pause menu does (same JVM, so client caches carry over to the next join).
+            case "/disconnect" -> client(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.level != null) mc.level.disconnect();
+                mc.disconnect(new net.minecraft.client.gui.screens.TitleScreen());
+                return "ok";
+            });
+            // host:port: join a server as the multiplayer screen does.
+            case "/connect" -> client(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                net.minecraft.client.gui.screens.ConnectScreen.startConnecting(new net.minecraft.client.gui.screens.TitleScreen(), mc,
+                        net.minecraft.client.multiplayer.resolver.ServerAddress.parseString(a[0]),
+                        new net.minecraft.client.multiplayer.ServerData("test", a[0], net.minecraft.client.multiplayer.ServerData.Type.OTHER), false, null);
+                return "ok";
+            });
+            // The plan as loaded on this client: entries and lines.
+            case "/plan" -> client(() -> "entries=" + PlanView.entries.size() + " lines=" + PlanView.lines.size() + " on=" + PlanView.on);
             // hutId x y z: a hut ghost dropped at that anchor (as if placed and clicked once), shared with mates.
             case "/ghost" -> client(() -> {
                 if (a[0].equals("off")) Planner.stopPlacing();
