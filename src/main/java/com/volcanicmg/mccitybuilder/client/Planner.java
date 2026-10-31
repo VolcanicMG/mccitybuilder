@@ -240,6 +240,18 @@ public final class Planner {
 
     /** Enters planner view over the colony the player stands in; needs membership and hut access there. */
     static void enter() {
+        try {
+            open();
+        } catch (RuntimeException e) {
+            // Every failed open is logged and shown (fail() logs only a session's first error): J must never just do nothing.
+            com.volcanicmg.mccitybuilder.CityBuilder.LOGGER.error("CityBuilder: the planner couldn't open", e);
+            if (Minecraft.getInstance().player != null)
+                Minecraft.getInstance().player.displayClientMessage(Component.translatable("mccitybuilder.exit.error"), true);
+            throw e;
+        }
+    }
+
+    private static void open() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
         LineView.closeJointMenu(false);

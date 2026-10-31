@@ -22,7 +22,8 @@ final class HeldPlayer {
     static void tick() {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
-        if (p == null || mc.getCameraEntity() == p || p.isPassenger()) {
+        // Only the planner's camera (spectating a mob or another mod's camera is vanilla's business).
+        if (p == null || !Planner.active() || mc.getCameraEntity() == p) {
             reminder = 20;
             return;
         }
@@ -30,6 +31,8 @@ final class HeldPlayer {
         p.zza = 0;
         p.setJumping(false);
         p.setShiftKeyDown(false);
+        // A rider's vehicle reads the zeroed input; vanilla sends the vehicle's position itself.
+        if (p.isPassenger()) return;
         boolean moved = Mth.lengthSquared(p.getX() - x, p.getY() - y, p.getZ() - z) > Mth.square(2.0E-4);
         if (moved || ground != p.onGround() || ++reminder >= 20) {
             p.connection.send(new ServerboundMovePlayerPacket.Pos(p.getX(), p.getY(), p.getZ(), p.onGround()));
