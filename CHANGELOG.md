@@ -2,6 +2,18 @@
 
 ## 1.0.0-beta.1
 
+- Huts with alternative designs in the style pack (e.g. builder / altbuilder) get a Design picker in the placing
+  panel; a moved building keeps its own design.
+- Unbuilt huts (placed by hand, or their order cancelled) show Build instead of Upgrade. In survival, Pick up
+  replaces Remove for them and puts the hut straight back in your inventory (needs City Builder on the server);
+  creative keeps Remove.
+- Plan mode no longer needs the hut in your inventory (Build all still does, and skips huts you don't have).
+- Each hut's name shows above its worker count in the planner view; the placing panel's materials heading names
+  the level picked (it always said level 1).
+- Fixed: opening the planner mid-jump got the player kicked for flying (the player's last input stayed applied and
+  no position was sent while the planner camera was out).
+- Fixed: after a reconnect (e.g. a kick), plan mode broke the planner on every open ("World mismatch") until a
+  restart. A planner that fails to open now says so and logs why every time.
 - Survival: pick a hut's level before placing (live and in plan mode). The ghost shows that level; the hut is placed
   at level 1 as MineColonies requires, then your builder is ordered up one level at a time until it gets there
   ("Building up to level N" in the hut's panel, x to stop). Cancelling an order, picking up or removing the hut ends
