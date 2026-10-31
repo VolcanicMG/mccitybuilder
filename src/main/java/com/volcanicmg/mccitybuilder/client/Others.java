@@ -1,6 +1,8 @@
 package com.volcanicmg.mccitybuilder.client;
 
 import com.ldtteam.structurize.api.RotationMirror;
+import com.ldtteam.structurize.storage.rendering.RenderingCache;
+import com.ldtteam.structurize.storage.rendering.types.BlueprintPreviewData;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.volcanicmg.mccitybuilder.planner.ColonyGeometry;
@@ -23,7 +25,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
  * Colony mates' ghosts and plans ({@link PlanShare}), drawn read-only as outlines in a colour per player with their
- * name; never part of this player's plan (not selectable, cleared or built). Also sends this player's own: the ghost
+ * name, plus the real blocks as Structurize previews (the nearest {@link #MAX_PREVIEWS}; segments stay strips); never
+ * part of this player's plan (not selectable, cleared or built). Also sends this player's own: the ghost
  * when it changes (at most 5 a second), the plan a second after its last change.
  * <p>
  * ponytail: boxes written into the line batch each frame (at most 256 entries + 256 segments a player); a cached
@@ -42,6 +45,12 @@ final class Others {
     private static PlanShare.Ghost sentGhost;
     private static long sentGhostMs, planDue;
     private static int planColony = -1;
+    /** Mates' blueprints previewed at once (nearest the camera first); each costs a Structurize render buffer. */
+    static final int MAX_PREVIEWS = 24;
+    // Queued previews by what they show ("pack|path|rot|x|y|z") → their slot (key PREVIEW_KEY_mate_slot), and freed slots.
+    private static final Map<String, Integer> previews = new HashMap<>();
+    private static final java.util.ArrayDeque<Integer> freeSlots = new java.util.ArrayDeque<>();
+    private static int nextSlot;
 
     private Others() {
     }
@@ -69,6 +78,7 @@ final class Others {
 
     /** Logout: nothing kept (colony ids repeat across servers). */
     static void clear() {
+        hidePreviews();
         ghosts.clear();
         ghostDims.clear();
         plans.clear();
@@ -124,6 +134,8 @@ final class Others {
 
     /** Each client tick: this player's ghost when it changed (throttled), the plan when due. */
     static void tick() {
+        if (Planner.active()) previews();
+        else if (!previews.isEmpty()) hidePreviews();
         if (!channel()) return;
         long now = System.currentTimeMillis();
         PlanShare.Ghost g = Planner.active() ? ownGhost() : null;
@@ -153,6 +165,56 @@ final class Others {
                     new BlockPos(LineView.start[0], y, LineView.start[1]), 0, new BlockPos(LineView.end[0], y, LineView.end[1]));
         }
         return null;
+    }
+
+    /**
+     * Keeps mates' Structurize previews in step: their ghosts always, their plan entries with plan mode or a line tool
+     * on, the nearest {@link #MAX_PREVIEWS} with a loaded blueprint; one that stays keeps its slot (no rebuild).
+     */
+    private static void previews() {
+        record Want(String key, String pack, String path, int rot, BlockPos at) {
+        }
+        List<Want> all = new ArrayList<>();
+        for (var g : ghostsHere())
+            if (g.kind() != PlanShare.LINE) all.add(new Want(null, g.pack(), g.path(), g.rot(), g.pos()));
+        if (PlanView.on || LineView.active())
+            for (var s : plansHere()) for (Plan.Entry e : s.entries()) all.add(new Want(null, e.pack(), e.path(), e.rot(), new BlockPos(e.x(), e.y(), e.z())));
+        var cam = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        all.sort(java.util.Comparator.comparingDouble(w -> w.at().distToCenterSqr(cam)));
+        Map<String, Want> want = new java.util.LinkedHashMap<>();
+        for (Want w : all) {
+            if (want.size() >= MAX_PREVIEWS) break;
+            if (PlanView.blueprint(w.pack(), w.path(), w.rot()) == null) continue;
+            String k = w.pack() + "|" + w.path() + "|" + w.rot() + "|" + w.at().getX() + "|" + w.at().getY() + "|" + w.at().getZ();
+            want.putIfAbsent(k, w);
+        }
+        for (var it = previews.entrySet().iterator(); it.hasNext(); ) {
+            var en = it.next();
+            if (want.containsKey(en.getKey())) continue;
+            RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_mate_" + en.getValue());
+            freeSlots.add(en.getValue());
+            it.remove();
+        }
+        for (var en : want.entrySet()) {
+            if (previews.containsKey(en.getKey())) continue;
+            Want w = en.getValue();
+            int slot = freeSlots.isEmpty() ? nextSlot++ : freeSlots.poll();
+            BlueprintPreviewData data = new BlueprintPreviewData(false);
+            data.setRenderBlocksNice(true);
+            data.setBlueprint(PlanView.blueprint(w.pack(), w.path(), w.rot()));
+            data.setRotationMirror(RotationMirror.values()[Math.floorMod(w.rot(), RotationMirror.values().length)]);
+            data.setPos(w.at());
+            RenderingCache.queue(Planner.PREVIEW_KEY + "_mate_" + slot, data);
+            previews.put(en.getKey(), slot);
+        }
+    }
+
+    /** Planner closed or logout: every mate preview goes. */
+    private static void hidePreviews() {
+        for (int slot : previews.values()) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_mate_" + slot);
+        previews.clear();
+        freeSlots.clear();
+        nextSlot = 0;
     }
 
     /** @return the player's colour (ARGB, opaque), the same on every client */
@@ -249,7 +311,7 @@ final class Others {
             sb.append("G ").append(gh.name()).append(' ').append(gh.colony()).append(' ').append(gh.kind()).append(' ').append(gh.path()).append(' ').append(gh.pos().toShortString()).append('\n');
         plans.forEach((k, m) -> m.values().forEach(s -> sb.append("P ").append(k).append(' ').append(s.name()).append(" entries=").append(s.entries().size())
                 .append(" lines=").append(s.lines().size()).append('\n')));
-        sb.append("sentGhost=").append(sentGhost == null ? "null" : sentGhost.kind() + " " + sentGhost.path()).append(" planDue=").append(planDue).append(" planColony=").append(planColony);
+        sb.append("sentGhost=").append(sentGhost == null ? "null" : sentGhost.kind() + " " + sentGhost.path()).append(" planDue=").append(planDue).append(" planColony=").append(planColony).append(" previews=").append(new java.util.TreeMap<>(previews));
         return sb.toString();
     }
 }

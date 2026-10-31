@@ -302,15 +302,23 @@ final class PlanView {
 
     /** @return the planned blueprint rotated for this entry, or null while it loads (starts the load) */
     private static Blueprint blueprint(Plan.Entry e) {
+        return blueprint(e.pack(), e.path(), e.rot());
+    }
+
+    /**
+     * @return the blueprint turned to the RotationMirror ordinal, or null while it loads (starts the load) or when
+     * it can't be read; one per pack|path|rot for this connection (colony mates' previews share it)
+     */
+    static Blueprint blueprint(String pack, String path, int rot) {
         Minecraft mc = Minecraft.getInstance();
-        String key = e.pack() + "|" + e.path() + "|" + e.rot();
+        String key = pack + "|" + path + "|" + rot;
         Blueprint done = rotated.get(key);
-        if (done != null || mc.level == null) return done;
-        CompletableFuture<Blueprint> f = loads.computeIfAbsent(key, k -> StructurePacks.getBlueprintFuture(e.pack(), e.path(), true, mc.level.registryAccess()));
+        if (done != null || mc.level == null || StructurePacks.getStructurePack(pack) == null) return done;
+        CompletableFuture<Blueprint> f = loads.computeIfAbsent(key, k -> StructurePacks.getBlueprintFuture(pack, path, true, mc.level.registryAccess()));
         if (!f.isDone()) return null;
         Blueprint bp = f.isCompletedExceptionally() ? null : f.getNow(null);
         if (bp == null) return null;
-        bp.setRotationMirror(RotationMirror.values()[e.rot()], mc.level);
+        bp.setRotationMirror(RotationMirror.values()[Math.floorMod(rot, RotationMirror.values().length)], mc.level);
         rotated.put(key, bp);
         return bp;
     }
