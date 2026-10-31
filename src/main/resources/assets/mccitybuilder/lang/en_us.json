@@ -47,6 +47,8 @@
   "mccitybuilder.assigned": "Asked builder at %s to take it",
   "mccitybuilder.cancel_order": "Cancel this work order",
   "mccitybuilder.level": "Lv %s/%s",
+  "mccitybuilder.build": "Build",
+  "mccitybuilder.build.tip": "Build this hut (U): placed by hand or its order was cancelled. Creative builds it at once; survival opens the hut's build window (materials, builder)",
   "mccitybuilder.upgrade": "Upgrade",
   "mccitybuilder.upgrade.tip": "Upgrade (U): creative builds it at once; survival opens the hut's build window (materials, builder)",
   "mccitybuilder.repair": "Repair",

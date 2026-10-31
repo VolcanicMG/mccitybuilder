@@ -1646,7 +1646,8 @@ final class PlannerScreen extends Screen {
         String info = Component.translatable("mccitybuilder.workers", b.getAllAssignedCitizens().size()).getString()
                 + (b.hasWorkOrder() ? "  " + Component.translatable("mccitybuilder.has_work_order").getString() : "");
         g.drawString(font, font.plainSubstrByWidth(info, w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
-        String[] keys = {"upgrade", "repair", "open", "clean", "move", "remove"};
+        // An unbuilt hut (placed by hand, or its order cancelled): the same action reads Build.
+        String[] keys = {b.getBuildingLevel() == 0 ? "build" : "upgrade", "repair", "open", "clean", "move", "remove"};
         // Open uses the client-side building view, so it works however buried or far the hut block is.
         Runnable[] run = {() -> upgrade(b), () -> repair(b), () -> b.openGui(false), () -> {
             if (Planner.creativeClean(b)) toast(Component.translatable("mccitybuilder.clean_sent"));
