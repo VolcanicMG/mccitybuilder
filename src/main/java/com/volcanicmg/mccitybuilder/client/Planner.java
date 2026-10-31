@@ -859,7 +859,8 @@ public final class Planner {
         // MineColonies' server rule: every chunk under the blueprint belongs to the colony.
         BlockPos[] f = footprint();
         if (!ColonyGeometry.footprintClaimed(f[0].getX(), f[0].getZ(), f[1].getX(), f[1].getZ(), claimed)) return "outside";
-        if (placing != null && !mc.player.isCreative() && mc.player.getInventory().countItem(placing.asItem()) <= 0) return "no_item";
+        // Plan mode only plans: the hut is needed when the plan is built (Build all skips entries without one).
+        if (placing != null && !PlanView.on && !mc.player.isCreative() && mc.player.getInventory().countItem(placing.asItem()) <= 0) return "no_item";
         if (!colony.getPermissions().hasPermission(mc.player, Action.MANAGE_HUTS)) return "no_permission";
         return null;
     }

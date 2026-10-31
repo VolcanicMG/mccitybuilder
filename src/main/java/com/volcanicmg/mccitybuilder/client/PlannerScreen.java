@@ -1403,7 +1403,7 @@ final class PlannerScreen extends Screen {
         boolean missing = creative && Blueprints.missing(pack(), hut);
         g.renderItem(new ItemStack(hut), sx + 1, sy + 1);
         if (count > 0) g.renderItemDecorations(font, new ItemStack(hut, count), sx + 1, sy + 1);
-        if (locked || missing || count <= 0 && !creative) g.fill(sx + 1, sy + 1, sx + SLOT - 1, sy + SLOT - 1, locked ? 0xB0555555 : 0x908B8B8B);
+        if (locked || missing || count <= 0 && !creative && !PlanView.on) g.fill(sx + 1, sy + 1, sx + SLOT - 1, sy + SLOT - 1, locked ? 0xB0555555 : 0x908B8B8B);
         if (hut == Planner.placing) outline(g, sx + 1, sy + 1, SLOT - 2, SLOT - 2, 0xFFFFFFFF);
         if (mx >= sx && mx < sx + SLOT && my >= sy && my < sy + SLOT) g.fill(sx + 1, sy + 1, sx + SLOT - 1, sy + SLOT - 1, 0x80FFFFFF);
         net.minecraft.network.chat.MutableComponent tip = Component.empty().append(hut.getName());
