@@ -1342,7 +1342,9 @@ final class PlannerScreen extends Screen {
                 click();
             }, Component.translatable("mccitybuilder.design.tip"));
         }
-        g.drawString(font, Component.translatable("mccitybuilder.materials"), ix + 1, yy, VanillaUi.LABEL, false);
+        // The list is the shown blueprint's: the picked level's for a hut (that level alone, not the levels below).
+        g.drawString(font, Planner.placing != null ? Component.translatable("mccitybuilder.materials", Planner.placingLevel)
+                : Component.translatable("mccitybuilder.materials_deco"), ix + 1, yy, VanillaUi.LABEL, false);
         yy += 12;
         if (cost == null) {
             g.drawString(font, Component.translatable("mccitybuilder.invalid.loading"), ix + 1, yy, 0xFF606060, false);
