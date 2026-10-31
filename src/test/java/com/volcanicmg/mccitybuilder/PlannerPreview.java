@@ -174,7 +174,7 @@ public final class PlannerPreview {
         iconButton(a, "up", ix + iw - 40, yy + 32);
         iconButton(a, "down", ix + iw - 20, yy + 32);
         yy += 62;
-        a.text(tr.apply("mccitybuilder.materials"), ix + 1, yy, LABEL);
+        a.text(tr.apply("mccitybuilder.materials").replace("%s", "1"), ix + 1, yy, LABEL);
         yy += 12;
         for (String[] m : mats) {
             a.text(m[0], ix + 1, yy, (int) Long.parseLong(m[2].substring(2), 16));
