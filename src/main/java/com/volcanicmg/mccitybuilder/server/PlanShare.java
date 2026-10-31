@@ -41,7 +41,7 @@ public final class PlanShare {
     public static final int NONE = 0, HUT = 1, DECO = 2, MOVE = 3, LINE = 4;
     public static final int MAX_ENTRIES = 256, MAX_LINES = 256;
     /** Per player: a ghost at most this often (the client sends 5 a second), a plan at most this often (1 a second). */
-    static final long GHOST_MS = 150, PLAN_MS = 500, ALL_MS = 250;
+    static final long GHOST_MS = 150, PLAN_MS = 500, ALL_MS = 1000;
     private static final UUID NOBODY = new UUID(0, 0);
     // Live ghosts by owner with the dimension they are in (never saved), and the per-player rate limits.
     private record Live(Ghost ghost, ServerLevel level) {
@@ -175,15 +175,16 @@ public final class PlanShare {
     }
 
     /** Logout or another dimension: the player's ghost goes for everyone where it was (their plan stays). */
-    static void forget(ServerPlayer p) {
+    static void forget(ServerPlayer p, boolean logout) {
         lastGhost.remove(p.getUUID());
         lastPlan.remove(p.getUUID());
         lastAll.remove(p.getUUID());
         pendingGhost.remove(p.getUUID());
         pendingAll.remove(p.getUUID());
-        // A plan that came in too soon is still kept.
+        // At logout a plan that came in too soon is still kept; after a dimension change the player is already
+        // elsewhere (the planner sends the plan again when it opens).
         Shared s = pendingPlan.remove(p.getUUID());
-        if (s != null) applyPlan(p, s);
+        if (s != null && logout) applyPlan(p, s);
         clearGhost(p);
     }
 
@@ -294,10 +295,10 @@ public final class PlanShare {
         int cx = c.getCenter().getX(), cz = c.getCenter().getZ(), r = InstantBuild.reach();
         // What doesn't pass is left out, the rest kept (a plan can hold an entry of a pack since removed).
         List<Plan.Entry> es = new ArrayList<>();
-        for (Plan.Entry e : s.entries) {
-            String path = e.path().replace('\\', '/');
-            if (Plan.shareable(e, cx, cz, r, level.getMinBuildHeight(), level.getMaxBuildHeight()) && InstantBuild.badPack(e.pack(), path) == null)
-                es.add(e.with(path, e.level(), e.rot(), e.box()));
+        for (Plan.Entry e0 : s.entries) {
+            // Checked in the one normalised form (a Windows client's paths may use \).
+            Plan.Entry e = e0.path() == null ? e0 : e0.with(e0.path().replace('\\', '/'), e0.level(), e0.rot(), e0.box());
+            if (Plan.shareable(e, cx, cz, r, level.getMinBuildHeight(), level.getMaxBuildHeight()) && InstantBuild.badPack(e.pack(), e.path()) == null) es.add(e);
         }
         List<Plan.Line> ls = new ArrayList<>();
         for (Plan.Line l : s.lines)

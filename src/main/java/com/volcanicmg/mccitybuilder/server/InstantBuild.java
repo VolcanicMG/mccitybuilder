@@ -160,7 +160,7 @@ public final class InstantBuild {
         // Another dimension: its colonies are other ones; the planner asks again when it opens there.
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> {
             DecoSync.forget(e.getEntity().getUUID());
-            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p);
+            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, false);
         });
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
             // A paste that left Structurize's queue without finishing frees its positions and chunks now, not in BUSY_MS.
@@ -172,7 +172,7 @@ public final class InstantBuild {
             batchStats.remove(e.getEntity().getUUID());
             refused.remove(e.getEntity().getUUID());
             DecoSync.forget(e.getEntity().getUUID());
-            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p);
+            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, true);
         });
     }
 

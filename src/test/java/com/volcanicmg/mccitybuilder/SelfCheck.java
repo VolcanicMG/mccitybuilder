@@ -696,6 +696,9 @@ public final class SelfCheck {
         check(!Plan.shareable(a.with("craftsmanship/x\n-\tbirch\ty.blueprint", 2, 1, a.box()), 0, 0, 200, -64, 320), "a newline in a path isn't");
         check(!Plan.shareable(a.with("craftsmanship/x\ty.blueprint", 2, 1, a.box()), 0, 0, 200, -64, 320), "a tab in a path isn't");
         check(!Plan.wellFormed(new Plan.Entry(null, "bir\nch", a.path(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)), "a newline in a pack isn't");
+        check(!Plan.wellFormed(new Plan.Entry(null, "bir\rch", a.path(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)), "a carriage return in a pack isn't");
+        check(Plan.wellFormed(new Plan.Entry(null, "Bob's Café & Co (v2)", "décor/l'été.blueprint", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+                && Plan.shareable(new Plan.Line("wall", 0, 0, 20, 0, "Bob's Café", "fortés (old)", 1, -1, false, false), 0, 0, 200), "apostrophes, accents, & and brackets are");
         java.util.Set<Long> claims = new java.util.HashSet<>();
         for (int cx = 0; cx <= 2; cx++) for (int cz = 0; cz <= 2; cz++) claims.add(ColonyGeometry.chunk(cx, cz));
         var c = new com.volcanicmg.mccitybuilder.planner.Plan.Entry(null, "birch", "x.blueprint", 0, 12, 64, 12, 0, 12, 64, 12, 16, 66, 16);

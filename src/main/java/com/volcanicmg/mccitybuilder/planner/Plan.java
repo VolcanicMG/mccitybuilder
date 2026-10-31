@@ -851,9 +851,9 @@ public final class Plan {
         return Math.abs((long) x - cx) <= reach && Math.abs((long) z - cz) <= reach;
     }
 
-    /** @return true for a name or path of plain characters only (letters, digits, space, {@code _ . / : -}), at most {@code max} long */
+    /** @return true for a name or path without control characters (no tab or newline can split a saved row), at most {@code max} long */
     public static boolean plain(String s, int max) {
-        return s != null && s.length() <= max && s.matches("[A-Za-z0-9 _./:-]*");
+        return s != null && s.length() <= max && !s.matches("(?s).*\\p{Cntrl}.*");
     }
 
     /**

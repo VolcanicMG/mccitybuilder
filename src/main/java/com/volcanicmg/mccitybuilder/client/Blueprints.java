@@ -237,7 +237,7 @@ final class Blueprints {
         return StructurePacks.findBlueprintFuture(pack, bp -> {
                     if (bp != null && bp.getFileName().endsWith("1") && bp.getBlockState(bp.getPrimaryBlockOffset()).getBlock() instanceof com.minecolonies.api.blocks.AbstractBlockHut<?> h)
                         out.computeIfAbsent(h, k -> new java.util.concurrent.CopyOnWriteArrayList<>())
-                                .add(new Hut(bp, pack, meta.getSubPath(bp.getFilePath().resolve(bp.getFileName() + ".blueprint"))));
+                                .add(new Hut(bp, pack, meta.getSubPath(bp.getFilePath().resolve(bp.getFileName() + ".blueprint")).replace('\\', '/')));
                     return false;
                 }, Minecraft.getInstance().level.registryAccess())
                 .thenApply(bp -> out)
