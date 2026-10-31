@@ -25,16 +25,19 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 
 /**
- * Hut blueprints from Structurize's style packs: for a pack and a hut block, the level-1 blueprint whose anchor is
- * that hut (what MineColonies' build tool offers first). Looked up asynchronously through
- * {@link StructurePacks#findBlueprintFuture} and cached per pack and hut; null results are cached too.
+ * Hut blueprints from Structurize's style packs: for a pack and a hut block, every level-1 blueprint whose anchor is
+ * that hut (its alternative designs; the first found is what MineColonies' build tool offers first). One asynchronous
+ * walk per pack through {@link StructurePacks#findBlueprintFuture}, cached; a pack without the hut caches an empty list.
  */
 final class Blueprints {
     /** A resolved hut blueprint and its path inside the pack, as BuildToolPlacementMessage wants it. */
     record Hut(Blueprint blueprint, String pack, String path) {
     }
 
-    private static final Map<String, CompletableFuture<Hut>> cache = new HashMap<>();
+    // Per pack: each hut's level-1 blueprints in walk order.
+    private static final Map<String, CompletableFuture<Map<Block, List<Hut>>>> cache = new HashMap<>();
+    // Higher levels of a design, per pack|path.
+    private static final Map<String, CompletableFuture<Hut>> levels = new HashMap<>();
 
     private Blueprints() {
     }
@@ -49,23 +52,34 @@ final class Blueprints {
         return out;
     }
 
-    /** @return the hut's level-1 blueprint in {@code pack} when loaded, else null (and starts loading it) */
+    /** @return the hut's level-1 designs in {@code pack} (default first), or null while the pack loads (and starts it) */
+    static List<Hut> alts(String pack, Block hut) {
+        CompletableFuture<Map<Block, List<Hut>>> f = cache.computeIfAbsent(pack, Blueprints::load);
+        if (!f.isDone()) return null;
+        return f.isCompletedExceptionally() ? List.of() : f.getNow(Map.of()).getOrDefault(hut, List.of());
+    }
+
+    /** @return design {@code alt} (wrapped) of the hut's level-1 blueprints when loaded, else null */
+    static Hut alt(String pack, Block hut, int alt) {
+        List<Hut> l = alts(pack, hut);
+        return l == null || l.isEmpty() ? null : l.get(Math.floorMod(alt, l.size()));
+    }
+
+    /** @return the hut's default level-1 blueprint in {@code pack} when loaded, else null (and starts loading it) */
     static Hut get(String pack, Block hut) {
-        String key = pack + "|" + hut.builtInRegistryHolder().key().location();
-        CompletableFuture<Hut> f = cache.computeIfAbsent(key, k -> load(pack, hut));
-        return f.isDone() && !f.isCompletedExceptionally() ? f.getNow(null) : null;
+        return alt(pack, hut, 0);
     }
 
     /**
-     * @return the hut's blueprint at {@code level} (its level-1 path with the digit changed) when loaded, else null (and
-     * starts loading it)
+     * @return design {@code alt} of the hut at {@code level} (its level-1 path with the digit changed) when loaded, else
+     * null (and starts loading it)
      */
-    static Hut get(String pack, Block hut, int level) {
-        Hut one = get(pack, hut);
-        if (level <= 1 || one == null) return level <= 1 ? one : null;
+    static Hut get(String pack, Block hut, int alt, int level) {
+        Hut one = alt(pack, hut, alt);
+        if (level <= 1 || one == null) return one;
         String path = HutCatalog.levelPath(one.path(), level);
         if (path == null || Minecraft.getInstance().level == null) return null;
-        CompletableFuture<Hut> f = cache.computeIfAbsent(pack + "|" + path,
+        CompletableFuture<Hut> f = levels.computeIfAbsent(pack + "|" + path,
                 k -> StructurePacks.getBlueprintFuture(pack, path, true, Minecraft.getInstance().level.registryAccess())
                         .thenApply(bp -> bp == null ? null : new Hut(bp, pack, path))
                         .exceptionally(t -> null));
@@ -74,20 +88,44 @@ final class Blueprints {
 
     /** @return true when the lookup finished and the pack has no blueprint for this hut */
     static boolean missing(String pack, Block hut) {
-        CompletableFuture<Hut> f = cache.get(pack + "|" + hut.builtInRegistryHolder().key().location());
-        return f != null && f.isDone() && !f.isCompletedExceptionally() && f.getNow(null) == null;
+        List<Hut> l = alts(pack, hut);
+        return l != null && l.isEmpty();
+    }
+
+    /** @return a design's short name: its file name without the level digit, with its folder when two share a name */
+    static String altName(List<Hut> alts, int i) {
+        String n = alts.get(i).blueprint().getFileName().replaceAll("\\d+$", "");
+        if (alts.stream().filter(h -> h.blueprint().getFileName().replaceAll("\\d+$", "").equals(n)).count() < 2) return n;
+        String p = alts.get(i).path().replace('\\', '/');
+        int s = p.lastIndexOf('/');
+        return s <= 0 ? n : p.substring(p.lastIndexOf('/', s - 1) + 1, s) + "/" + n;
+    }
+
+    /** @return the index of the design whose level-1 file matches a building's blueprint path (any level), else 0 */
+    static int altOf(String pack, Block hut, String path) {
+        List<Hut> l = alts(pack, hut);
+        String one = path == null ? null : HutCatalog.levelPath(path.replace('\\', '/').replaceFirst("^/", ""), 1);
+        for (int i = 0; l != null && one != null && i < l.size(); i++)
+            if (l.get(i).path().replace('\\', '/').replaceFirst("^/", "").equals(one)) return i;
+        return 0;
     }
 
     private static final Map<String, Integer> maxLevels = new HashMap<>();
 
     /** @return the highest level with a file next to the level-1 blueprint ({@code baker1} .. {@code bakerN}) */
     static int maxLevel(Hut one) {
-        return maxLevels.computeIfAbsent(one.pack() + "|" + one.path(), k -> {
-            String name = one.blueprint().getFileName();
-            if (one.blueprint().getFilePath() == null || name.isEmpty()) return 1;
-            String base = name.substring(0, name.length() - 1);
+        return maxLevel(one.pack(), one.path());
+    }
+
+    /** @return the highest level with a file beside a hut blueprint path of any level, 1 when unknown */
+    static int maxLevel(String pack, String path) {
+        String one = HutCatalog.levelPath(path, 1);
+        StructurePackMeta meta = StructurePacks.getStructurePack(pack);
+        if (one == null || meta == null) return 1;
+        return maxLevels.computeIfAbsent(pack + "|" + one, k -> {
+            String base = one.substring(0, one.length() - "1.blueprint".length());
             int n = 1;
-            while (n < 9 && Files.exists(one.blueprint().getFilePath().resolve(base + (n + 1) + ".blueprint"))) n++;
+            while (n < 9 && Files.exists(meta.getPath().resolve(base + (n + 1) + ".blueprint"))) n++;
             return n;
         });
     }
@@ -187,21 +225,25 @@ final class Blueprints {
 
     /** @return true while a lookup is still running */
     static boolean loading(String pack, Block hut) {
-        CompletableFuture<Hut> f = cache.get(pack + "|" + hut.builtInRegistryHolder().key().location());
+        CompletableFuture<Map<Block, List<Hut>>> f = cache.get(pack);
         return f != null && !f.isDone();
     }
 
-    private static CompletableFuture<Hut> load(String pack, Block hut) {
+    private static CompletableFuture<Map<Block, List<Hut>>> load(String pack) {
         StructurePackMeta meta = StructurePacks.getStructurePack(pack);
-        if (meta == null || Minecraft.getInstance().level == null) return CompletableFuture.completedFuture(null);
-        return StructurePacks.findBlueprintFuture(pack,
-                        bp -> bp.getFileName().endsWith("1") && bp.getBlockState(bp.getPrimaryBlockOffset()).getBlock() == hut,
-                        Minecraft.getInstance().level.registryAccess())
-                .thenApply(bp -> bp == null ? null
-                        : new Hut(bp, pack, meta.getSubPath(bp.getFilePath().resolve(bp.getFileName() + ".blueprint"))))
+        if (meta == null || Minecraft.getInstance().level == null) return CompletableFuture.completedFuture(Map.of());
+        Map<Block, List<Hut>> out = new java.util.concurrent.ConcurrentHashMap<>();
+        // The predicate never matches, so the walk visits every blueprint once and collects each hut's level-1 designs.
+        return StructurePacks.findBlueprintFuture(pack, bp -> {
+                    if (bp.getFileName().endsWith("1") && bp.getBlockState(bp.getPrimaryBlockOffset()).getBlock() instanceof com.minecolonies.api.blocks.AbstractBlockHut<?> h)
+                        out.computeIfAbsent(h, k -> new java.util.concurrent.CopyOnWriteArrayList<>())
+                                .add(new Hut(bp, pack, meta.getSubPath(bp.getFilePath().resolve(bp.getFileName() + ".blueprint"))));
+                    return false;
+                }, Minecraft.getInstance().level.registryAccess())
+                .thenApply(bp -> out)
                 .exceptionally(t -> {
-                    CityBuilder.LOGGER.warn("CityBuilder: no blueprint for {} in {}", hut, pack, t);
-                    return null;
+                    CityBuilder.LOGGER.warn("CityBuilder: can't list huts in {}", pack, t);
+                    return out;
                 });
     }
 
@@ -246,6 +288,7 @@ final class Blueprints {
 
     static void clear() {
         cache.clear();
+        levels.clear();
         decoFolders.clear();
         decoLists.clear();
         maxLevels.clear();

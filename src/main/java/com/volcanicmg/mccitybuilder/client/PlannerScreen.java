@@ -1318,7 +1318,7 @@ final class PlannerScreen extends Screen {
         else if (Planner.deco != null) g.drawString(font, Component.translatable("mccitybuilder.deco_survival"), ix + 1, yy + 50, 0xFF2050A0, false);
         if (Planner.creative() && Planner.placing != null) {
             // Level picker: 1 .. the highest level the style pack has a blueprint for.
-            Blueprints.Hut one = Blueprints.get(pack(), Planner.placing);
+            Blueprints.Hut one = Blueprints.alt(pack(), Planner.placing, Planner.placingAlt);
             int max = one == null ? 1 : Blueprints.maxLevel(one);
             picker(g, ix, yy + 62, iw, Component.translatable("mccitybuilder.paste_level", Planner.placingLevel, max).getString(), mx, my, d -> {
                 Planner.setPlacingLevel(Math.floorMod(Planner.placingLevel - 1 + d, max) + 1);
@@ -1326,6 +1326,15 @@ final class PlannerScreen extends Screen {
             }, Component.translatable("mccitybuilder.paste_level.tip"));
         }
         yy += Planner.creative() && Planner.placing != null ? 82 : 62;
+        // Design picker for huts the style pack has alternatives for (a move keeps the building's own).
+        List<Blueprints.Hut> alts = Planner.placing == null || Planner.moving != null ? null : Blueprints.alts(pack(), Planner.placing);
+        if (alts != null && alts.size() > 1) {
+            int n = Math.floorMod(Planner.placingAlt, alts.size());
+            yy = picker(g, ix, yy - 2, iw, Component.translatable("mccitybuilder.design", Blueprints.altName(alts, n), n + 1, alts.size()).getString(), mx, my, d -> {
+                Planner.setPlacingAlt(Math.floorMod(n + d, alts.size()));
+                click();
+            }, Component.translatable("mccitybuilder.design.tip"));
+        }
         g.drawString(font, Component.translatable("mccitybuilder.materials"), ix + 1, yy, VanillaUi.LABEL, false);
         yy += 12;
         if (cost == null) {

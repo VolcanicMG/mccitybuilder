@@ -232,9 +232,8 @@ final class PlanView {
     static void level(int d) {
         if (!hasSelection() || !entries.get(selected).isHut()) return;
         Plan.Entry e = entries.get(selected);
-        Block hut = BuiltInRegistries.BLOCK.get(ResourceLocation.parse(e.hut()));
-        Blueprints.Hut one = Blueprints.get(e.pack(), hut);
-        int max = one == null ? e.level() : Blueprints.maxLevel(one), lv = Math.max(1, Math.min(max, e.level() + d));
+        // The entry's own design: an alternative can have a different number of levels.
+        int max = Math.max(e.level(), Blueprints.maxLevel(e.pack(), e.path())), lv = Math.max(1, Math.min(max, e.level() + d));
         String path = HutCatalog.levelPath(e.path(), lv);
         if (path == null || lv == e.level()) return;
         entries.set(selected, e.with(path, lv, e.rot(), e.box()));

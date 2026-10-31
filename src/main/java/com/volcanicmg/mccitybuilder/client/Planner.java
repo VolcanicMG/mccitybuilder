@@ -105,6 +105,8 @@ public final class Planner {
     static Blueprints.Hut deco;
     // Creative: the level the paste builds (survival always starts at 1).
     static int placingLevel = 1;
+    // Which of the hut's alternative designs the ghost uses (Blueprints.alts index).
+    static int placingAlt;
     static RotationMirror rotation = RotationMirror.NONE;
     static PlacementState place = new PlacementState();
     static String invalidReason;
@@ -658,6 +660,7 @@ public final class Planner {
         deco = null;
         placingHut = null;
         placingLevel = 1;
+        placingAlt = 0;
         rotation = RotationMirror.NONE;
         place = new PlacementState();
         selected = null;
@@ -668,6 +671,16 @@ public final class Planner {
     static void setPlacingLevel(int level) {
         if (placing == null || level == placingLevel) return;
         placingLevel = level;
+        placingHut = null;
+        RenderingCache.removeBlueprint(PREVIEW_KEY);
+    }
+
+    /** Switches the ghost to another design of the same hut, keeping its spot (the level clamps to the design's). */
+    static void setPlacingAlt(int alt) {
+        if (placing == null || alt == placingAlt) return;
+        placingAlt = alt;
+        Blueprints.Hut one = Blueprints.alt(PlannerScreen.pack(), placing, alt);
+        if (one != null) placingLevel = Math.min(placingLevel, Blueprints.maxLevel(one));
         placingHut = null;
         RenderingCache.removeBlueprint(PREVIEW_KEY);
     }
@@ -799,7 +812,7 @@ public final class Planner {
      * includes the ground offset.
      */
     private static void updatePreview() {
-        if (placingHut == null) placingHut = deco != null ? deco : Blueprints.get(PlannerScreen.pack(), placing, creative() ? placingLevel : 1);
+        if (placingHut == null) placingHut = deco != null ? deco : Blueprints.get(PlannerScreen.pack(), placing, placingAlt, creative() ? placingLevel : 1);
         invalidReason = validate();
         BlockPos at = anchor();
         if (placingHut == null || at == null) {
@@ -960,6 +973,8 @@ public final class Planner {
         if (!serverInstant() || !creative() || b.getBuildingLevel() < 1 || !(b.getBuildingType().getBuildingBlock() instanceof Block hut)) return false;
         startPlacing(hut);
         placingLevel = b.getBuildingLevel();
+        // The ghost shows the building's own design.
+        placingAlt = Blueprints.altOf(PlannerScreen.pack(), hut, b.getStructurePath());
         moving = b;
         return true;
     }

@@ -464,6 +464,8 @@
   "mccitybuilder.upgraded_creative": "Next level pasted (creative)",
   "mccitybuilder.paste_level": "Level %s / %s",
   "mccitybuilder.paste_level.tip": "Level to paste (recorded as level 1 unless the server has City Builder)",
+  "mccitybuilder.design": "Design: %s (%s/%s)",
+  "mccitybuilder.design.tip": "This hut has alternative designs in the style pack",
   "mccitybuilder.repaired_creative": "Repaired (creative)",
   "mccitybuilder.kept_storage": "Left %s blocks with contents or data (storage, huts) in place: replace them manually",
   "mccitybuilder.hint.key.shift": "Shift",
