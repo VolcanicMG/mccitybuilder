@@ -78,9 +78,18 @@ final class Others {
         planColony = -1;
     }
 
-    /** The planner asks for the colony's records: its plans come again in full. */
-    static void forgetPlans(int colony) {
-        plans.remove(dim() + "|" + colony);
+    /** The planner asks for the colony's records: its plans and live ghosts here come again in full. */
+    static void forget(int colony) {
+        String d = dim();
+        plans.remove(d + "|" + colony);
+        lineY.clear();
+        ghosts.values().removeIf(g -> g.colony() == colony && d.equals(ghostDims.get(g.owner())));
+        ghostDims.keySet().retainAll(ghosts.keySet());
+    }
+
+    /** Logging out: a plan change still waiting goes now (best effort, before the connection closes). */
+    static void flush() {
+        if (planDue != 0) sendPlan();
     }
 
     /** Before another colony's plan replaces the loaded one: a change still pending for it goes now. */

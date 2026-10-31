@@ -41,11 +41,19 @@ public final class PlanShare {
     public static final int NONE = 0, HUT = 1, DECO = 2, MOVE = 3, LINE = 4;
     public static final int MAX_ENTRIES = 256, MAX_LINES = 256;
     /** Per player: a ghost at most this often (the client sends 5 a second), a plan at most this often (1 a second). */
-    static final long GHOST_MS = 150, PLAN_MS = 500;
+    static final long GHOST_MS = 150, PLAN_MS = 500, ALL_MS = 250;
     private static final UUID NOBODY = new UUID(0, 0);
-    // Live ghosts by owner (never saved), and the per-player rate limits.
-    private static final Map<UUID, Ghost> ghosts = new HashMap<>();
-    private static final Map<UUID, Long> lastGhost = new HashMap<>(), lastPlan = new HashMap<>();
+    // Live ghosts by owner with the dimension they are in (never saved), and the per-player rate limits.
+    private record Live(Ghost ghost, ServerLevel level) {
+    }
+
+    private static final Map<UUID, Live> ghosts = new HashMap<>();
+    private static final Map<UUID, Long> lastGhost = new HashMap<>(), lastPlan = new HashMap<>(), lastAll = new HashMap<>();
+    // What came in too soon, newest only, applied when its window opens (the latest state is never lost); and the
+    // colony a planner that opened is owed the plans and ghosts of.
+    private static final Map<UUID, Ghost> pendingGhost = new HashMap<>();
+    private static final Map<UUID, Shared> pendingPlan = new HashMap<>();
+    private static final Map<UUID, Integer> pendingAll = new HashMap<>();
     private static Consumer<Ghost> ghostHandler = g -> {
     };
     private static Consumer<Shared> planHandler = s -> {
@@ -97,15 +105,18 @@ public final class PlanShare {
             buf.writeVarInt(s.colony);
             buf.writeUUID(s.owner);
             buf.writeUtf(s.name, 64);
-            buf.writeVarInt(s.entries.size());
-            for (Plan.Entry e : s.entries) {
+            // Never more than the decoder takes (it refuses the whole payload).
+            List<Plan.Entry> entries = s.entries.subList(0, Math.min(s.entries.size(), MAX_ENTRIES));
+            List<Plan.Line> lines = s.lines.subList(0, Math.min(s.lines.size(), MAX_LINES));
+            buf.writeVarInt(entries.size());
+            for (Plan.Entry e : entries) {
                 buf.writeUtf(e.isHut() ? e.hut() : "", Plan.MAX_NAME);
                 buf.writeUtf(e.pack(), Plan.MAX_NAME);
                 buf.writeUtf(e.path(), Plan.MAX_PATH);
                 for (int v : new int[]{e.level(), e.x(), e.y(), e.z(), e.rot(), e.minX(), e.minY(), e.minZ(), e.maxX(), e.maxY(), e.maxZ()}) buf.writeVarInt(v);
             }
-            buf.writeVarInt(s.lines.size());
-            for (Plan.Line l : s.lines) {
+            buf.writeVarInt(lines.size());
+            for (Plan.Line l : lines) {
                 buf.writeUtf(l.tool(), 16);
                 buf.writeUtf(l.pack(), Plan.MAX_NAME);
                 buf.writeUtf(l.family(), Plan.MAX_NAME);
@@ -157,20 +168,34 @@ public final class PlanShare {
         ghosts.clear();
         lastGhost.clear();
         lastPlan.clear();
+        lastAll.clear();
+        pendingGhost.clear();
+        pendingPlan.clear();
+        pendingAll.clear();
     }
 
-    /** Logout or another dimension: the player's ghost goes for everyone (their plan stays). @param level where they were */
-    static void forget(ServerPlayer p, ServerLevel level) {
+    /** Logout or another dimension: the player's ghost goes for everyone where it was (their plan stays). */
+    static void forget(ServerPlayer p) {
         lastGhost.remove(p.getUUID());
         lastPlan.remove(p.getUUID());
-        Ghost g = ghosts.remove(p.getUUID());
-        IColony c = g == null || level == null ? null : IColonyManager.getInstance().getColonyByWorld(g.colony, level);
-        if (c != null) relay(level, c, p, new Ghost(g.colony, p.getUUID(), g.name, NONE, "", "", 0, BlockPos.ZERO, 0, BlockPos.ZERO));
+        lastAll.remove(p.getUUID());
+        pendingGhost.remove(p.getUUID());
+        pendingAll.remove(p.getUUID());
+        // A plan that came in too soon is still kept.
+        Shared s = pendingPlan.remove(p.getUUID());
+        if (s != null) applyPlan(p, s);
+        clearGhost(p);
     }
 
     /** @return true for a colony member with hut access (who may open the planner there) */
     private static boolean member(IColony c, ServerPlayer p) {
         return c.getPermissions().isColonyMember(p) && c.getPermissions().hasPermission(p, Action.ACCESS_HUTS);
+    }
+
+    /** @return true while an offline or online player is still listed in the colony with hut access */
+    private static boolean member(IColony c, UUID id) {
+        var rank = c.getPermissions().getRank(id);
+        return rank != null && c.getPermissions().getPlayers().containsKey(id) && c.getPermissions().hasPermission(rank, Action.ACCESS_HUTS);
     }
 
     /** @return true when it came in too soon after the last one (the time is kept otherwise) */
@@ -182,24 +207,58 @@ public final class PlanShare {
         return false;
     }
 
+    /** End of a server tick: what waited for its rate window goes now. */
+    static void tick(net.minecraft.server.MinecraftServer server) {
+        if (pendingGhost.isEmpty() && pendingPlan.isEmpty() && pendingAll.isEmpty()) return;
+        for (UUID id : new ArrayList<>(pendingGhost.keySet())) {
+            ServerPlayer p = server.getPlayerList().getPlayer(id);
+            if (p == null) pendingGhost.remove(id);
+            else if (!tooSoon(lastGhost, id, GHOST_MS)) applyGhost(p, pendingGhost.remove(id));
+        }
+        for (UUID id : new ArrayList<>(pendingPlan.keySet())) {
+            ServerPlayer p = server.getPlayerList().getPlayer(id);
+            if (p == null) pendingPlan.remove(id);
+            else if (!tooSoon(lastPlan, id, PLAN_MS)) applyPlan(p, pendingPlan.remove(id));
+        }
+        for (UUID id : new ArrayList<>(pendingAll.keySet())) {
+            ServerPlayer p = server.getPlayerList().getPlayer(id);
+            if (p == null) pendingAll.remove(id);
+            else if (!tooSoon(lastAll, id, ALL_MS)) sendAll(p, pendingAll.remove(id));
+        }
+    }
+
     static void handleGhost(Ghost g, IPayloadContext ctx) {
         if (ctx.flow().isClientbound()) {
             ghostHandler.accept(g);
             return;
         }
-        // A clear is never dropped (it only goes on when a ghost was out, so repeating it costs nothing).
-        if (!(ctx.player() instanceof ServerPlayer p) || g.kind != NONE && tooSoon(lastGhost, p.getUUID(), GHOST_MS)) return;
+        if (!(ctx.player() instanceof ServerPlayer p)) return;
+        // A clear goes at once (only to where a ghost was out, so repeating it costs nothing) and drops one waiting.
+        if (g.kind == NONE) {
+            pendingGhost.remove(p.getUUID());
+            clearGhost(p);
+        } else if (tooSoon(lastGhost, p.getUUID(), GHOST_MS)) pendingGhost.put(p.getUUID(), g);
+        else applyGhost(p, g);
+    }
+
+    /** The player's ghost goes: its colony's members where it was are told. */
+    private static void clearGhost(ServerPlayer p) {
+        Live prev = ghosts.remove(p.getUUID());
+        if (prev == null) return;
+        Ghost g = prev.ghost;
+        IColony c = IColonyManager.getInstance().getColonyByWorld(g.colony, prev.level);
+        if (c != null) relay(prev.level, c, p, new Ghost(g.colony, p.getUUID(), g.name, NONE, "", "", 0, BlockPos.ZERO, 0, BlockPos.ZERO));
+    }
+
+    private static void applyGhost(ServerPlayer p, Ghost g) {
         ServerLevel level = p.serverLevel();
         IColony c = IColonyManager.getInstance().getColonyByWorld(g.colony, level);
-        if (c == null || !member(c, p) || g.kind != NONE && !ghostOk(g, c, level)) return;
+        if (c == null || !member(c, p) || !ghostOk(g, c, level)) return;
         Ghost out = new Ghost(g.colony, p.getUUID(), p.getGameProfile().getName(), g.kind, g.pack, g.path.replace('\\', '/'), g.level, g.pos, g.rot, g.to);
-        Ghost prev = g.kind == NONE ? ghosts.remove(p.getUUID()) : ghosts.put(p.getUUID(), out);
-        if (g.kind == NONE && prev == null) return;
-        // Out in another colony now: the old one's members drop it.
-        if (prev != null && prev.colony != g.colony) {
-            IColony old = IColonyManager.getInstance().getColonyByWorld(prev.colony, level);
-            if (old != null) relay(level, old, p, new Ghost(prev.colony, p.getUUID(), out.name, NONE, "", "", 0, BlockPos.ZERO, 0, BlockPos.ZERO));
-        }
+        Live prev = ghosts.get(p.getUUID());
+        // Out in another colony or dimension now: the old one's members drop it.
+        if (prev != null && (prev.ghost.colony != g.colony || prev.level != level)) clearGhost(p);
+        ghosts.put(p.getUUID(), new Live(out, level));
         relay(level, c, p, out);
     }
 
@@ -207,12 +266,12 @@ public final class PlanShare {
     private static boolean ghostOk(Ghost g, IColony c, ServerLevel level) {
         int cx = c.getCenter().getX(), cz = c.getCenter().getZ(), r = InstantBuild.reach();
         if (g.kind < HUT || g.kind > LINE || g.rot < 0 || g.rot > 7 || g.level < 0 || g.level > 64 || !Plan.near(g.pos.getX(), g.pos.getZ(), cx, cz, r)
-                || g.pos.getY() < level.getMinBuildHeight() || g.pos.getY() > level.getMaxBuildHeight()) return false;
+                || g.pos.getY() < level.getMinBuildHeight() || g.pos.getY() > level.getMaxBuildHeight() || !Plan.plain(g.pack, Plan.MAX_NAME)) return false;
         if (g.kind == LINE)
             return ("road".equals(g.path) || "wall".equals(g.path)) && com.ldtteam.structurize.storage.StructurePacks.hasPack(g.pack)
                     && Plan.near(g.to.getX(), g.to.getZ(), cx, cz, r) && Math.abs(g.to.getX() - g.pos.getX()) + Math.abs(g.to.getZ() - g.pos.getZ()) <= Plan.MAX_LINE;
         String path = g.path.replace('\\', '/');
-        return PasteRules.badPath(path, 0) == null && InstantBuild.badPack(g.pack, path) == null;
+        return Plan.plain(path, Plan.MAX_PATH) && PasteRules.badPath(path, 0) == null && InstantBuild.badPack(g.pack, path) == null;
     }
 
     static void handleShared(Shared s, IPayloadContext ctx) {
@@ -220,7 +279,15 @@ public final class PlanShare {
             planHandler.accept(s);
             return;
         }
-        if (!(ctx.player() instanceof ServerPlayer p) || tooSoon(lastPlan, p.getUUID(), PLAN_MS)) return;
+        if (!(ctx.player() instanceof ServerPlayer p)) return;
+        if (tooSoon(lastPlan, p.getUUID(), PLAN_MS)) pendingPlan.put(p.getUUID(), s);
+        else {
+            pendingPlan.remove(p.getUUID());
+            applyPlan(p, s);
+        }
+    }
+
+    private static void applyPlan(ServerPlayer p, Shared s) {
         ServerLevel level = p.serverLevel();
         IColony c = IColonyManager.getInstance().getColonyByWorld(s.colony, level);
         if (c == null || !member(c, p)) return;
@@ -240,12 +307,30 @@ public final class PlanShare {
         relay(level, c, p, out);
     }
 
-    /** A planner opened: the colony's plans and live ghosts but the player's own. */
-    static void sendAll(ServerPlayer p, ServerLevel level, IColony c) {
-        if (!p.connection.hasChannel(Shared.TYPE)) return;
-        for (Shared s : Store.of(level).plans(c.getID())) if (!s.owner.equals(p.getUUID())) PacketDistributor.sendToPlayer(p, s);
-        for (Ghost g : ghosts.values())
-            if (g.colony == c.getID() && !g.owner.equals(p.getUUID()) && level.getPlayerByUUID(g.owner) != null) PacketDistributor.sendToPlayer(p, g);
+    /**
+     * A planner opened ({@link DecoSync.Query}, rate limited or not): the colony's plans and live ghosts go to the
+     * player within {@link #ALL_MS} (the client cleared its copy when it asked, so this is never dropped).
+     */
+    static void requestAll(ServerPlayer p, int colony) {
+        if (tooSoon(lastAll, p.getUUID(), ALL_MS)) pendingAll.put(p.getUUID(), colony);
+        else {
+            pendingAll.remove(p.getUUID());
+            sendAll(p, colony);
+        }
+    }
+
+    /** The colony's plans and live ghosts in the player's dimension, but their own; plans of players no longer in it are dropped. */
+    private static void sendAll(ServerPlayer p, int colony) {
+        ServerLevel level = p.serverLevel();
+        IColony c = IColonyManager.getInstance().getColonyByWorld(colony, level);
+        if (c == null || !member(c, p) || !p.connection.hasChannel(Shared.TYPE)) return;
+        Store store = Store.of(level);
+        for (Shared s : store.plans(colony)) {
+            if (!member(c, s.owner)) store.put(new Shared(colony, s.owner, s.name, List.of(), List.of()));
+            else if (!s.owner.equals(p.getUUID())) PacketDistributor.sendToPlayer(p, s);
+        }
+        for (Live l : ghosts.values())
+            if (l.level == level && l.ghost.colony == colony && !l.ghost.owner.equals(p.getUUID())) PacketDistributor.sendToPlayer(p, l.ghost);
     }
 
     /** Sends to every other member of the colony in that dimension that has the channel. */
@@ -269,8 +354,13 @@ public final class PlanShare {
                 CompoundTag c = (CompoundTag) t;
                 if (!c.hasUUID("owner")) continue;
                 String text = c.getString("plan");
-                s.byColony.computeIfAbsent(c.getInt("colony"), k -> new HashMap<>()).put(c.getUUID("owner"),
-                        new Shared(c.getInt("colony"), c.getUUID("owner"), c.getString("name"), List.copyOf(Plan.read(text)), List.copyOf(Plan.readLines(text))));
+                // Re-checked and capped as when it came in (saved data from an older build may hold anything).
+                List<Plan.Entry> es = Plan.read(text).stream().filter(Plan::wellFormed).limit(MAX_ENTRIES).toList();
+                List<Plan.Line> ls = Plan.readLines(text).stream().filter(Plan::wellFormed).limit(MAX_LINES).toList();
+                String name = c.getString("name");
+                if (!es.isEmpty() || !ls.isEmpty())
+                    s.byColony.computeIfAbsent(c.getInt("colony"), k -> new HashMap<>()).put(c.getUUID("owner"),
+                            new Shared(c.getInt("colony"), c.getUUID("owner"), name.length() > 64 ? name.substring(0, 64) : name, es, ls));
             }
             return s;
         }

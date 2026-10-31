@@ -690,6 +690,12 @@ public final class SelfCheck {
         check(Plan.shareable(sl, 0, 0, 200) && !Plan.shareable(sl.asBuilt(), 0, 0, 200), "planned segments are shareable, built ones not");
         check(!Plan.shareable(new Plan.Line("lava", 0, 0, 20, 0, "birch", "fancy", 1, -1, false, false), 0, 0, 200), "unknown tools aren't");
         check(!Plan.shareable(sl.between(0, 0, 300, 0), 0, 0, 1000), "too long a segment isn't");
+        // Tabs and newlines would split a saved row into injected ones.
+        check(!Plan.shareable(new Plan.Line("road", 0, 0, 20, 0, "birch", "fancy\nL3\troad", 1, -1, false, false), 0, 0, 200), "a newline in a family isn't");
+        check(!Plan.shareable(new Plan.Line("road", 0, 0, 20, 0, "birch", "fan\tcy", 1, -1, false, false), 0, 0, 200), "a tab in a family isn't");
+        check(!Plan.shareable(a.with("craftsmanship/x\n-\tbirch\ty.blueprint", 2, 1, a.box()), 0, 0, 200, -64, 320), "a newline in a path isn't");
+        check(!Plan.shareable(a.with("craftsmanship/x\ty.blueprint", 2, 1, a.box()), 0, 0, 200, -64, 320), "a tab in a path isn't");
+        check(!Plan.wellFormed(new Plan.Entry(null, "bir\nch", a.path(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)), "a newline in a pack isn't");
         java.util.Set<Long> claims = new java.util.HashSet<>();
         for (int cx = 0; cx <= 2; cx++) for (int cz = 0; cz <= 2; cz++) claims.add(ColonyGeometry.chunk(cx, cz));
         var c = new com.volcanicmg.mccitybuilder.planner.Plan.Entry(null, "birch", "x.blueprint", 0, 12, 64, 12, 0, 12, 64, 12, 16, 66, 16);

@@ -133,6 +133,8 @@ public final class DecoSync {
 
     static void handleQuery(Query q, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer p)) return;
+        // Mates' plans and ghosts come even when the records are rate limited (the planner cleared its copy when it asked).
+        PlanShare.requestAll(p, q.colony);
         long now = System.currentTimeMillis();
         Long last = lastQuery.get(p.getUUID());
         if (last != null && now - last < InstantBuild.MIN_INTERVAL_MS) return;
@@ -144,7 +146,6 @@ public final class DecoSync {
         }
         watching.put(p.getUUID(), q.colony);
         send(p, p.serverLevel(), q.colony);
-        PlanShare.sendAll(p, p.serverLevel(), colony);
     }
 
     /** A colony's records changed: its watchers in that dimension get the new list at the end of a tick. */

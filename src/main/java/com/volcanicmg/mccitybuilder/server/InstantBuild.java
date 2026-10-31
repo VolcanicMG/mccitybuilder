@@ -149,7 +149,10 @@ public final class InstantBuild {
 
     /** Prunes per-player state on logout. */
     public static void init() {
-        NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, e -> DecoSync.flush());
+        NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, e -> {
+            DecoSync.flush();
+            PlanShare.tick(e.getServer());
+        });
         NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.server.ServerStoppedEvent.class, e -> {
             DecoSync.clear();
             PlanShare.clear();
@@ -157,7 +160,7 @@ public final class InstantBuild {
         // Another dimension: its colonies are other ones; the planner asks again when it opens there.
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> {
             DecoSync.forget(e.getEntity().getUUID());
-            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, p.server.getLevel(e.getFrom()));
+            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p);
         });
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
             // A paste that left Structurize's queue without finishing frees its positions and chunks now, not in BUSY_MS.
@@ -169,7 +172,7 @@ public final class InstantBuild {
             batchStats.remove(e.getEntity().getUUID());
             refused.remove(e.getEntity().getUUID());
             DecoSync.forget(e.getEntity().getUUID());
-            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, p.serverLevel());
+            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p);
         });
     }
 
@@ -728,8 +731,9 @@ public final class InstantBuild {
         String hk = p.getUUID() + "|" + stamp;
         hold(level, p, r.mode, hk, origin, far);
         if (srcOrigin != null) hold(level, p, r.mode, hk, srcOrigin, srcFar);
-        // Every chunk under the footprint must be loaded and owned by this colony (MineColonies' own rule).
-        for (int cx = origin.getX() >> 4; cx <= far.getX() >> 4; cx++)
+        // Every chunk under the footprint must be loaded and owned by this colony (MineColonies' own rule); a survival
+        // pick-up of an unbuilt hut only touches its hut block (inside the colony, checked above).
+        if (!(r.mode == REMOVE && r.level == 0)) for (int cx = origin.getX() >> 4; cx <= far.getX() >> 4; cx++)
             for (int cz = origin.getZ() >> 4; cz <= far.getZ() >> 4; cz++)
                 if (!level.hasChunk(cx, cz) || ColonyUtils.getOwningColony(level.getChunk(cx, cz)) != colonyId) {
                     reject(p, r, "footprint leaves the colony or isn't loaded at chunk " + cx + "," + cz);

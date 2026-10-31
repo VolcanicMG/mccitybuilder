@@ -82,6 +82,7 @@ public final class PlannerClient {
             Blueprints.clear();
             PieceCatalog.clear();
             Planner.clearDecos();
+            Planner.guard(Others::flush);
             Others.clear();
         });
     }

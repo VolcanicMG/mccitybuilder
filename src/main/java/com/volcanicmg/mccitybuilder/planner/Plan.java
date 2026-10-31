@@ -851,27 +851,42 @@ public final class Plan {
         return Math.abs((long) x - cx) <= reach && Math.abs((long) z - cz) <= reach;
     }
 
+    /** @return true for a name or path of plain characters only (letters, digits, space, {@code _ . / : -}), at most {@code max} long */
+    public static boolean plain(String s, int max) {
+        return s != null && s.length() <= max && s.matches("[A-Za-z0-9 _./:-]*");
+    }
+
     /**
-     * @return true for a planned entry a server may keep and pass on: short names, a safe blueprint path, a sane level
-     * and turn, anchor and box near the colony centre and within the build height, a box of at most {@link #MAX_BOX}
+     * @return true for an entry of a sane shape, wherever it is: plain short names (no tab or newline can split a saved
+     * row), a safe blueprint path, a sane level and turn, a box of at most {@link #MAX_BOX} per axis
+     */
+    public static boolean wellFormed(Entry e) {
+        if (e.hut() != null && (e.hut().length() > MAX_NAME || !e.hut().matches("[a-z0-9_.-]+:[a-z0-9_./-]+"))) return false;
+        if (e.pack() == null || e.pack().isEmpty() || !plain(e.pack(), MAX_NAME) || !plain(e.path(), MAX_PATH) || PasteRules.badPath(e.path(), 0) != null) return false;
+        if (e.level() < 0 || e.level() > 64 || e.rot() < 0 || e.rot() > 7) return false;
+        return e.minX() <= e.maxX() && e.minY() <= e.maxY() && e.minZ() <= e.maxZ() && e.maxX() - e.minX() < MAX_BOX && e.maxY() - e.minY() < MAX_BOX
+                && e.maxZ() - e.minZ() < MAX_BOX;
+    }
+
+    /** @return true for a planned (not built) road / wall segment of a sane shape: plain short names, at most {@link #MAX_LINE} long */
+    public static boolean wellFormed(Line l) {
+        if (l.built() || !"road".equals(l.tool()) && !"wall".equals(l.tool())) return false;
+        if (l.pack() == null || l.pack().isEmpty() || !plain(l.pack(), MAX_NAME) || !plain(l.family(), MAX_NAME)) return false;
+        if (Math.abs((long) l.x1() - l.x0()) + Math.abs((long) l.z1() - l.z0()) > MAX_LINE) return false;
+        return l.height() >= FOLLOW && l.height() <= SMOOTH && Math.abs(l.dy()) <= 64 && (l.base() == NO_BASE || Math.abs(l.base()) <= 4096);
+    }
+
+    /**
+     * @return true for a planned entry a server may keep and pass on: {@link #wellFormed}, anchor and box near the
+     * colony centre and within the build height
      */
     public static boolean shareable(Entry e, int cx, int cz, int reach, int minY, int maxY) {
-        if (e.hut() != null && (e.hut().length() > MAX_NAME || !e.hut().matches("[a-z0-9_.-]+:[a-z0-9_./-]+"))) return false;
-        if (e.pack() == null || e.pack().isEmpty() || e.pack().length() > MAX_NAME || e.path() == null || e.path().length() > MAX_PATH
-                || PasteRules.badPath(e.path(), 0) != null) return false;
-        if (e.level() < 0 || e.level() > 64 || e.rot() < 0 || e.rot() > 7) return false;
-        if (e.minX() > e.maxX() || e.minY() > e.maxY() || e.minZ() > e.maxZ() || e.maxX() - e.minX() >= MAX_BOX || e.maxY() - e.minY() >= MAX_BOX
-                || e.maxZ() - e.minZ() >= MAX_BOX) return false;
-        return near(e.x(), e.z(), cx, cz, reach) && near(e.minX(), e.minZ(), cx, cz, reach) && near(e.maxX(), e.maxZ(), cx, cz, reach)
+        return wellFormed(e) && near(e.x(), e.z(), cx, cz, reach) && near(e.minX(), e.minZ(), cx, cz, reach) && near(e.maxX(), e.maxZ(), cx, cz, reach)
                 && e.y() >= minY && e.y() <= maxY && e.minY() >= minY - MAX_BOX && e.maxY() <= maxY + MAX_BOX;
     }
 
-    /** @return true for a planned (not built) road / wall segment a server may keep and pass on, both ends near the centre */
+    /** @return true for a planned segment a server may keep and pass on: {@link #wellFormed}, both ends near the centre */
     public static boolean shareable(Line l, int cx, int cz, int reach) {
-        if (l.built() || !"road".equals(l.tool()) && !"wall".equals(l.tool())) return false;
-        if (l.pack() == null || l.pack().isEmpty() || l.pack().length() > MAX_NAME || l.family() == null || l.family().length() > MAX_NAME) return false;
-        if (Math.abs((long) l.x1() - l.x0()) + Math.abs((long) l.z1() - l.z0()) > MAX_LINE) return false;
-        if (l.height() < FOLLOW || l.height() > SMOOTH || Math.abs(l.dy()) > 64 || l.base() != NO_BASE && Math.abs(l.base()) > 4096) return false;
-        return near(l.x0(), l.z0(), cx, cz, reach) && near(l.x1(), l.z1(), cx, cz, reach);
+        return wellFormed(l) && near(l.x0(), l.z0(), cx, cz, reach) && near(l.x1(), l.z1(), cx, cz, reach);
     }
 }

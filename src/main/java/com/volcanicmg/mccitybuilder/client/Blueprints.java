@@ -235,7 +235,7 @@ final class Blueprints {
         Map<Block, List<Hut>> out = new java.util.concurrent.ConcurrentHashMap<>();
         // The predicate never matches, so the walk visits every blueprint once and collects each hut's level-1 designs.
         return StructurePacks.findBlueprintFuture(pack, bp -> {
-                    if (bp.getFileName().endsWith("1") && bp.getBlockState(bp.getPrimaryBlockOffset()).getBlock() instanceof com.minecolonies.api.blocks.AbstractBlockHut<?> h)
+                    if (bp != null && bp.getFileName().endsWith("1") && bp.getBlockState(bp.getPrimaryBlockOffset()).getBlock() instanceof com.minecolonies.api.blocks.AbstractBlockHut<?> h)
                         out.computeIfAbsent(h, k -> new java.util.concurrent.CopyOnWriteArrayList<>())
                                 .add(new Hut(bp, pack, meta.getSubPath(bp.getFilePath().resolve(bp.getFileName() + ".blueprint"))));
                     return false;

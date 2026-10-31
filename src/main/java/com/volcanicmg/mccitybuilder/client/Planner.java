@@ -258,7 +258,7 @@ public final class Planner {
         var conn = mc.getConnection();
         if (conn != null && conn.hasChannel(com.volcanicmg.mccitybuilder.server.DecoSync.Query.TYPE)) {
             // Mates' plans come again in full with the answer.
-            Others.forgetPlans(c.getID());
+            Others.forget(c.getID());
             PacketDistributor.sendToServer(new com.volcanicmg.mccitybuilder.server.DecoSync.Query(c.getID()));
         }
         camera = new Marker(EntityType.MARKER, mc.level);
@@ -977,7 +977,7 @@ public final class Planner {
         startPlacing(hut);
         placingLevel = b.getBuildingLevel();
         // The ghost shows the building's own design.
-        placingAlt = Blueprints.altOf(PlannerScreen.pack(), hut, b.getStructurePath());
+        placingAlt = Blueprints.altOf(b.getStructurePack() != null ? b.getStructurePack() : PlannerScreen.pack(), hut, b.getStructurePath());
         moving = b;
         return true;
     }
