@@ -39,6 +39,7 @@ public final class PlannerClient {
             while (TOGGLE.consumeClick()) Planner.guard(Planner::toggle);
             Planner.guard(Planner::tick);
             Planner.guard(Others::tick);
+            Planner.guard(HeldPlayer::tick);
             Planner.guard(BuildUp::tick);
         });
         NeoForge.EVENT_BUS.addListener(RenderFrameEvent.Pre.class, e -> Planner.guard(() -> Planner.updateCamera(e.getPartialTick().getGameTimeDeltaPartialTick(true))));
