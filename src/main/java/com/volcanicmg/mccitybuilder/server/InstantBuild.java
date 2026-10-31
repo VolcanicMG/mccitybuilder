@@ -131,9 +131,10 @@ public final class InstantBuild {
     /**
      * The payload protocol, part of every payload's id: a client and server of different protocols just don't share
      * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
-     * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners.
+     * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners; 9: shared
+     * ghosts and plans ({@link PlanShare}).
      */
-    public static final String PROTOCOL = "8";
+    public static final String PROTOCOL = "9";
 
     /** Registers the payload as optional, so clients and servers without the mod (or another protocol) still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
@@ -141,15 +142,23 @@ public final class InstantBuild {
                 .playToServer(PieceBatch.TYPE, PieceBatch.CODEC, InstantBuild::handleBatch)
                 .playToClient(BatchResult.TYPE, BatchResult.CODEC, (r, ctx) -> BatchResults.accept(r))
                 .playToServer(DecoSync.Query.TYPE, DecoSync.Query.CODEC, DecoSync::handleQuery)
-                .playToClient(DecoSync.Decos.TYPE, DecoSync.Decos.CODEC, (d, ctx) -> DecoSync.accept(d));
+                .playToClient(DecoSync.Decos.TYPE, DecoSync.Decos.CODEC, (d, ctx) -> DecoSync.accept(d))
+                .playBidirectional(PlanShare.Ghost.TYPE, PlanShare.Ghost.CODEC, PlanShare::handleGhost)
+                .playBidirectional(PlanShare.Shared.TYPE, PlanShare.Shared.CODEC, PlanShare::handleShared);
     }
 
     /** Prunes per-player state on logout. */
     public static void init() {
         NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, e -> DecoSync.flush());
-        NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.server.ServerStoppedEvent.class, e -> DecoSync.clear());
+        NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.server.ServerStoppedEvent.class, e -> {
+            DecoSync.clear();
+            PlanShare.clear();
+        });
         // Another dimension: its colonies are other ones; the planner asks again when it opens there.
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> DecoSync.forget(e.getEntity().getUUID()));
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> {
+            DecoSync.forget(e.getEntity().getUUID());
+            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, p.server.getLevel(e.getFrom()));
+        });
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
             // A paste that left Structurize's queue without finishing frees its positions and chunks now, not in BUSY_MS.
             Runnable gone = pastes.remove(e.getEntity().getUUID());
@@ -160,6 +169,7 @@ public final class InstantBuild {
             batchStats.remove(e.getEntity().getUUID());
             refused.remove(e.getEntity().getUUID());
             DecoSync.forget(e.getEntity().getUUID());
+            if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, p.serverLevel());
         });
     }
 
@@ -184,13 +194,18 @@ public final class InstantBuild {
     private static final Map<String, Hold> held = new HashMap<>();
     private static long nextHold;
 
+    /** @return how far (blocks, per axis) from a colony's centre counts as near it */
+    static int reach() {
+        // ponytail: twice the claim size around the centre (buildings claim beyond it); the colony's real claim map needs the chunk loaded.
+        return 2 * (com.minecolonies.api.IMinecoloniesAPI.getInstance().getConfig().getServer().maxColonySize.get() + 1) * 16;
+    }
+
     /**
      * Loads the chunks under the block box {@code a}..{@code b} and keeps them loaded for request {@code hk} until
      * {@link #unhold}; only near a colony the player may change this way (no loading anywhere else).
      */
     private static void hold(ServerLevel level, ServerPlayer p, int mode, String hk, BlockPos a, BlockPos b) {
-        // ponytail: twice the claim size around the centre (buildings claim beyond it); the colony's real claim map needs the chunk loaded.
-        int reach = 2 * (com.minecolonies.api.IMinecoloniesAPI.getInstance().getConfig().getServer().maxColonySize.get() + 1) * 16;
+        int reach = reach();
         boolean near = false;
         for (IColony c : IColonyManager.getInstance().getColonies(level))
             if (Math.abs(c.getCenter().getX() - a.getX()) <= reach && Math.abs(c.getCenter().getZ() - a.getZ()) <= reach && allowed(c, p, mode)) near = true;
@@ -455,6 +470,11 @@ public final class InstantBuild {
         return mode == DECO_ORDER || mode == DECO_REMOVE_ORDER;
     }
 
+    /** @return true for requests survival players may send: the order modes, and REMOVE of an unbuilt hut (pick-up; levelOk pins level 0) */
+    static boolean survivalOk(Request r) {
+        return survivalMode(r.mode) || r.mode == REMOVE && r.level == 0;
+    }
+
     /** @return true for the modes that take a pack / path / rotation from the client */
     static boolean pathMode(int mode) {
         return mode == PLACE || mode == DECO || mode == DECO_REPAIR || mode == DECO_ORDER || mode == DECO_DELETE || mode == DECO_MOVE || mode == DECO_REMOVE_ORDER;
@@ -479,7 +499,7 @@ public final class InstantBuild {
 
     private static boolean submitChecked(ServerPlayer p, Request r, boolean batch) {
         // DECO_ORDER (a decoration builder work order, as MineColonies' decoration window makes) is for survival too.
-        if (!p.isCreative() && !survivalMode(r.mode)) {
+        if (!p.isCreative() && !survivalOk(r)) {
             reject(p, r, "not in creative");
             return false;
         }
@@ -499,6 +519,17 @@ public final class InstantBuild {
         if (load(p, r, level, now)) return true;
         unhold(level, hk);
         return false;
+    }
+
+    /** @return why a (normalised, {@link PasteRules#badPath}-checked) blueprint path of this pack isn't trusted, or null */
+    static String badPack(String pack, String path) {
+        StructurePackMeta meta = StructurePacks.getStructurePack(pack);
+        if (meta == null || !StructurePacks.hasPack(pack)) return "unknown pack";
+        // Client-synced packs live under blueprints/clients/<uuid>/: never trusted.
+        if (meta.getPath().toAbsolutePath().normalize().startsWith(CLIENT_PACKS)) return "client pack";
+        // Crops are only ever made from the real straight (a crop of a crop would let windows multiply).
+        if (Crops.PACK.equals(pack)) return "crop pack";
+        return meta.getPath().resolve(path).normalize().startsWith(meta.getPath().normalize()) ? null : "path leaves the pack";
     }
 
     /** The rest of {@link #submitChecked}, its chunks held. @return true when the blueprint load started (release() then frees them) */
@@ -538,13 +569,7 @@ public final class InstantBuild {
             // Checked and used in one normalised form (Structurize turns \ into / itself).
             String reqPath = r.path.replace('\\', '/');
             String bad = PasteRules.badPath(reqPath, r.mode != PLACE ? 0 : r.level);
-            StructurePackMeta meta = StructurePacks.getStructurePack(r.pack);
-            if (bad == null && (meta == null || !StructurePacks.hasPack(r.pack))) bad = "unknown pack";
-            // Client-synced packs live under blueprints/clients/<uuid>/: never trusted.
-            if (bad == null && meta.getPath().toAbsolutePath().normalize().startsWith(CLIENT_PACKS)) bad = "client pack";
-            // Crops are only ever made from the real straight (a crop of a crop would let windows multiply).
-            if (bad == null && Crops.PACK.equals(r.pack)) bad = "crop pack";
-            if (bad == null && !meta.getPath().resolve(reqPath).normalize().startsWith(meta.getPath().normalize())) bad = "path leaves the pack";
+            if (bad == null) bad = badPack(r.pack, reqPath);
             if (bad == null && r.mode == PLACE && (r.level < 1 || colony.getServerBuildingManager().getBuilding(r.pos) != null)) bad = "level < 1 or a building is already there";
             if (bad != null) {
                 reject(p, r, bad + ": " + r.pack + " " + r.path);
@@ -651,7 +676,7 @@ public final class InstantBuild {
     private static boolean start(ServerPlayer p, ServerLevel level, int colonyId, Request r, String pack, String path, RotationMirror rot, Blueprint bp, long stamp,
                                  CompoundTag cropFile) {
         IColony colony = IColonyManager.getInstance().getColonyByWorld(colonyId, level);
-        if (colony == null || !p.isCreative() && !survivalMode(r.mode) || p.isRemoved() || !allowed(colony, p, r.mode)) {
+        if (colony == null || !p.isCreative() && !survivalOk(r) || p.isRemoved() || !allowed(colony, p, r.mode)) {
             reject(p, r, "player or colony changed");
             return false;
         }
@@ -1573,7 +1598,11 @@ public final class InstantBuild {
         for (var wo : new ArrayList<>(colony.getWorkManager().getWorkOrders().values()))
             if (wo.getLocation().equals(r.pos)) colony.getWorkManager().removeWorkOrder(wo.getID());
         b.destroy();
-        if (level.getBlockState(r.pos).getBlock() instanceof AbstractBlockHut<?>) level.removeBlock(r.pos, false);
+        net.minecraft.world.level.block.Block hut = level.getBlockState(r.pos).getBlock();
+        if (hut instanceof AbstractBlockHut<?>) level.removeBlock(r.pos, false);
+        // Survival pick-up of an unbuilt hut: the hut itself goes back to the player.
+        boolean pickUp = !p.isCreative() && r.level == 0 && hut instanceof AbstractBlockHut<?>;
+        if (pickUp && give(p, new ItemStack(hut))) dropped++;
         int removed = 0;
         if (r.level >= 1) {
             Blueprint all = levels(level, pack, path, r.level, rot, bp);
@@ -1585,7 +1614,8 @@ public final class InstantBuild {
             removed = restoreOrDelete(p, r, level, colony, all, o, f, Snapshots.hutKey(level, colony.getID(), r.pos), "", r.pos, false);
         }
         done(p);
-        p.displayClientMessage(Component.translatable("mccitybuilder.removed", stacks, dropped, Math.max(0, removed)), false);
+        p.displayClientMessage(pickUp ? Component.translatable("mccitybuilder.picked_up", dropped)
+                : Component.translatable("mccitybuilder.removed", stacks, dropped, Math.max(0, removed)), false);
         // A claim refusing part of the clean-up: the building is gone, part of its site stays.
         if (removed < 0) p.displayClientMessage(Component.translatable("mccitybuilder.moved_kept"), false);
         return false;

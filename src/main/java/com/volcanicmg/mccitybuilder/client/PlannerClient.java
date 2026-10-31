@@ -30,6 +30,7 @@ public final class PlannerClient {
     public static void init(IEventBus modBus, ModContainer container) {
         com.volcanicmg.mccitybuilder.server.BatchResults.handler(PlanView::onBatchResult);
         com.volcanicmg.mccitybuilder.server.DecoSync.handler(Planner::onDecos);
+        com.volcanicmg.mccitybuilder.server.PlanShare.handlers(Others::onGhost, Others::onShared);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(RegisterKeyMappingsEvent.class, e -> e.register(TOGGLE));
         // Baked piece previews hold the block atlas's UVs: rebake after a resource reload (F3+T, a pack change).
@@ -37,6 +38,7 @@ public final class PlannerClient {
         NeoForge.EVENT_BUS.addListener(ClientTickEvent.Post.class, e -> {
             while (TOGGLE.consumeClick()) Planner.guard(Planner::toggle);
             Planner.guard(Planner::tick);
+            Planner.guard(Others::tick);
         });
         NeoForge.EVENT_BUS.addListener(RenderFrameEvent.Pre.class, e -> Planner.guard(() -> Planner.updateCamera(e.getPartialTick().getGameTimeDeltaPartialTick(true))));
         // In planner view the player's hand and HUD are hidden; our screen draws the UI.
@@ -80,6 +82,7 @@ public final class PlannerClient {
             Blueprints.clear();
             PieceCatalog.clear();
             Planner.clearDecos();
+            Others.clear();
         });
     }
 

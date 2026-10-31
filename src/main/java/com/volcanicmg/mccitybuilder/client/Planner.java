@@ -256,8 +256,11 @@ public final class Planner {
         refreshClaims();
         refreshDecos();
         var conn = mc.getConnection();
-        if (conn != null && conn.hasChannel(com.volcanicmg.mccitybuilder.server.DecoSync.Query.TYPE))
+        if (conn != null && conn.hasChannel(com.volcanicmg.mccitybuilder.server.DecoSync.Query.TYPE)) {
+            // Mates' plans come again in full with the answer.
+            Others.forgetPlans(c.getID());
             PacketDistributor.sendToServer(new com.volcanicmg.mccitybuilder.server.DecoSync.Query(c.getID()));
+        }
         camera = new Marker(EntityType.MARKER, mc.level);
         // Start above the land at the player (the same baseline the limits use), looking 60° down the way the player
         // faces; the height is the last session's, clamped to today's range, or 30 blocks the first time.
@@ -1208,6 +1211,7 @@ public final class Planner {
             OverlayView.renderWorld(pose, lines);
             PlanView.renderWorld(pose, lines);
             LineView.renderWorld(pose, lines);
+            Others.renderWorld(pose, lines);
             BlockPos[] f = isPlacing() ? footprint() : null;
             if (f != null) {
                 boolean ok = invalidReason == null;

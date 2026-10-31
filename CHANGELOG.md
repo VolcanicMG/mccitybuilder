@@ -2,6 +2,12 @@
 
 ## 1.0.0-beta.1
 
+- Multiplayer: colony mates see each other's planner (protocol 9). The ghost someone has out (a hut, decoration, a
+  move, or the road / wall segment being drawn) shows as an outline in their colour with their name; their plan's
+  entries and planned segments show the same way in plan mode, and stay visible after they log off (kept by the
+  server per colony and player). Others' plans are read-only: never selected, cleared or built by you. The server
+  checks everything it passes on (membership with hut access, sizes, paths in the pack, positions near the colony,
+  a rate limit); without City Builder on the server nothing is shared.
 - Huts: Remove (not the town hall or parent / child buildings), confirmed with a second click. Creative removes
   it at once (its containers' items to you, overflow at your feet; the site cleared and its ground restored; needs
   MineColonies' break-huts permission); survival makes MineColonies' own deconstruct order for a builder.

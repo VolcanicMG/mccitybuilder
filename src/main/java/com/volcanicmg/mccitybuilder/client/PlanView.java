@@ -97,6 +97,7 @@ final class PlanView {
 
     /** Loads the plan for this world and colony (on planner entry). */
     static void load(IColonyView colony) {
+        Others.flushFor(colony.getID());
         Minecraft mc = Minecraft.getInstance();
         // Older builds keyed a server's plans by its address as typed, then by its seed alone.
         boolean sp = mc.getSingleplayerServer() != null;
@@ -135,6 +136,7 @@ final class PlanView {
         queue.clear();
         waitingFor = null;
         dirty = true;
+        Others.planLoaded(colony.getID());
     }
 
     /**
@@ -176,6 +178,7 @@ final class PlanView {
 
     private static void save() {
         dirty = true;
+        Others.planChanged();
         if (file == null) return;
         try {
             Files.createDirectories(file.getParent());

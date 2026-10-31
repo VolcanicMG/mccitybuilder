@@ -679,6 +679,17 @@ public final class SelfCheck {
         check(back.equals(List.of(a, b)), "plan round trip: " + back);
         check(com.volcanicmg.mccitybuilder.planner.Plan.read("not a plan\n" + text.substring(text.indexOf('\n') + 1)).isEmpty(), "wrong header = empty plan");
         check(a.moved(1, 0, -2).minX() == 6 && a.moved(1, 0, -2).z() == 8, "moving moves the box");
+        // Shared plans: what a server keeps from a client.
+        check(Plan.shareable(a, 0, 0, 200, -64, 320) && Plan.shareable(b, 0, 0, 200, -64, 320), "plain entries are shareable");
+        check(!Plan.shareable(a, 1000, 0, 200, -64, 320), "an entry far from the colony isn't");
+        check(!Plan.shareable(a.with("../../x.blueprint", 2, 1, a.box()), 0, 0, 200, -64, 320), "a path out of the pack isn't");
+        check(!Plan.shareable(a.with(a.path(), 2, 9, a.box()), 0, 0, 200, -64, 320), "a bad turn isn't");
+        check(!Plan.shareable(a.with(a.path(), 2, 1, new int[]{5, 64, 5, 400, 72, 15}), 0, 0, 200, -64, 320), "a huge box isn't");
+        check(!Plan.shareable(new Plan.Entry("Bad Id", "birch", a.path(), 2, 10, 64, 10, 1, 5, 64, 5, 14, 72, 15), 0, 0, 200, -64, 320), "a bad hut id isn't");
+        var sl = new Plan.Line("road", 0, 0, 20, 0, "birch", "fancy", 1, -1, false, false);
+        check(Plan.shareable(sl, 0, 0, 200) && !Plan.shareable(sl.asBuilt(), 0, 0, 200), "planned segments are shareable, built ones not");
+        check(!Plan.shareable(new Plan.Line("lava", 0, 0, 20, 0, "birch", "fancy", 1, -1, false, false), 0, 0, 200), "unknown tools aren't");
+        check(!Plan.shareable(sl.between(0, 0, 300, 0), 0, 0, 1000), "too long a segment isn't");
         java.util.Set<Long> claims = new java.util.HashSet<>();
         for (int cx = 0; cx <= 2; cx++) for (int cz = 0; cz <= 2; cz++) claims.add(ColonyGeometry.chunk(cx, cz));
         var c = new com.volcanicmg.mccitybuilder.planner.Plan.Entry(null, "birch", "x.blueprint", 0, 12, 64, 12, 0, 12, 64, 12, 16, 66, 16);

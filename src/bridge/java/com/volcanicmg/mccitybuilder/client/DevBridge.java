@@ -285,6 +285,32 @@ public final class DevBridge {
                 sb.append("otherPlaced=").append(PlanView.otherPlaced.size()).append(" lines=").append(PlanView.lines.size()).append('\n');
                 return sb.toString();
             });
+            // Shared ghosts and plans: what this client knows of mates' (and what it last sent).
+            case "/others" -> client(Others::dump);
+            // hutId x y z: a hut ghost dropped at that anchor (as if placed and clicked once), shared with mates.
+            case "/ghost" -> client(() -> {
+                if (a[0].equals("off")) Planner.stopPlacing();
+                else {
+                    Planner.startPlacing(BuiltInRegistries.BLOCK.get(net.minecraft.resources.ResourceLocation.parse(a[0])));
+                    Planner.place.follow(Integer.parseInt(a[1]), Integer.parseInt(a[2]), Integer.parseInt(a[3]));
+                    Planner.place.drop();
+                }
+                return "ok";
+            });
+            // hutId|- pack (spaces as _) path level x y z: an entry added to this player's plan (box = the anchor block); "clear" clears it.
+            case "/planentry" -> client(() -> {
+                if (a[0].equals("clear")) PlanView.clear();
+                else {
+                    int x = Integer.parseInt(a[4]), y = Integer.parseInt(a[5]), z = Integer.parseInt(a[6]);
+                    var es = new java.util.ArrayList<>(PlanView.entries);
+                    es.add(new com.volcanicmg.mccitybuilder.planner.Plan.Entry(a[0].equals("-") ? null : a[0], a[1].replace('_', ' '), a[2], Integer.parseInt(a[3]),
+                            x, y, z, 0, x, y, z, x, y, z));
+                    PlanView.setEntries(es);
+                    // Saves (and so shares) the plan.
+                    PlanView.setLines(PlanView.lines);
+                }
+                return "entries=" + PlanView.entries.size();
+            });
             // n: the last n chat lines (command feedback included), newest last.
             case "/chat" -> client(() -> {
                 var f = net.minecraft.client.gui.components.ChatComponent.class.getDeclaredField("allMessages");

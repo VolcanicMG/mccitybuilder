@@ -187,6 +187,7 @@ final class PlannerScreen extends Screen {
         linePanel(g, mouseX, mouseY);
         planPanel(g, mouseX, mouseY);
         lineLabels(g, mouseX, mouseY);
+        Others.labels(g, font, width, height);
         editOverlay(g, mouseX, mouseY);
         actionBar(g, mouseX, mouseY);
         guide(g, mouseX, mouseY);
@@ -1647,7 +1648,9 @@ final class PlannerScreen extends Screen {
                 + (b.hasWorkOrder() ? "  " + Component.translatable("mccitybuilder.has_work_order").getString() : "");
         g.drawString(font, font.plainSubstrByWidth(info, w - 2 * PAD), x + PAD + 1, y + PAD + 11, 0xFF555555, false);
         // An unbuilt hut (placed by hand, or its order cancelled): the same action reads Build.
-        String[] keys = {b.getBuildingLevel() == 0 ? "build" : "upgrade", "repair", "open", "clean", "move", "remove"};
+        // Survival, unbuilt: Pick up (the hut back to the inventory) stands in for Remove.
+        boolean pickUp = pickUpCase(b);
+        String[] keys = {b.getBuildingLevel() == 0 ? "build" : "upgrade", "repair", "open", "clean", "move", pickUp ? "pickup" : "remove"};
         // Open uses the client-side building view, so it works however buried or far the hut block is.
         Runnable[] run = {() -> upgrade(b), () -> repair(b), () -> b.openGui(false), () -> {
             if (Planner.creativeClean(b)) toast(Component.translatable("mccitybuilder.clean_sent"));
@@ -1661,7 +1664,7 @@ final class PlannerScreen extends Screen {
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : townHall ? "mccitybuilder.move.townhall" : family ? "mccitybuilder.move.family" : null,
-                removeOff(b)};
+                pickUp ? pickUpOff(b) : removeOff(b)};
         // Survival: no Clean / Move (instant only), and no Open without remote windows (the row closes up).
         int[] keep = instant ? new int[]{0, 1, 2, 3, 4, 5} : open ? new int[]{0, 1, 2, 5} : new int[]{0, 1, 5};
         String[] k2 = new String[keep.length], w2 = new String[keep.length];
@@ -1771,6 +1774,12 @@ final class PlannerScreen extends Screen {
      * instant remove (contents to the player, site cleared); survival: MineColonies' own deconstruct order for a builder.
      */
     private void remove(IBuildingView b) {
+        if (pickUpCase(b)) {
+            // No confirm: the hut comes back to the inventory.
+            if (pickUpOff(b) == null && Planner.creativeRemove(b)) toast(Component.translatable("mccitybuilder.pickup_sent"));
+            Planner.select(null);
+            return;
+        }
         if (removeOff(b) != null) return;
         if (removeArm() <= 0) {
             removeArmed = System.currentTimeMillis() + 3000;
@@ -1785,6 +1794,18 @@ final class PlannerScreen extends Screen {
             toast(Component.translatable("mccitybuilder.requested"));
         }
         Planner.select(null);
+    }
+
+    /** @return true for a survival player's unbuilt (level 0) hut: Remove becomes Pick up */
+    private static boolean pickUpCase(IBuildingView b) {
+        return !Planner.creative() && b.getBuildingLevel() == 0;
+    }
+
+    /** @return why Pick up is off, or null; an open order is no reason (picking up cancels it) */
+    private static String pickUpOff(IBuildingView b) {
+        String off = removeOff(b);
+        if (off != null && !off.equals("mccitybuilder.remove.ordered")) return off;
+        return Planner.serverInstant() ? null : "mccitybuilder.pickup.no_server";
     }
 
     /** Repair: creative with CityBuilder on the server repairs at once; otherwise a builder work order. */

@@ -329,6 +329,11 @@
   "mccitybuilder.deleted": "Removed %s blocks (only those still as the blueprint had them)",
   "mccitybuilder.restored": "Put %s blocks back as they were before it was placed",
   "mccitybuilder.remove": "Remove",
+  "mccitybuilder.pickup": "Pick up",
+  "mccitybuilder.pickup.tip": "Pick up this unbuilt hut: it goes straight back to your inventory (an open order for it is cancelled)",
+  "mccitybuilder.pickup.no_server": "Picking up needs City Builder on the server",
+  "mccitybuilder.pickup_sent": "Picking up the hut...",
+  "mccitybuilder.picked_up": "Hut picked up into your inventory (%s stacks that didn't fit dropped at your feet)",
   "mccitybuilder.remove.tip": "Remove the building (Delete; press twice): creative takes it down at once, its containers' items go to you; survival orders a builder to deconstruct it",
   "mccitybuilder.remove.townhall": "The town hall can't be removed",
   "mccitybuilder.remove.family": "Parent and child buildings can't be removed on their own",
@@ -640,5 +645,9 @@
   "mccitybuilder.align.close": "Close",
   "mccitybuilder.align.refused": "Not saved: a run's overlap would break blocks (red)",
   "mccitybuilder.align.saved": "Saved for this style",
-  "mccitybuilder.align.skipped": "Saved; %s run(s) not saved: would break blocks"
+  "mccitybuilder.align.skipped": "Saved; %s run(s) not saved: would break blocks",
+  "mccitybuilder.others.placing": "%s: placing %s",
+  "mccitybuilder.others.moving": "%s: moving %s",
+  "mccitybuilder.others.drawing": "%s: drawing a %s",
+  "mccitybuilder.others.planned": "%s's plan: %s"
 }

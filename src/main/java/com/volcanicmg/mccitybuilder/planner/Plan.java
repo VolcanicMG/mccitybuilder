@@ -840,4 +840,38 @@ public final class Plan {
             return dflt;
         }
     }
+
+    // ---- shared with colony mates: what a server accepts from a client's plan (the pack itself is checked there) ----
+
+    /** Longest strings, and the biggest box per axis, a shared plan may hold. */
+    public static final int MAX_NAME = 256, MAX_PATH = 512, MAX_BOX = 256;
+
+    /** @return true when (x, z) is within {@code reach} blocks of the colony centre (cx, cz) on both axes */
+    public static boolean near(int x, int z, int cx, int cz, int reach) {
+        return Math.abs((long) x - cx) <= reach && Math.abs((long) z - cz) <= reach;
+    }
+
+    /**
+     * @return true for a planned entry a server may keep and pass on: short names, a safe blueprint path, a sane level
+     * and turn, anchor and box near the colony centre and within the build height, a box of at most {@link #MAX_BOX}
+     */
+    public static boolean shareable(Entry e, int cx, int cz, int reach, int minY, int maxY) {
+        if (e.hut() != null && (e.hut().length() > MAX_NAME || !e.hut().matches("[a-z0-9_.-]+:[a-z0-9_./-]+"))) return false;
+        if (e.pack() == null || e.pack().isEmpty() || e.pack().length() > MAX_NAME || e.path() == null || e.path().length() > MAX_PATH
+                || PasteRules.badPath(e.path(), 0) != null) return false;
+        if (e.level() < 0 || e.level() > 64 || e.rot() < 0 || e.rot() > 7) return false;
+        if (e.minX() > e.maxX() || e.minY() > e.maxY() || e.minZ() > e.maxZ() || e.maxX() - e.minX() >= MAX_BOX || e.maxY() - e.minY() >= MAX_BOX
+                || e.maxZ() - e.minZ() >= MAX_BOX) return false;
+        return near(e.x(), e.z(), cx, cz, reach) && near(e.minX(), e.minZ(), cx, cz, reach) && near(e.maxX(), e.maxZ(), cx, cz, reach)
+                && e.y() >= minY && e.y() <= maxY && e.minY() >= minY - MAX_BOX && e.maxY() <= maxY + MAX_BOX;
+    }
+
+    /** @return true for a planned (not built) road / wall segment a server may keep and pass on, both ends near the centre */
+    public static boolean shareable(Line l, int cx, int cz, int reach) {
+        if (l.built() || !"road".equals(l.tool()) && !"wall".equals(l.tool())) return false;
+        if (l.pack() == null || l.pack().isEmpty() || l.pack().length() > MAX_NAME || l.family() == null || l.family().length() > MAX_NAME) return false;
+        if (Math.abs((long) l.x1() - l.x0()) + Math.abs((long) l.z1() - l.z0()) > MAX_LINE) return false;
+        if (l.height() < FOLLOW || l.height() > SMOOTH || Math.abs(l.dy()) > 64 || l.base() != NO_BASE && Math.abs(l.base()) > 4096) return false;
+        return near(l.x0(), l.z0(), cx, cz, reach) && near(l.x1(), l.z1(), cx, cz, reach);
+    }
 }

@@ -144,6 +144,7 @@ public final class DecoSync {
         }
         watching.put(p.getUUID(), q.colony);
         send(p, p.serverLevel(), q.colony);
+        PlanShare.sendAll(p, p.serverLevel(), colony);
     }
 
     /** A colony's records changed: its watchers in that dimension get the new list at the end of a tick. */
