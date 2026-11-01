@@ -2,6 +2,9 @@
 
 ## 1.0.0-beta.1
 
+- Camera: no more jitter low over terrain or when turning at the colony edge (terrain under and around the camera
+  is weighed by distance instead of whole-block windows, the climb eases in, turning against the edge keeps its
+  distance to the centre), and panning no longer slows down when the view looks at a hill.
 - Planner view beyond your render distance (where Distant Horizons shows only LOD terrain): each building there gets
   its outline, and the nearest 16 show their blocks at their current level as a preview (client config
   `showUnloadedBuildings`, default on). Citizens without a loaded entity show as hollow dots at their last known

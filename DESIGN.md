@@ -83,19 +83,25 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   (at most 40). Using NO_LEAVES made the baseline about -64 in a real game: the zoom-out cap sat ~30 above the land
   and the zoom-in floor underground.
 - The per-frame loop is `planner/CameraRig` (pure, driven by a `World` of column heights): baseline sampling at 4 Hz,
-  terrain follow, ceiling, then `DroneCamera.step` with two surface inputs (leaves included): the **clearance**
-  obstacle (within 2 blocks of the drawn and target position, and every 4 blocks ahead along the pan velocity up to
-  one frame + 1.5 s + 4 blocks, at most 64; nothing ahead while not panning, so turning in place never reacts to
-  what the view sweeps across), which lifts the camera through the eased clearance (held 0.6 s before it releases,
-  so it doesn't flicker) and the speed cap; and the **hard floor** (within 2 blocks of the drawn and target position only), applied last as an instant
-  raise to floor + 3. The hard floor is the drawn position's footprint only; the target's footprint (and the way the
-  drawn camera still has to glide to it) feeds the eased clearance, half a block high so the climb really reaches
-  it, and the drawn x / z is held back while the next step would be over something it can't clear yet. A target jump
-  (V, zoom-to-cursor, an orbit step) beside a tall building therefore glides up instead of snapping ~13 blocks.
-  Things coming into view lift the camera smoothly; only ground right under it can snap it. The vertical cap is max(16, 3 x height over the obstacle, 8 x the remaining gap) blocks/s. While a turn
-  holds terrain follow back, the ceiling and the saved height use the baseline minus the held change; yaw-only
-  turns keep the current distance to the pivot. The zoom minimum is `max(baseline, last floor) + minHeight`. SelfCheck runs
-  the rig end to end (open, zoom fully out / in, flat / hill / tower / trees, panning into a 60-block wall).
+  terrain follow, ceiling, then `DroneCamera.step` with two surface inputs (leaves included), both continuous in x / z
+  so moving or orbiting never steps them by a whole block (whole-block window edges were the jitter near terrain):
+  the **clearance** obstacle (columns within 2 blocks of the drawn and target position at full height, then 1 block
+  lower per block out to 4; and every 4 blocks ahead along the drawn camera's own last movement - pan, orbit or
+  glide - up to one frame + 1.5 s + 4 blocks, at most 64; nothing ahead while it isn't moving, so turning in place
+  never reacts to what the view sweeps across), which lifts the camera through the clearance (a critically damped
+  spring toward the need, acceleration capped at 150 blocks/s², held 0.6 s before it releases) and the speed cap; and
+  the **hard floor**: 1.5 above the column under the drawn camera, 2 lower per block of distance for the columns
+  within 2 (never inside one), applied before and after the frame's move. Where the move would need more climb than
+  the vertical cap allows this frame (a wall), the drawn x / z is held while the clearance climbs; anything less is a
+  climb, so the hold no longer toggles over small bumps. The full 3-block clearance comes from the eased path. The
+  vertical cap is max(16, 3 x height over the obstacle, 8 x the remaining gap) blocks/s. Pan speed is from the
+  altitude above the terrain baseline (minus a turn's held follow), not the screen-centre hit, so looking at a hill
+  doesn't slow it. While a turn holds terrain follow back, the ceiling and the saved height use the baseline minus
+  the held change; yaw-only turns keep the current distance to the pivot, and a turn clamped by the bounds moves the
+  pivot with the camera (it slides along the edge at the same radius). The zoom minimum is
+  `max(baseline, last floor) + minHeight`. SelfCheck runs the rig end to end (open, zoom fully out / in, flat / hill /
+  tower / trees, panning into a 60-block wall) and measures jitter (orbits beside steps and over trees, an orbit into
+  the box edge, pans along a ridge, over trees and past a hill).
 - No jumps: `DroneCamera.y()` / `camX()` / `camZ()` (what is drawn and picked from) follow the targets at capped
   speeds (vertical max(16, 3 x height above local terrain) b/s; horizontal max(32, 6 x height, 1.5 x pan velocity)),
   so clamps, turns and any remaining discontinuity glide. A pivot farther than 4 x its height below the camera turns

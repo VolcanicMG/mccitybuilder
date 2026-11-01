@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * The planner camera's whole per-frame height loop, pure so it can be tested end to end: terrain baseline sampling
- * (4 Hz), terrain follow, the render-distance ceiling, then the drone step with the local surface as its hard floor.
+ * (4 Hz), terrain follow, the render-distance ceiling, then the drone step over continuous clearance and floor heights.
  * The client supplies a {@link World} over the real level; SelfCheck supplies synthetic terrain.
  */
 public final class CameraRig {
@@ -24,7 +24,8 @@ public final class CameraRig {
     public boolean followTerrain = true;
     /** The world's build height (the zoom-out limit's hard top). */
     public double top = 320;
-    private double broad = Double.NaN, clock, pendingFollow;
+    // The drawn camera's movement last frame, blocks/s (pan, orbit or glide), for the look-ahead.
+    private double broad = Double.NaN, clock, pendingFollow, moveX, moveZ;
     private boolean clampedOnce;
 
     public CameraRig(DroneCamera drone) {
@@ -39,7 +40,7 @@ public final class CameraRig {
     /**
      * One frame.
      *
-     * @param centreGround height of the screen-centre hit (pan speed only), NaN on a miss
+     * @param centreGround height of the screen-centre hit (pan speed until the first baseline sample), NaN on a miss
      * @param pivot        turn pivot or null; @param turnRate degrees per second
      */
     public void frame(World w, double dt, double right, double ahead, double turnRate, double[] pivot, double speedPerBlock, double centreGround) {
@@ -67,13 +68,52 @@ public final class CameraRig {
         if (Double.isFinite(under)) drone.groundTop = under;
         // Look-ahead and the target position only lift through the eased clearance; the instant floor is what is right
         // under the drawn camera (a target jump - V, zoom-to-cursor, an orbit step - must not snap it up).
-        double floor = footprint(w, drone.camX(), drone.camZ());
-        double px = drone.camX(), pz = drone.camZ();
-        // Half a block extra, so the eased climb actually reaches what the drawn camera waits for below.
-        drone.step(dt, right, ahead, turnRate, pivot, speedPerBlock, centreGround, localSurface(w, dt) + 0.5, floor);
-        // Never glide over something higher than the camera can clear yet: hold the drawn x / z while it climbs.
-        double next = footprint(w, drone.camX(), drone.camZ());
-        if (next + DroneCamera.CLEARANCE > drone.y() + 1e-6 && next > floor) drone.holdDrawn(px, pz);
+        // Pan speed from the camera's height above the terrain baseline (the reference its altitude keeps), not the
+        // screen-centre hit: looking at a hill must not slow the pan.
+        double speedGround = Double.isNaN(baseline()) ? centreGround : baseline() - pendingFollow, px = drone.camX(), pz = drone.camZ(), py = drone.y();
+        // Half a block extra, so the eased climb actually reaches what the drawn camera needs below.
+        drone.step(dt, right, ahead, turnRate, pivot, speedPerBlock, speedGround, localSurface(w, dt, moveX, moveZ) + 0.5,
+                floor(w, drone.camX(), drone.camZ()) - DroneCamera.CLEARANCE);
+        // Where the drawn camera went this frame: the floor there too. It is continuous, so near terrain that is a climb
+        // within the speed cap; only something too tall to climb this frame (a wall) holds the drawn x / z while it rises.
+        double next = floor(w, drone.camX(), drone.camZ());
+        if (next > py + drone.vStep() + 1e-9) drone.holdDrawn(px, pz);
+        else drone.raiseTo(next);
+        moveX = dt > 0 ? (drone.camX() - px) / dt : 0;
+        moveZ = dt > 0 ? (drone.camZ() - pz) / dt : 0;
+    }
+
+    /**
+     * The hard floor: {@link #FLOOR_GAP} above the column under the camera, falling off by {@link #FLOOR_FALL} per block
+     * of distance for the columns around (never inside one); the full {@link DroneCamera#CLEARANCE} comes from the
+     * eased clearance, whose obstacle falls off by {@link #OBSTACLE_FALL} per block.
+     */
+    public static final double FLOOR_GAP = 1.5, FLOOR_FALL = 2, OBSTACLE_FALL = 1;
+
+    /**
+     * @return the lowest height the drawn camera may be at over (x, z), -inf with none loaded; continuous in x / z,
+     * so moving or orbiting never makes it jump by a block
+     */
+    public double floor(World w, double x, double z) {
+        return near(w, x, z, 2, 0, FLOOR_FALL) + FLOOR_GAP;
+    }
+
+    /**
+     * @return the highest surface around (x, z) within {@code r} columns, each lowered by {@code fall} per block of
+     * distance to it beyond {@code full} blocks
+     */
+    private static double near(World w, double x, double z, int r, double full, double fall) {
+        double top = Double.NEGATIVE_INFINITY;
+        int cx = (int) Math.floor(x), cz = (int) Math.floor(z);
+        for (int dx = -r; dx <= r; dx++)
+            for (int dz = -r; dz <= r; dz++) {
+                Integer h = w.surface(cx + dx, cz + dz);
+                if (h == null) continue;
+                // Distance from the point to the column's square (0 inside it).
+                double ex = Math.max(0, Math.max(cx + dx - x, x - (cx + dx + 1))), ez = Math.max(0, Math.max(cz + dz - z, z - (cz + dz + 1)));
+                top = Math.max(top, h - fall * Math.max(0, Math.hypot(ex, ez) - full));
+            }
+        return top;
     }
 
     /** @return terrain-follow change held back during a turn (not yet applied to the altitude) */
@@ -98,13 +138,19 @@ public final class CameraRig {
         return top;
     }
 
-    /**
-     * @return the highest surface over the camera's footprint (drawn and target position, 2 blocks around) and ahead
-     * along the movement by this frame's move plus 1.5 s and 4 blocks; nothing ahead when not moving, so turning in
-     * place never reacts to what the view sweeps across
-     */
+    /** {@link #localSurface(World, double, double, double)} with the pan velocity as the movement. */
     public double localSurface(World w, double dt) {
-        double vx = drone.velocityX(), vz = drone.velocityZ(), v = Math.hypot(vx, vz), look = v > 1e-6 ? v * (dt + 1.5) + 4 : 0;
+        return localSurface(w, dt, drone.velocityX(), drone.velocityZ());
+    }
+
+    /**
+     * @return the highest surface over the camera's footprint (drawn and target position, 2 blocks around, then
+     * falling off by {@link #OBSTACLE_FALL} per block out to 4 so a column coming near raises it gradually) and ahead along the
+     * movement {@code vx, vz} (blocks/s) by this frame's move plus 1.5 s and 4 blocks; nothing ahead when not moving,
+     * so turning in place never reacts to what the view sweeps across
+     */
+    public double localSurface(World w, double dt, double vx, double vz) {
+        double v = Math.hypot(vx, vz), look = v > 1e-6 ? v * (dt + 1.5) + 4 : 0;
         List<double[]> at = new ArrayList<>(List.of(new double[]{drone.camX(), drone.camZ()}, new double[]{drone.x, drone.z}));
         // ponytail: samples every 4 blocks up to 64 ahead; a faster pan sees less ahead (it is high up then anyway).
         for (double s = 4; v > 1e-6 && s <= Math.min(look, 64); s += 4) at.add(new double[]{drone.x + vx / v * s, drone.z + vz / v * s});
@@ -112,12 +158,7 @@ public final class CameraRig {
         double gx = drone.x - drone.camX(), gz = drone.z - drone.camZ(), gd = Math.hypot(gx, gz);
         for (double s = 4; s < Math.min(gd, 64); s += 4) at.add(new double[]{drone.camX() + gx / gd * s, drone.camZ() + gz / gd * s});
         double top = Double.NEGATIVE_INFINITY;
-        for (double[] p : at)
-            for (int dx = -2; dx <= 2; dx++)
-                for (int dz = -2; dz <= 2; dz++) {
-                    Integer h = w.surface((int) Math.floor(p[0]) + dx, (int) Math.floor(p[1]) + dz);
-                    if (h != null) top = Math.max(top, h);
-                }
+        for (double[] p : at) top = Math.max(top, near(w, p[0], p[1], 4, 2, OBSTACLE_FALL));
         return top;
     }
 }

@@ -253,11 +253,12 @@ public final class SelfCheck {
         return r.drone.y();
     }
 
-    /** Fails if the drawn camera is inside or below the surface right around it. */
+    /** Fails if the drawn camera is inside, or closer than the floor gap above, the surface right around it. */
     private static void aboveSurface(com.volcanicmg.mccitybuilder.planner.CameraRig r, Terrain w, String what) {
         DroneCamera d = r.drone;
         int cx = (int) Math.floor(d.camX()), cz = (int) Math.floor(d.camZ());
-        check(d.y() >= w.surface(cx, cz) + DroneCamera.CLEARANCE - 1e-6, what + ": below surface + clearance at y " + d.y());
+        // The hard floor's gap right under it (the full clearance is eased in on top).
+        check(d.y() >= w.surface(cx, cz) + CameraRig.FLOOR_GAP - 1e-6, what + ": below surface + floor gap at y " + d.y());
         for (int dx = -1; dx <= 1; dx++)
             for (int dz = -1; dz <= 1; dz++) check(d.y() > w.surface(cx + dx, cz + dz), what + ": inside a block at y " + d.y());
     }
@@ -268,6 +269,101 @@ public final class SelfCheck {
      * local surface) + minHeight), never inside the ground; on flat land, a hill, a tower; and panning at normal and
      * fast speed into a 60-block cliff wall while low.
      */
+    /** Per-frame smoothness of one camera run: max |second difference| of drawn x / y / z, dy sign flips, holds, speeds. */
+    private record Jerk(double x, double y, double z, int flips, double minSpeed, double maxSpeed, double lowY, double highY, double minR, double maxR) {
+        @Override
+        public String toString() {
+            return String.format("jerk x %.4f y %.4f z %.4f, dy flips %d, h speed %.2f..%.2f, y %.1f..%.1f", x, y, z, flips, minSpeed, maxSpeed, lowY, highY)
+                    + (Double.isNaN(minR) ? "" : String.format(", orbit radius %.2f..%.2f", minR, maxR));
+        }
+    }
+
+    /**
+     * Runs the rig for {@code frames} at 60 fps with fixed input (orbiting the screen-centre ground point when
+     * {@code turn} is set, the centre ground read off the terrain like the client's ray), after a 2 s settle.
+     */
+    private static Jerk jerk(com.volcanicmg.mccitybuilder.planner.CameraRig r, Terrain w, int frames, double ahead, double turn, String what) {
+        double dt = 1 / 60.0;
+        java.util.function.Supplier<Double> centre = () -> {
+            double[] c = r.drone.centreOn(64);
+            return c == null ? Double.NaN : (double) w.ground((int) Math.floor(c[0]), (int) Math.floor(c[2]));
+        };
+        for (int i = 0; i < 120; i++) r.frame(w, dt, 0, 0, 0, null, 1.2, centre.get());
+        double[] pivot = turn != 0 ? r.drone.centreOn(64) : null;
+        List<double[]> p = new java.util.ArrayList<>();
+        double minR = Double.NaN, maxR = Double.NaN;
+        for (int i = 0; i < frames; i++) {
+            r.frame(w, dt, 0, ahead, turn, pivot, 1.2, centre.get());
+            if (pivot != null) {
+                double rad = Math.hypot(pivot[0] - r.drone.x, pivot[2] - r.drone.z);
+                minR = Double.isNaN(minR) ? rad : Math.min(minR, rad);
+                maxR = Double.isNaN(maxR) ? rad : Math.max(maxR, rad);
+            }
+            aboveSurface(r, w, what);
+            p.add(new double[]{r.drone.camX(), r.drone.y(), r.drone.camZ()});
+        }
+        double[] j = new double[3];
+        int flips = 0;
+        double lastDy = 0, minS = Double.MAX_VALUE, maxS = 0, lowY = Double.MAX_VALUE, highY = -Double.MAX_VALUE;
+        for (double[] q : p) {
+            lowY = Math.min(lowY, q[1]);
+            highY = Math.max(highY, q[1]);
+        }
+        for (int i = 1; i < p.size() - 1; i++) {
+            for (int k = 0; k < 3; k++) j[k] = Math.max(j[k], Math.abs(p.get(i + 1)[k] - 2 * p.get(i)[k] + p.get(i - 1)[k]));
+            double dy = p.get(i)[1] - p.get(i - 1)[1];
+            if (Math.abs(dy) > 1e-4) {
+                if (lastDy != 0 && Math.signum(dy) != Math.signum(lastDy)) flips++;
+                lastDy = dy;
+            }
+            // Speed after the first half second (acceleration).
+            if (i > 30) {
+                double s = Math.hypot(p.get(i)[0] - p.get(i - 1)[0], p.get(i)[2] - p.get(i - 1)[2]) / dt;
+                minS = Math.min(minS, s);
+                maxS = Math.max(maxS, s);
+            }
+        }
+        Jerk out = new Jerk(j[0], j[1], j[2], flips, minS, maxS, lowY, highY, minR, maxR);
+        System.out.println("CityBuilder self-check: camera " + what + ": " + out);
+        return out;
+    }
+
+    /**
+     * Jitter near terrain and the border: orbits (Q/E) low beside a step and over bumpy ground, an orbit pushing
+     * against the colony box, a pan along a jagged ridge; and the pan speed over flat ground vs toward a hill.
+     */
+    private static void cameraJitter() {
+        // At the default lowest zoom (10 above the baseline), beside things taller than the clearance allows. Limits:
+        // drawn acceleration in blocks / frame² at 60 fps (0.08 ≈ 290 blocks/s²; a whole-block snap is >= 1), no
+        // height wobble (at most 2 direction changes: up, down), no held / bursting horizontal speed.
+        java.util.function.IntBinaryOperator trees = (x, z) -> Math.floorMod(x * 73856093 ^ z * 19349663, 11) == 0 ? 64 + 6 + Math.floorMod(x * 31 + z * 17, 4) : 64;
+        List<Jerk> smooth = new java.util.ArrayList<>();
+        for (int step : new int[]{8, 12}) {
+            Terrain cliff = new Terrain((x, z) -> x >= 0 ? 64 + step : 64, (x, z) -> 64);
+            smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(-5, 64 + 10, 0, 0)), cliff, 240, 0, 90, "orbit beside a " + step + "-block step"));
+        }
+        smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0)), new Terrain((x, z) -> 64, trees), 240, 0, 90, "orbit over trees"));
+        Terrain ridge = new Terrain((x, z) -> 64, (x, z) -> x == 2 + Math.floorMod(z / 3, 2) ? 64 + (Math.floorMod(z, 5) < 2 ? 9 : 6) : 64);
+        smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0)), ridge, 300, 1, 0, "pan along a ridge"));
+        smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0)), new Terrain((x, z) -> 64, trees), 300, 1, 0, "pan over trees"));
+        for (Jerk j : smooth) {
+            // Pans start from rest: their first frames' acceleration (0.034) is the intended ease-in.
+            check(j.x() <= 0.04 && j.y() <= 0.08 && j.z() <= 0.04, "camera jerks near terrain: " + j);
+            check(j.flips() <= 2, "camera height wobbles near terrain: " + j);
+            check(j.minSpeed() >= 0.95 * j.maxSpeed(), "camera held or burst sideways near terrain: " + j);
+        }
+        // Orbiting into the colony box: the camera slides along the edge at the same distance from the pivot.
+        var edge = new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(15, 64 + 20, 0, 0));
+        edge.drone.box = new double[]{-20, -20, 20, 20};
+        Jerk e = jerk(edge, new Terrain((x, z) -> 64, (x, z) -> 64), 240, 0, 90, "orbit against the box edge");
+        check(e.maxR() - e.minR() < 0.01 && e.y() < 1e-9, "orbit at the box edge changes its radius or height: " + e);
+        // Pan speed comes from the height above the terrain, not the screen-centre hit: looking at a hill doesn't slow it.
+        Jerk flat = jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 12, 0, 0)), new Terrain((x, z) -> 64, (x, z) -> 64), 240, 1, 0, "pan over flat land");
+        Terrain hill = new Terrain((x, z) -> (int) Math.round(64 + 14 * Math.exp(-(x * x + (z - 40) * (z - 40)) / 300.0)), (x, z) -> 64);
+        Jerk h = jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(-14, 64 + 12, 0, 0)), hill, 240, 1, 0, "pan past a hill");
+        check(h.minSpeed() >= 0.95 * flat.maxSpeed(), "panning toward a hill slows the camera: " + h + " vs flat " + flat);
+    }
+
     private static void rigIntegration() {
         double dt = 1 / 60.0;
         java.util.Map<String, Terrain> worlds = new java.util.LinkedHashMap<>();
@@ -482,6 +578,7 @@ public final class SelfCheck {
         noJumps();
         neverUnderground();
         rigIntegration();
+        cameraJitter();
         clientColumns();
         rigEdges();
         // Pan speed scales with the height above ground; release stops at once.
