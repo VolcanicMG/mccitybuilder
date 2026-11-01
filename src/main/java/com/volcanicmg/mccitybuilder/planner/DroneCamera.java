@@ -42,6 +42,8 @@ public final class DroneCamera {
     /** The surface right under the camera's footprint (set by the rig): the zoom minimum sits above it. */
     public double groundTop = Double.NEGATIVE_INFINITY;
     // The last finite obstacle height, used when a frame has no loaded columns.
+    // This frame's orbit speed (blocks/s), set by step: the drawn speed cap never holds an orbit back.
+    private double orbitSpeed;
     private double lastObstacle = Double.NaN, lastFloor = Double.NaN, vStep, clearHeld, clearVel;
     /** Where x / z may go: a circle (the loaded area) and a box (the colony + margin, or null); the circle wins. */
     public double circleX, circleZ, circleR = Double.POSITIVE_INFINITY;
@@ -203,10 +205,11 @@ public final class DroneCamera {
         // Hard floor, last: never inside the ground right under the camera, even if that means a jump up.
         yOut = Math.max(yOut, floorTop + CLEARANCE);
         // Never below the intended pan speed (fast pan included): this only turns jumps into glides.
-        double hmax = Math.max(Math.max(MIN_HSPEED, HSPEED_PER_BLOCK * Math.max(0, yOut - obstacleTop)), 1.5 * Math.hypot(vx, vz)) * dt, dx = x - xOut, dz = z - zOut, dist = Math.hypot(dx, dz);
+        double hmax = Math.max(Math.max(MIN_HSPEED, HSPEED_PER_BLOCK * Math.max(0, yOut - obstacleTop)), 1.5 * Math.max(Math.hypot(vx, vz), orbitSpeed)) * dt, dx = x - xOut, dz = z - zOut, dist = Math.hypot(dx, dz);
         double f = dist > hmax ? hmax / dist : 1;
         xOut += dx * f;
         zOut += dz * f;
+        orbitSpeed = 0;
     }
 
     /**
@@ -222,7 +225,10 @@ public final class DroneCamera {
 
     /** {@link #step} with the hard floor separate from the clearance obstacle (see the 7-argument update). */
     public void step(double dt, double right, double ahead, double turnRate, double[] pivot, double speedPerBlock, double ground, double obstacleTop, double floorTop) {
+        double bx = x, bz = z;
         if (turnRate != 0) turn(pivot, (float) (turnRate * dt), 0);
+        // An orbit moves the target smoothly: the drawn camera keeps up with it (the cap is for jumps).
+        orbitSpeed = dt > 0 ? Math.hypot(x - bx, z - bz) / dt : 0;
         double ox = x, oz = z;
         update(dt, right, ahead, speedPerBlock, ground, obstacleTop, floorTop);
         // The pivot moves by the clamped move, so it can't creep outward against a bound.
