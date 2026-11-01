@@ -172,7 +172,8 @@ public final class CameraRig {
      * movement leaves the circle, so a tall building beside the orbit came too late and the floor had to lift the camera.
      */
     public double orbitAhead(World w, double turnRate, double[] pivot) {
-        if (pivot == null || turnRate == 0) return Double.NEGATIVE_INFINITY;
+        // Only an orbit sweeps an arc; a turn in place (see DroneCamera.orbits) stays where it is.
+        if (turnRate == 0 || !drone.orbits(pivot)) return Double.NEGATIVE_INFINITY;
         double d = Math.hypot(drone.x - pivot[0], drone.z - pivot[2]), sweep = Math.toRadians(turnRate) * 1.5;
         int n = (int) Math.min(16, Math.ceil(Math.abs(sweep) * d / 4));
         double top = Double.NEGATIVE_INFINITY;

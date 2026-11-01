@@ -251,8 +251,8 @@ public final class DroneCamera {
     public void turn(double[] pivot, float dyaw, float dpitch) {
         float newYaw = (yaw + dyaw) % 360, newPitch = (float) CameraMath.clamp(pitch + dpitch, MIN_PITCH, MAX_PITCH);
         // A far or odd pivot (horizon, a distant mountain) would swing the camera sideways: turn in place then.
-        if (pivot != null && Math.hypot(pivot[0] - x, pivot[2] - z) > PIVOT_REACH * Math.max(10, y() - pivot[1])) pivot = null;
-        if (pivot != null && y() > pivot[1]) {
+        if (!orbits(pivot)) pivot = null;
+        if (pivot != null) {
             // Yaw only: keep the distance (clearance lifting y mid-turn must not widen the orbit); tilt: from the height.
             double d = dpitch == 0 ? Math.hypot(pivot[0] - x, pivot[2] - z) : (y() - pivot[1]) / Math.tan(Math.toRadians(newPitch));
             double[] f = CameraMath.forward(newYaw, 0);
@@ -268,6 +268,11 @@ public final class DroneCamera {
             pivot[0] += x - ux;
             pivot[2] += z - uz;
         }
+    }
+
+    /** @return true when a turn swings around {@code pivot}; false when it turns in place (none, too far, or above the camera) */
+    public boolean orbits(double[] pivot) {
+        return pivot != null && y() > pivot[1] && Math.hypot(pivot[0] - x, pivot[2] - z) <= PIVOT_REACH * Math.max(10, y() - pivot[1]);
     }
 
     /** Keeps x / z inside the box, then the circle (the loaded area always wins when they don't overlap). */
