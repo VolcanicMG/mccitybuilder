@@ -1214,7 +1214,7 @@ final class PlannerScreen extends Screen {
         int gridH = decoMode ? Math.max(1, Math.min(drows.size(), DECO_ROWS)) * DECO_ROW_H : rows * SLOT;
         Map<String, Integer> need = Planner.placingHut != null ? Blueprints.cost(Planner.placingHut) : null;
         // The placing block; a hut adds a level picker row.
-        int placingH = !Planner.isPlacing() ? 12 : 62 + (levelPicker() ? 20 : 0);
+        int placingH = !Planner.isPlacing() ? 12 : 62 + (levelPicker() ? 20 : 0) + (designPicker() ? 20 : 0) + (builderPickerShown() ? 20 : 0);
         int fixedH = PAD + 20 + 16 + 4 + 20 + 20 + (recent.isEmpty() ? 0 : 10 + SLOT + 4) + gridH + 6 + placingH + 12 + 10 + PAD;
         // As many material rows as fit on screen (at least 3, at most 12).
         int costRows = Math.max(3, Math.min(COST_ROWS, (height - 8 - fixedH) / 10));
@@ -1343,8 +1343,8 @@ final class PlannerScreen extends Screen {
         }
         yy += levelPicker() ? 82 : 62;
         // Design picker for huts the style pack has alternatives for (a move keeps the building's own).
-        List<Blueprints.Hut> alts = Planner.placing == null || Planner.moving != null ? null : Blueprints.alts(pack(), Planner.placing);
-        if (alts != null && alts.size() > 1) {
+        List<Blueprints.Hut> alts = designPicker() ? Blueprints.alts(pack(), Planner.placing) : null;
+        if (alts != null) {
             int n = Math.floorMod(Planner.placingAlt, alts.size());
             yy = picker(g, ix, yy - 2, iw, Component.translatable("mccitybuilder.design", Blueprints.altName(alts, n), n + 1, alts.size()).getString(), mx, my, d -> {
                 Planner.setPlacingAlt(Math.floorMod(n + d, alts.size()));
@@ -1352,7 +1352,7 @@ final class PlannerScreen extends Screen {
             }, Component.translatable("mccitybuilder.design.tip"));
         }
         // Survival huts: which builder takes the build order (decorations go through MineColonies' own window, which asks).
-        if (Planner.placing != null && Planner.moving == null && !Planner.creative()) yy = builderPicker(g, ix, yy - 2, iw, mx, my, false);
+        if (builderPickerShown()) yy = builderPicker(g, ix, yy - 2, iw, mx, my, false);
         // The list is the shown blueprint's: the picked level's for a hut (that level alone, not the levels below).
         g.drawString(font, Planner.placing != null ? Component.translatable("mccitybuilder.materials", Planner.placingLevel)
                 : Component.translatable("mccitybuilder.materials_deco"), ix + 1, yy, VanillaUi.LABEL, false);
@@ -1668,6 +1668,17 @@ final class PlannerScreen extends Screen {
     /** @return true when the placing panel offers a level: a hut (survival: not while moving, which is creative anyway) */
     private static boolean levelPicker() {
         return Planner.placing != null && (Planner.creative() || Planner.moving == null);
+    }
+
+    // The placing panel's optional rows: one condition each for its height and its drawing.
+    private static boolean designPicker() {
+        if (Planner.placing == null || Planner.moving != null) return false;
+        List<Blueprints.Hut> alts = Blueprints.alts(pack(), Planner.placing);
+        return alts != null && alts.size() > 1;
+    }
+
+    private static boolean builderPickerShown() {
+        return Planner.placing != null && Planner.moving == null && !Planner.creative();
     }
 
     private void selection(GuiGraphics g, int mx, int my) {
