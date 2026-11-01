@@ -162,7 +162,8 @@ final class OverlayView {
     private static Vec3 where(ICitizenDataView c) {
         Entity e = entity(c);
         if (e != null) return e.position().add(0, e.getBbHeight() + 0.3, 0);
-        if (c == null) return null;
+        // Present but dying / removed: no marker (the last known spot is only for citizens this client hasn't got).
+        if (c == null || present(c) != null) return null;
         BlockPos p = c.getPosition();
         if (p == null || p.equals(BlockPos.ZERO)) p = c.getWorkBuilding();
         if (p == null || p.equals(BlockPos.ZERO)) return null;
@@ -189,6 +190,12 @@ final class OverlayView {
      * respawned (a new id, sent only with the next citizen view update), which left those citizens without a dot.
      */
     private static Entity entity(ICitizenDataView c) {
+        Entity e = present(c);
+        return e != null && Overlays.showCitizen(true, e.isAlive() && !e.isRemoved()) ? e : null;
+    }
+
+    /** @return the citizen's entity on this client, alive or not, or null when the client hasn't got one */
+    private static Entity present(ICitizenDataView c) {
         if (c == null) return null;
         Entity e = live.get(c.getId());
         if (e == null) {
@@ -197,7 +204,7 @@ final class OverlayView {
             // The view's entity id can outlive the citizen and be reused: only a citizen entity that is this citizen counts.
             if (byId instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce && (ce.getCivilianID() == 0 || ce.getCivilianID() == c.getId())) e = byId;
         }
-        return e != null && Overlays.showCitizen(true, e.isAlive() && !e.isRemoved()) ? e : null;
+        return e;
     }
 
     /** @return about how far from the player (blocks) this client is sent citizens: beyond it they have no dot */
