@@ -47,7 +47,8 @@ final class FarBuildings {
         List<IBuildingView> out = new ArrayList<>();
         for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) {
             BlockPos p = b.getPosition();
-            if (!mc.level.hasChunk(p.getX() >> 4, p.getZ() >> 4)) out.add(b);
+            // The chunk itself: the client's hasChunk stays true for chunks the server told it to drop.
+            if (mc.level.getChunkSource().getChunk(p.getX() >> 4, p.getZ() >> 4, false) == null) out.add(b);
         }
         var cam = mc.gameRenderer.getMainCamera().getPosition();
         out.sort(java.util.Comparator.comparingDouble(b -> b.getPosition().distToCenterSqr(cam)));

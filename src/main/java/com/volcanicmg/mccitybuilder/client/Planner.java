@@ -71,7 +71,8 @@ public final class Planner {
         @Override
         public boolean loaded(int x, int z) {
             var l = Minecraft.getInstance().level;
-            return l != null && l.hasChunk(x >> 4, z >> 4);
+            // The chunk itself, not hasChunk: on a client that answers true for chunks it has dropped (seen on a server).
+            return l != null && l.getChunkSource().getChunk(x >> 4, z >> 4, false) != null;
         }
 
         @Override
