@@ -188,7 +188,11 @@ public final class DroneCamera {
             // Moving past what is needed (rising) or the goal (falling): full damping brakes it within a few frames, so
             // it never carries on for the hold to keep (no stop dead either: that was a kick of its own).
             boolean past = clearVel > 0 && clearance >= needed || clearVel < 0 && clearance <= goal;
-            clearVel += (past ? -2 * w * clearVel : CameraMath.clamp(w * w * (goal - clearance) - 2 * w * clearVel, -CLEAR_ACCEL, CLEAR_ACCEL)) * h;
+            // Speeding up is capped; braking never is (a capped brake overshot, then stopped dead at zero).
+            double acc = w * w * (goal - clearance) - 2 * w * clearVel;
+            if (past) acc = -2 * w * clearVel;
+            else if (acc * clearVel >= 0) acc = CameraMath.clamp(acc, -CLEAR_ACCEL, CLEAR_ACCEL);
+            clearVel += acc * h;
             // Braked to (nearly) a stop: stopped, so the spring takes over again.
             if (past && Math.abs(clearVel) < 0.05) clearVel = 0;
             clearance += clearVel * h;

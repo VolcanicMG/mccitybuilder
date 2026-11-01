@@ -417,8 +417,18 @@ public final class SelfCheck {
                 d.update(dt, 0, 0, 1, 64, 74 - DroneCamera.CLEARANCE + gap, 64);
                 peak = Math.max(peak, d.clearance);
             }
-            System.out.printf("CityBuilder self-check: clearance step of %.0f: peak %.3f%n", gap, peak);
+            // ...and the release back to open ground settles, no stop dead at zero.
+            double prev = d.clearance, prevV = 0, kick = 0;
+            for (int i = 0; i < 300; i++) {
+                d.update(1 / 60.0, 0, 0, 1, 64, 64, 64);
+                double v = d.clearance - prev;
+                kick = Math.max(kick, Math.abs(v - prevV));
+                prev = d.clearance;
+                prevV = v;
+            }
+            System.out.printf("CityBuilder self-check: clearance step of %.0f: peak %.3f, release max accel %.4f blocks/frame², left %.3f%n", gap, peak, kick, d.clearance);
             check(peak <= gap + 0.05, "clearance overshoots a step of " + gap + ": " + peak);
+            check(kick <= 0.08 && d.clearance < 0.01, "clearance release jerks or doesn't settle at a step of " + gap + ": " + kick);
         }
     }
 
