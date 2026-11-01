@@ -183,19 +183,21 @@ public final class DroneCamera {
         // A critically damped spring, not a plain ease: its speed starts from where it was, so a new need never jerks.
         for (double left = dt; left > 1e-9; left -= 1 / 60.0) {
             double h = Math.min(left, 1 / 60.0), w = 2 / CLEAR_TAU;
-            clearVel += CameraMath.clamp(w * w * (goal - clearance) - 2 * w * clearVel, -CLEAR_ACCEL, CLEAR_ACCEL) * h;
+            // Moving past what is needed (rising) or the goal (falling): full damping brakes it within a few frames, so
+            // it never carries on for the hold to keep (no stop dead either: that was a kick of its own).
+            boolean past = clearVel > 0 && clearance >= needed || clearVel < 0 && clearance <= goal;
+            clearVel += (past ? -2 * w * clearVel : CameraMath.clamp(w * w * (goal - clearance) - 2 * w * clearVel, -CLEAR_ACCEL, CLEAR_ACCEL)) * h;
+            // Braked to (nearly) a stop: stopped, so the spring takes over again.
+            if (past && Math.abs(clearVel) < 0.05) clearVel = 0;
             clearance += clearVel * h;
         }
-        // Never below zero (open ground), never past the goal it is moving toward (no overshoot for the hold to keep).
+        // Never below zero (open ground).
         if (clearance < 0) clearance = clearVel = 0;
-        if (clearVel > 0 && clearance > goal || clearVel < 0 && clearance < goal) {
-            clearance = goal;
-            clearVel = 0;
-        }
         // Safety net: whatever moves the height, the camera glides there.
         // The cap grows with the gap itself, so a climb toward an obstacle never stalls at the minimum.
         double target = altitude + clearance;
-        double vmax = Math.max(MIN_VSPEED, Math.max(VSPEED_PER_BLOCK * Math.max(0, target - obstacleTop), VSPEED_GAP * Math.abs(target - yOut))) * dt;
+        // ...and never slower than the clearance's own (already smooth) climb, or the cap would bend it into kinks.
+        double vmax = Math.max(Math.max(MIN_VSPEED, 1.5 * Math.abs(clearVel)), Math.max(VSPEED_PER_BLOCK * Math.max(0, target - obstacleTop), VSPEED_GAP * Math.abs(target - yOut))) * dt;
         vStep = vmax;
         yOut += CameraMath.clamp(target - yOut, -vmax, vmax);
         // Hard floor, last: never inside the ground right under the camera, even if that means a jump up.

@@ -343,6 +343,8 @@ public final class SelfCheck {
             smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(-5, 64 + 10, 0, 0)), cliff, 240, 0, 90, "orbit beside a " + step + "-block step"));
         }
         smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0)), new Terrain((x, z) -> 64, trees), 240, 0, 90, "orbit over trees"));
+        Terrain hall = new Terrain((x, z) -> x >= 8 && x <= 14 && z >= 3 && z <= 9 ? 64 + 24 : 64, (x, z) -> 64);
+        smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0)), hall, 300, 0, 90, "orbit beside a 24-block building"));
         Terrain ridge = new Terrain((x, z) -> 64, (x, z) -> x == 2 + Math.floorMod(z / 3, 2) ? 64 + (Math.floorMod(z, 5) < 2 ? 9 : 6) : 64);
         smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0)), ridge, 300, 1, 0, "pan along a ridge"));
         smooth.add(jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0)), new Terrain((x, z) -> 64, trees), 300, 1, 0, "pan over trees"));

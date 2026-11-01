@@ -75,7 +75,7 @@ public final class CameraRig {
         // screen-centre hit: looking at a hill must not slow the pan.
         double speedGround = Double.isNaN(baseline()) ? centreGround : baseline() - pendingFollow, px = drone.camX(), pz = drone.camZ(), py = drone.y();
         // Half a block extra, so the eased climb actually reaches what the drawn camera needs below.
-        drone.step(dt, right, ahead, turnRate, pivot, speedPerBlock, speedGround, localSurface(w, dt, moveX, moveZ) + 0.5,
+        drone.step(dt, right, ahead, turnRate, pivot, speedPerBlock, speedGround, Math.max(localSurface(w, dt, moveX, moveZ), orbitAhead(w, turnRate, pivot)) + 0.5,
                 floor(w, drone.camX(), drone.camZ()) - DroneCamera.CLEARANCE);
         // Where the drawn camera went this frame: the floor there too. It is continuous, so near terrain that is a climb
         // within the speed cap; only something too tall to climb this frame (a wall) holds the drawn x / z while it rises.
@@ -164,6 +164,24 @@ public final class CameraRig {
     /** {@link #localSurface(World, double, double, double)} with the pan velocity as the movement. */
     public double localSurface(World w, double dt) {
         return localSurface(w, dt, drone.velocityX(), drone.velocityZ());
+    }
+
+    /**
+     * @return the highest surface along the next 1.5 s of an orbit around {@code pivot} (every 4 blocks of arc, at most
+     * 16 points), falling off like the clearance obstacle; -inf when not orbiting. A straight look-ahead along the
+     * movement leaves the circle, so a tall building beside the orbit came too late and the floor had to lift the camera.
+     */
+    public double orbitAhead(World w, double turnRate, double[] pivot) {
+        if (pivot == null || turnRate == 0) return Double.NEGATIVE_INFINITY;
+        double d = Math.hypot(drone.x - pivot[0], drone.z - pivot[2]), sweep = Math.toRadians(turnRate) * 1.5;
+        int n = (int) Math.min(16, Math.ceil(Math.abs(sweep) * d / 4));
+        double top = Double.NEGATIVE_INFINITY;
+        for (int i = 1; i <= n; i++) {
+            // Where turn() puts the camera for that yaw: pivot - forward(yaw) * d.
+            double yaw = Math.toRadians(drone.yaw) + sweep * i / n;
+            top = Math.max(top, near(w, pivot[0] + Math.sin(yaw) * d, pivot[2] - Math.cos(yaw) * d, 4, 2, OBSTACLE_FALL));
+        }
+        return top;
     }
 
     /**
