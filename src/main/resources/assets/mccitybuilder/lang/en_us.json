@@ -14,6 +14,7 @@
   "mccitybuilder.no_match_deco": "No decoration matches (still loading?)",
   "mccitybuilder.pack": "Style pack",
   "mccitybuilder.category": "Category",
+  "mccitybuilder.category.owned": "In your inventory",
   "mccitybuilder.category.core": "Core",
   "mccitybuilder.category.production": "Production",
   "mccitybuilder.category.food": "Food",

@@ -1121,6 +1121,8 @@ final class PlannerScreen extends Screen {
             return out;
         }
         if (Planner.creative()) out.add("all");
+        // Survival: the huts in the inventory come first, when there are any.
+        else if (!ownedHuts().isEmpty()) out.add("owned");
         out.addAll(HutCatalog.CATEGORIES);
         return out;
     }
@@ -1174,19 +1176,39 @@ final class PlannerScreen extends Screen {
 
     /** @return the chosen category, or the first one when none is chosen yet (or it is creative-only in survival) */
     private static String category() {
-        if (category == null || !categories().contains(category)) category = categories().get(0);
+        List<String> cats = categories();
+        // Survival with huts in the inventory opens on them until another category is picked.
+        if (category == null || !cats.contains(category) || "owned".equals(cats.get(0)) && !ownedPicked) category = cats.get(0);
         return category;
+    }
+
+    // Set once the player picks a category on the Huts tab this session (then "owned" no longer takes over).
+    private static boolean ownedPicked;
+
+    /** @return the placeable huts in the survival player's inventory (empty in creative) */
+    private static java.util.Set<Block> ownedHuts() {
+        Minecraft mc = Minecraft.getInstance();
+        java.util.Set<Block> out = new java.util.HashSet<>();
+        if (mc.player == null || mc.player.isCreative()) return out;
+        var inv = mc.player.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++)
+            if (inv.getItem(i).getItem() instanceof net.minecraft.world.item.BlockItem bi && bi.getBlock() instanceof AbstractBlockHut<?>
+                    && !HutCatalog.hidden(BuiltInRegistries.BLOCK.getKey(bi.getBlock()).getPath())) out.add(bi.getBlock());
+        return out;
     }
 
     /** @return palette huts: the category's, or with a search every hut whose name contains it */
     private static List<Block> huts() {
         List<Block> out = new ArrayList<>();
         String q = search.trim().toLowerCase(java.util.Locale.ROOT);
+        java.util.Set<Block> owned = ownedHuts();
         for (AbstractColonyBlock<?> b : ModBlocks.getHuts()) {
             if (!(b instanceof AbstractBlockHut<?>)) continue;
             String path = BuiltInRegistries.BLOCK.getKey(b).getPath();
             if (HutCatalog.hidden(path)) continue;
-            if (q.isEmpty() ? (category().equals("all") || HutCatalog.category(path).equals(category())) : b.getName().getString().toLowerCase(java.util.Locale.ROOT).contains(q)) out.add(b);
+            String cat = category();
+            boolean inCat = cat.equals("all") || (cat.equals("owned") ? owned.contains(b) : HutCatalog.category(path).equals(cat));
+            if (q.isEmpty() ? inCat : b.getName().getString().toLowerCase(java.util.Locale.ROOT).contains(q)) out.add(b);
         }
         out.sort(Comparator.comparing(b -> b.getName().getString()));
         return out;
@@ -1271,6 +1293,7 @@ final class PlannerScreen extends Screen {
         yy = picker(g, ix, yy, iw, catLabel, mx, my, d -> {
             List<String> cats = categories();
             category = cats.get(Math.floorMod(cats.indexOf(category()) + d, cats.size()));
+            if (!decoMode) ownedPicked = true;
             search = "";
             decoScroll = 0;
             click();
@@ -1424,6 +1447,8 @@ final class PlannerScreen extends Screen {
         if (count > 0) g.renderItemDecorations(font, new ItemStack(hut, count), sx + 1, sy + 1);
         if (locked || missing || count <= 0 && !creative && !PlanView.on) g.fill(sx + 1, sy + 1, sx + SLOT - 1, sy + SLOT - 1, locked ? 0xB0555555 : 0x908B8B8B);
         if (hut == Planner.placing) outline(g, sx + 1, sy + 1, SLOT - 2, SLOT - 2, 0xFFFFFFFF);
+        // Survival: huts in the inventory get a green frame.
+        else if (!creative && count > 0) outline(g, sx + 1, sy + 1, SLOT - 2, SLOT - 2, 0xFF55DD55);
         if (mx >= sx && mx < sx + SLOT && my >= sy && my < sy + SLOT) g.fill(sx + 1, sy + 1, sx + SLOT - 1, sy + SLOT - 1, 0x80FFFFFF);
         net.minecraft.network.chat.MutableComponent tip = Component.empty().append(hut.getName());
         if (locked) {
