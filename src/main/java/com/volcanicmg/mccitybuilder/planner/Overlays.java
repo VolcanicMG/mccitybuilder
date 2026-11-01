@@ -41,9 +41,8 @@ public final class Overlays {
     /**
      * @param entityPresent the citizen's entity exists on this client
      * @param alive         and is alive and not removed
-     * @return true to draw its marker. Without a live entity nothing is drawn: the citizen view's position is the
-     * server's last known one, sent only with view updates, so it is stale (inside a building, asleep, moved,
-     * despawned or dead) and would put markers where nobody is.
+     * @return true to draw its marker at the entity. Otherwise the overlay falls back to the citizen view's position,
+     * the server's last known one (sent only with view updates, so it lags), drawn faded as out of range.
      */
     public static boolean showCitizen(boolean entityPresent, boolean alive) {
         return entityPresent && alive;

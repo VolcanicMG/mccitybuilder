@@ -2,6 +2,10 @@
 
 ## 1.0.0-beta.1
 
+- Planner view beyond your render distance (where Distant Horizons shows only LOD terrain): each building there gets
+  its outline, and the nearest 16 show their blocks at their current level as a preview (client config
+  `showUnloadedBuildings`, default on). Citizens without a loaded entity show as hollow dots at their last known
+  spot (else their workplace), so a hut's link lines reach them; their card says "Out of range".
 - Huts with alternative designs in the style pack (e.g. builder / altbuilder) get a Design picker in the placing
   panel; a moved building keeps its own design.
 - Unbuilt huts (placed by hand, or their order cancelled) show Build instead of Upgrade. In survival, Pick up

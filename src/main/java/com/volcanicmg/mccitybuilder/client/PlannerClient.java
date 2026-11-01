@@ -39,6 +39,7 @@ public final class PlannerClient {
             while (TOGGLE.consumeClick()) Planner.guard(Planner::toggle);
             Planner.guard(Planner::tick);
             Planner.guard(Others::tick);
+            Planner.guard(FarBuildings::tick);
             Planner.guard(HeldPlayer::tick);
             Planner.guard(BuildUp::tick);
         });
@@ -86,6 +87,7 @@ public final class PlannerClient {
             Planner.clearDecos();
             Planner.guard(Others::flush);
             Others.clear();
+            FarBuildings.clear();
             // Level targets belong to that server's plan.
             PlanView.unload();
             BuildUp.loaded();

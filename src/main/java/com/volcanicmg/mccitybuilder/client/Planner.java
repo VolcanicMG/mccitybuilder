@@ -1229,6 +1229,7 @@ public final class Planner {
             PlanView.renderWorld(pose, lines);
             LineView.renderWorld(pose, lines);
             Others.renderWorld(pose, lines);
+            FarBuildings.renderWorld(pose, lines);
             BlockPos[] f = isPlacing() ? footprint() : null;
             if (f != null) {
                 boolean ok = invalidReason == null;

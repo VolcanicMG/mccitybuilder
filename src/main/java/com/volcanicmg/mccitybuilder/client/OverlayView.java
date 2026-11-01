@@ -26,8 +26,8 @@ import net.minecraft.world.phys.Vec3;
  * The planner's one combined overlay: huts by staffing, citizens as job-coloured markers, and builders as hammer
  * badges with their site outlined, a faint line from the hut and what they wait for. Data
  * comes from the client colony view (citizen views, work order views, the builder's resources module view, worker
- * module views) and is refreshed four times a second; citizens and builder badges are drawn only at their live
- * entities (no marker where the entity isn't loaded).
+ * module views) and is refreshed four times a second; citizens and builder badges are drawn at their live entities,
+ * or faded at the server's last known spot when this client hasn't got the entity (out of range).
  */
 final class OverlayView {
     /** A builder at work: its hut, its site box, what it misses, and the builder citizen (may be null). */
@@ -37,10 +37,11 @@ final class OverlayView {
     /**
      * A citizen marker in the world: position, colour, the citizen, its builder site for builders, its workplace's hut
      * item for workers (null: none), what its entity holds in the main hand (empty: nothing) and wears: the best
-     * armour piece (chest > head > legs > feet; empty: none) and how many of the four slots are filled.
+     * armour piece (chest > head > legs > feet; empty: none) and how many of the four slots are filled. {@code far}:
+     * no loaded entity, drawn at the last known spot (or the workplace).
      */
     record Marker(Vec3 pos, int color, ICitizenDataView citizen, Site site, net.minecraft.world.item.ItemStack icon, net.minecraft.world.item.ItemStack held,
-                  net.minecraft.world.item.ItemStack armour, int armourPieces) {
+                  net.minecraft.world.item.ItemStack armour, int armourPieces, boolean far) {
         /** @return the main icon: the held item, else the workplace hut item (a builder: the item it needs next), else null */
         net.minecraft.world.item.ItemStack mainIcon() {
             return !held.isEmpty() ? held : icon;
@@ -143,7 +144,7 @@ final class OverlayView {
                 if (best.isEmpty()) best = st;
             }
         }
-        return new Marker(at, color, c, site, icon, held, best, pieces);
+        return new Marker(at, color, c, site, icon, held, best, pieces, e == null);
     }
 
     /** @return the hut block item of the citizen's workplace (its building type's block), or null without a job there */
@@ -154,13 +155,18 @@ final class OverlayView {
     }
 
     /**
-     * @return where to draw the citizen: its live entity, or null. The view's {@code getPosition()} is MineColonies'
-     * {@code CitizenData.lastPosition}, set by the server while the entity ticks but only sent with a citizen view
-     * update, so it lags (indoors, asleep, moved, despawned): never drawn.
+     * @return where to draw the citizen: its live entity; without one (beyond tracking range, in unloaded chunks) the
+     * view's {@code getPosition()}, MineColonies' {@code CitizenData.lastPosition} (sent only with citizen view
+     * updates, so it lags: drawn faded), else its workplace; null when neither is known
      */
     private static Vec3 where(ICitizenDataView c) {
         Entity e = entity(c);
-        return e == null ? null : e.position().add(0, e.getBbHeight() + 0.3, 0);
+        if (e != null) return e.position().add(0, e.getBbHeight() + 0.3, 0);
+        if (c == null) return null;
+        BlockPos p = c.getPosition();
+        if (p == null || p.equals(BlockPos.ZERO)) p = c.getWorkBuilding();
+        if (p == null || p.equals(BlockPos.ZERO)) return null;
+        return Vec3.atBottomCenterOf(p).add(0, 2.1, 0);
     }
 
     // The colony's citizen entities this client has (by civilian id), found at the last refresh.

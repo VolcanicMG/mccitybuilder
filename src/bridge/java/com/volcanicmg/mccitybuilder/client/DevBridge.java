@@ -287,6 +287,7 @@ public final class DevBridge {
             });
             // Shared ghosts and plans: what this client knows of mates' (and what it last sent).
             case "/others" -> client(Others::dump);
+            case "/far" -> client(FarBuildings::dump);
             // Leave the server the way the pause menu does (same JVM, so client caches carry over to the next join).
             case "/disconnect" -> client(() -> {
                 Minecraft mc = Minecraft.getInstance();
@@ -481,15 +482,15 @@ public final class DevBridge {
                         else other.append("  other ").append(e.getClass().getSimpleName()).append(" civ=").append(ce.getCivilianID()).append(" colony=")
                                 .append(ce.getCitizenColonyHandler().getColonyId()).append(" name=").append(e.getName().getString()).append(" at ").append(e.blockPosition().toShortString()).append('\n');
                     }
-                java.util.Set<Integer> marked = new java.util.HashSet<>();
-                for (var m : OverlayView.markers) if (m.citizen() != null) marked.add(m.citizen().getId());
+                java.util.Map<Integer, String> marked = new java.util.HashMap<>();
+                for (var m : OverlayView.markers) if (m.citizen() != null) marked.put(m.citizen().getId(), m.far() ? "far" : "live");
                 for (var cit : c.getCitizens().values()) {
                     var byId = mc.level.getEntity(cit.getEntityId());
                     var live = byCiv.get(cit.getId());
                     sb.append(cit.getId()).append(' ').append(cit.getName()).append(" viewEntity=").append(cit.getEntityId()).append(" -> ")
                             .append(byId == null ? "none" : byId.getClass().getSimpleName() + (byId instanceof com.minecolonies.api.entity.citizen.AbstractEntityCitizen ce ? " civ=" + ce.getCivilianID() : ""))
                             .append(" | live=").append(live == null ? "none" : live.getId() + " at " + live.blockPosition().toShortString() + " d=" + (int) live.distanceTo(mc.player))
-                            .append(" marker=").append(marked.contains(cit.getId())).append(" home=").append(cit.getHomeBuilding()).append(" work=").append(cit.getWorkBuilding())
+                            .append(" marker=").append(marked.getOrDefault(cit.getId(), "none")).append(" home=").append(cit.getHomeBuilding()).append(" work=").append(cit.getWorkBuilding())
                             .append(" sat=").append(cit.getSaturation()).append(" happy=").append(cit.getHappiness())
                             .append(" asks=").append(cit.getOrderedInteractions().stream().map(h -> h.getPriority() + ":" + (h.getInquiry() == null ? "-" : h.getInquiry().getString())).toList()).append('\n');
                 }

@@ -154,6 +154,7 @@ final class CitizenCard {
             }
         }
         List<ItemStack> wear = new ArrayList<>();
+        if (m.far()) footer.add(Component.translatable("mccitybuilder.overlay.out_of_range").withStyle(ChatFormatting.GOLD));
         if (!m.held().isEmpty()) {
             wear.add(m.held());
             footer.add(Component.translatable("mccitybuilder.overlay.holding", m.held().getHoverName()));

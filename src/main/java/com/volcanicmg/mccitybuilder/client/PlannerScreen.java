@@ -243,7 +243,7 @@ final class PlannerScreen extends Screen {
     // Where each overlay marker was drawn this frame: {index, x, y}.
     private final List<int[]> drawnMarkers = new ArrayList<>();
 
-    /** Citizen markers projected to the screen: a hammer badge for builders, a job-coloured square for workers. */
+    /** Citizen markers projected to the screen: a hammer badge for builders, a job-coloured square for workers, hollow when out of range. */
     private void overlayMarkers(GuiGraphics g) {
         drawnMarkers.clear();
         List<OverlayView.Marker> ms = OverlayView.markers;
@@ -301,7 +301,12 @@ final class PlannerScreen extends Screen {
                 g.fill(sx - 10, sy - 10, sx + 10, sy + 10, 0xFFFFFFFF);
                 g.fill(sx - 9, sy - 9, sx + 9, sy + 9, 0xFF202020);
             }
-            if (m.site() != null) {
+            if (m.far()) {
+                // Out of range (no loaded entity): a hollow, faded square at the last known spot.
+                int r = m.site() != null ? 6 : 4, c = 0x90000000 | m.color() & 0xFFFFFF;
+                g.fill(sx - r, sy - r, sx + r, sy + r, 0x60000000);
+                g.renderOutline(sx - r + 1, sy - r + 1, 2 * r - 2, 2 * r - 2, c);
+            } else if (m.site() != null) {
                 // A builder: what it needs next on red, else the tool it holds, else its hammer badge.
                 boolean needs = m.icon() != null && icons < MAX_JOB_ICONS;
                 g.fill(sx - 7, sy - 7, sx + 7, sy + 7, 0xFF000000);
