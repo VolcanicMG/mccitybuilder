@@ -161,6 +161,10 @@ public final class Planner {
     static final java.util.List<Block> recent = new java.util.ArrayList<>();
     // Huts we placed whose build requests go out once their building views exist (placement time).
     private static final java.util.Map<BlockPos, Long> pendingBuilds = new java.util.HashMap<>();
+    // ...and the builder hut each was placed for (absent: any builder).
+    private static final java.util.Map<BlockPos, BlockPos> pendingBuilders = new java.util.HashMap<>();
+    // The builder hut picked for survival orders, per "dimension|colony" for the session (absent: any builder).
+    private static final java.util.Map<String, BlockPos> builders = new java.util.HashMap<>();
 
     private Planner() {
     }
@@ -350,9 +354,12 @@ public final class Planner {
             var en = it.next();
             IBuildingView b = colony.getClientBuildingManager().getBuilding(en.getKey());
             if (b != null) {
-                new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, BlockPos.ZERO).sendToServer();
+                new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, liveBuilder(pendingBuilders.remove(en.getKey()))).sendToServer();
                 it.remove();
-            } else if (System.currentTimeMillis() - en.getValue() > 15_000) it.remove();
+            } else if (System.currentTimeMillis() - en.getValue() > 15_000) {
+                pendingBuilders.remove(en.getKey());
+                it.remove();
+            }
         }
     }
 
@@ -933,8 +940,8 @@ public final class Planner {
             String one = HutCatalog.levelPath(placingHut.path(), 1);
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", placingHut.pack(), one != null ? one : placingHut.path(),
                     at, rotation).sendToServer();
-            pendingBuilds.put(at, System.currentTimeMillis());
-            if (placingLevel > 1) BuildUp.set(at, placingLevel);
+            expectBuilding(at);
+            if (placingLevel > 1) BuildUp.set(at, placingLevel, builder());
         }
         recent.remove(placing);
         recent.add(0, placing);
@@ -965,6 +972,7 @@ public final class Planner {
     /** Survival: a hut placed by the plan gets its build request once its building view exists. */
     static void expectBuilding(BlockPos at) {
         pendingBuilds.put(at, System.currentTimeMillis());
+        pendingBuilders.put(at, builder());
     }
 
     /** @return the first free y above the ground (leaves ignored) at a column, or null when not loaded */
@@ -1114,12 +1122,73 @@ public final class Planner {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return false;
         new com.minecolonies.core.network.messages.server.DecorationBuildRequestMessage(com.minecolonies.api.colony.workorders.WorkOrderType.REPAIR, d.pos(), d.pack(),
-                d.path(), mc.level.dimension(), RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)], BlockPos.ZERO).sendToServer();
+                d.path(), mc.level.dimension(), RotationMirror.values()[Math.floorMod(d.rot(), RotationMirror.values().length)], builder()).sendToServer();
         return true;
     }
 
     static void requestBuild(IBuildingView b, BuildRequestMessage.Mode mode) {
-        new BuildRequestMessage(b, mode, BlockPos.ZERO).sendToServer();
+        new BuildRequestMessage(b, mode, builder()).sendToServer();
+    }
+
+    /** @return the open colony's builder huts (MineColonies' builder, not the miner), by position */
+    static java.util.List<IBuildingView> builderHuts() {
+        java.util.List<IBuildingView> out = new java.util.ArrayList<>();
+        if (colony == null) return out;
+        for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values())
+            if (b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingBuilder.View) out.add(b);
+        out.sort(java.util.Comparator.comparing(IBuildingView::getPosition));
+        return out;
+    }
+
+    private static String builderKey() {
+        var l = Minecraft.getInstance().level;
+        return colony == null || l == null ? "" : l.dimension().location() + "|" + colony.getID();
+    }
+
+    /** @return the builder hut picked for the open colony's survival orders; ZERO = any (also once that hut is gone) */
+    static BlockPos builder() {
+        BlockPos p = builders.get(builderKey());
+        if (p == null) return BlockPos.ZERO;
+        if (liveBuilder(p).equals(BlockPos.ZERO)) builders.remove(builderKey());
+        return liveBuilder(p);
+    }
+
+    /** @return {@code p} while it is a builder hut of the open colony, else ZERO (any builder) */
+    static BlockPos liveBuilder(BlockPos p) {
+        if (p == null || colony == null) return BlockPos.ZERO;
+        return colony.getClientBuildingManager().getBuilding(p) instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingBuilder.View ? p : BlockPos.ZERO;
+    }
+
+    /** Steps the picked builder through Any and the colony's builder huts. */
+    static void cycleBuilder(int d) {
+        java.util.List<IBuildingView> huts = builderHuts();
+        BlockPos cur = builder();
+        int i = -1;
+        for (int k = 0; k < huts.size(); k++) if (huts.get(k).getPosition().equals(cur)) i = k;
+        // Index -1 is Any.
+        int n = Math.floorMod(i + 1 + d, huts.size() + 1) - 1;
+        if (n < 0) builders.remove(builderKey());
+        else builders.put(builderKey(), huts.get(n).getPosition());
+    }
+
+    /** @return the picked builder's name: its builder citizen, else the hut's custom name, else its hut name and place; null for any */
+    static String builderName() {
+        BlockPos p = builder();
+        if (p.equals(BlockPos.ZERO)) return null;
+        IBuildingView b = colony.getClientBuildingManager().getBuilding(p);
+        for (int id : b.getAllAssignedCitizens()) {
+            var c = colony.getCitizen(id);
+            if (c != null) return c.getName() + " (Lv " + b.getBuildingLevel() + ")";
+        }
+        String n = b.getCustomName() != null && !b.getCustomName().isEmpty() ? b.getCustomName()
+                : Component.translatable(b.getBuildingDisplayName()).getString() + " " + p.getX() + "," + p.getZ();
+        return n + " (Lv " + b.getBuildingLevel() + ")";
+    }
+
+    /** Logout: picks belong to that server's colonies. */
+    static void clearBuilders() {
+        builders.clear();
+        pendingBuilders.clear();
     }
 
     // The border ribbon: a faint pass that shows through terrain, then a bright depth-tested one on top.

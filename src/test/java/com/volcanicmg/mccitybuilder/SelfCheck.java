@@ -828,7 +828,13 @@ public final class SelfCheck {
         // Level targets: their own rows, invisible to the entry / line readers.
         String withT = Plan.write(List.of(a), List.of(), Map.of(), Map.of(), List.of(new int[]{10, 64, 10, 3}, new int[]{1, 2, 3, 99}));
         var ts = Plan.readTargets(withT + "T\tx\t1\t2\t3\n");
-        check(ts.size() == 1 && java.util.Arrays.equals(ts.get(0), new int[]{10, 64, 10, 3}), "targets round trip, bad levels and rows skipped");
+        check(ts.size() == 1 && java.util.Arrays.equals(ts.get(0), new int[]{10, 64, 10, 3, 0, 0, 0}), "targets round trip, bad levels and rows skipped");
+        // A target's builder: its own TB row (older builds keep the T row and skip it); older files read as any builder.
+        String withB = Plan.write(List.of(a), List.of(), Map.of(), Map.of(), List.of(new int[]{10, 64, 10, 3, 20, 65, -4}, new int[]{30, 64, 30, 2, 0, 0, 0}));
+        var tb = Plan.readTargets(withB + "TB\t30\t64\t30\tx\t1\t1\n");
+        check(tb.size() == 2 && java.util.Arrays.equals(tb.get(0), new int[]{10, 64, 10, 3, 20, 65, -4}) && java.util.Arrays.equals(tb.get(1), new int[]{30, 64, 30, 2, 0, 0, 0})
+                && withB.split("\nTB\t", -1).length == 2, "target builders round trip, any builder writes no TB row, a damaged TB row is skipped");
+        check(withB.lines().filter(l -> l.startsWith("T\t")).allMatch(l -> l.split("\t").length == 5), "T rows keep 5 fields (older builds still read them)");
         check(Plan.read(withT).equals(List.of(a)) && Plan.readLines(withT).isEmpty(), "target rows don't disturb entries or lines");
         check(Plan.readTargets("not a plan\nT\t1\t2\t3\t4\n").isEmpty(), "targets need the plan header");
         // Shared plans: what a server keeps from a client.

@@ -527,7 +527,8 @@ final class PlannerScreen extends Screen {
         String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
         String status = sel != null ? null : LineView.status();
         String fam = sel != null ? sel.family() : status == null ? LineView.family() : null;
-        int w = 220, h = status != null ? 40 : 276, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = height - h - 4;
+        boolean pickBuilder = !Planner.creative();
+        int w = 220, h = status != null ? 40 : pickBuilder ? 296 : 276, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = height - h - 4;
         stackTop = y - 4;
         panels.add(new int[]{x, y, w, h});
         linePanelBox = new int[]{x, y, w, h};
@@ -646,6 +647,7 @@ final class PlannerScreen extends Screen {
         if (prog != null) info = prog.getString();
         g.drawString(font, font.plainSubstrByWidth(info, iw), ix + 1, iy, 0xFF555555, false);
         iy += 12;
+        if (pickBuilder) iy = builderPicker(g, ix, iy, iw, mx, my, true);
         boolean server = Planner.serverInstant();
         String[] bkeys = {"done", "undo", "remove", "build", "clear"};
         boolean canRemove = LineView.hoverLine >= 0 || sel != null || !LineView.sel.isEmpty();
@@ -1006,7 +1008,8 @@ final class PlannerScreen extends Screen {
     /** Plan mode: the plan's state and its Build all / Build selected / Clear buttons. */
     private void planPanel(GuiGraphics g, int mx, int my) {
         if (!PlanView.on) return;
-        int w = 200, h = 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
+        boolean pickBuilder = !Planner.creative();
+        int w = 200, h = pickBuilder ? 78 : 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
         if (Planner.selected != null || Planner.selectedDeco != null) y -= 62;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
@@ -1022,9 +1025,10 @@ final class PlannerScreen extends Screen {
         boolean empty = PlanView.entries.isEmpty() && PlanView.lines.isEmpty();
         boolean[] off = {empty, !PlanView.hasSelection() && PlanView.selectedLine() == null, empty};
         Runnable[] run = {() -> toast(PlanView.commit(false)), () -> toast(PlanView.commit(true)), PlanView::clear};
-        int bw = (w - 2 * PAD - 4) / 3;
+        int bw = (w - 2 * PAD - 4) / 3, by = y + PAD + 24;
+        if (pickBuilder) by = builderPicker(g, x + PAD, by, w - 2 * PAD, mx, my, false);
         for (int i = 0; i < 3; i++) {
-            int bx = x + PAD + i * (bw + 2), by = y + PAD + 24;
+            int bx = x + PAD + i * (bw + 2);
             boolean over = mx >= bx && mx < bx + bw && my >= by && my < by + 20;
             VanillaUi.button(g, bx, by, bw, 20, false, off[i], over);
             VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.plan." + keys[i]).getString(), bx, by, bw, 20, off[i] ? VanillaUi.INK_DISABLED : VanillaUi.INK);
@@ -1347,6 +1351,8 @@ final class PlannerScreen extends Screen {
                 click();
             }, Component.translatable("mccitybuilder.design.tip"));
         }
+        // Survival huts: which builder takes the build order (decorations go through MineColonies' own window, which asks).
+        if (Planner.placing != null && Planner.moving == null && !Planner.creative()) yy = builderPicker(g, ix, yy - 2, iw, mx, my, false);
         // The list is the shown blueprint's: the picked level's for a hut (that level alone, not the levels below).
         g.drawString(font, Planner.placing != null ? Component.translatable("mccitybuilder.materials", Planner.placingLevel)
                 : Component.translatable("mccitybuilder.materials_deco"), ix + 1, yy, VanillaUi.LABEL, false);
@@ -1509,6 +1515,22 @@ final class PlannerScreen extends Screen {
         hits.add(new Hit(x, y, bw, 16, () -> step.accept(-1), tip));
         hits.add(new Hit(x + w - bw, y, bw, 16, () -> step.accept(1), tip));
         return y + 20;
+    }
+
+    /**
+     * The survival builder picker: Any, then each of the colony's builder huts (its builder's name, else the hut's).
+     *
+     * @param shared a road / wall Build (many orders): Any reads "Any (shared)", as free builders split them
+     * @return the y below it
+     */
+    private int builderPicker(GuiGraphics g, int x, int y, int w, int mx, int my, boolean shared) {
+        String n = Planner.builderName();
+        String label = n != null ? Component.translatable("mccitybuilder.builder.named", n).getString()
+                : Component.translatable(shared ? "mccitybuilder.builder.any_shared" : "mccitybuilder.builder.any").getString();
+        return picker(g, x, y, w, label, mx, my, d -> {
+            Planner.cycleBuilder(d);
+            click();
+        }, Component.translatable(shared ? "mccitybuilder.builder.line_tip" : "mccitybuilder.builder.tip"));
     }
 
     // ---- queue ----

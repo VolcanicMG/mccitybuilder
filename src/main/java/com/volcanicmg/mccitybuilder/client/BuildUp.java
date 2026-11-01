@@ -31,9 +31,11 @@ final class BuildUp {
     private BuildUp() {
     }
 
-    /** Orders up to {@code level} once the hut at {@code at} is built to level 1. */
-    static void set(BlockPos at, int level) {
+    /** Orders up to {@code level} once the hut at {@code at} is built to level 1, each level by {@code builder} (ZERO: any). */
+    static void set(BlockPos at, int level, BlockPos builder) {
         PlanView.targets.put(at.immutable(), level);
+        if (builder.equals(BlockPos.ZERO)) PlanView.targetBuilders.remove(at);
+        else PlanView.targetBuilders.put(at.immutable(), builder.immutable());
         forgetState(at);
         since.put(at.immutable(), System.currentTimeMillis());
         PlanView.targetsChanged();
@@ -45,6 +47,7 @@ final class BuildUp {
     }
 
     static void cancel(BlockPos at) {
+        PlanView.targetBuilders.remove(at);
         if (PlanView.targets.remove(at) == null) return;
         forgetState(at);
         PlanView.targetsChanged();
@@ -83,6 +86,7 @@ final class BuildUp {
             BlockPos at = en.getKey();
             if (step(colony.getClientBuildingManager().getBuilding(at), en.getValue(), at, now, fresh) != null) {
                 it.remove();
+                PlanView.targetBuilders.remove(at);
                 forgetState(at);
                 changed = true;
             }
@@ -109,7 +113,10 @@ final class BuildUp {
         if (level < 1 || !fresh || now - since.getOrDefault(at, now) < SETTLE_MS) return null;
         sentFor.put(at, level);
         sentMs.put(at, now);
-        new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, BlockPos.ZERO).sendToServer();
+        // The picked builder while it is still one of the colony's builder huts, else any.
+        BlockPos builder = PlanView.targetBuilders.getOrDefault(at, BlockPos.ZERO);
+        if (!(b.getColony().getClientBuildingManager().getBuilding(builder) instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingBuilder.View)) builder = BlockPos.ZERO;
+        new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, builder).sendToServer();
         return null;
     }
 }

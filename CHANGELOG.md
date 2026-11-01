@@ -5,6 +5,13 @@
 - Camera: no more jitter low over terrain or when turning at the colony edge (terrain under and around the camera
   is weighed by distance instead of whole-block windows, the climb eases in, turning against the edge keeps its
   distance to the centre), and panning no longer slows down when the view looks at a hill.
+- Survival: pick which builder takes the work ("Builder: Any" or a builder by name, < >) in the hut placing panel,
+  the road / wall panel and the plan panel (Build all). It is used for the placed hut's build order, every level of
+  "build up to level N" (saved with the plan), Build / Repair / Remove from the hut panel, decoration Repair, plan
+  decorations and every road / wall piece order of a Build. Road / wall "Any (shared)" leaves the orders unclaimed,
+  so free builders take one each and work in parallel. One pick per colony for the session; it falls back to Any if
+  that builder hut goes. Needs City Builder on the server for roads / walls (protocol 10: older and newer builds
+  don't share City Builder's channels).
 - Planner view beyond your render distance (where Distant Horizons shows only LOD terrain): each building there gets
   its outline, and the nearest 16 show their blocks at their current level as a preview (client config
   `showUnloadedBuildings`, default on). Citizens without a loaded entity show as hollow dots at their last known

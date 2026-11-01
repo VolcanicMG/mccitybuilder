@@ -89,9 +89,11 @@ public final class InstantBuild {
      *              or was refused (reason "busy" = try again shortly)
      * @param crop  a road / wall piece only: null, or the window {axis, from, len} of the blueprint to paste / order /
      *              remove instead of the whole piece (Fill gaps, {@link Crops}); never sent on its own
+     * @param builder a survival order only: the builder hut to claim it ({@link BlockPos#ZERO}: any builder); the server
+     *                uses it only when it is a builder hut of that colony
      */
-    public record Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id, BlockPos from, RotationMirror fromRot, int[] crop)
-            implements CustomPacketPayload {
+    public record Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id, BlockPos from, RotationMirror fromRot, int[] crop,
+                          BlockPos builder) implements CustomPacketPayload {
         public Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot) {
             this(mode, pos, level, pack, path, rot, 0, BlockPos.ZERO, RotationMirror.NONE);
         }
@@ -101,7 +103,11 @@ public final class InstantBuild {
         }
 
         public Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id, BlockPos from, RotationMirror fromRot) {
-            this(mode, pos, level, pack, path, rot, id, from, fromRot, null);
+            this(mode, pos, level, pack, path, rot, id, from, fromRot, null, BlockPos.ZERO);
+        }
+
+        public Request(int mode, BlockPos pos, int level, String pack, String path, RotationMirror rot, int id, BlockPos from, RotationMirror fromRot, int[] crop) {
+            this(mode, pos, level, pack, path, rot, id, from, fromRot, crop, BlockPos.ZERO);
         }
 
         public static final Type<Request> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "instant_build_" + PROTOCOL));
@@ -115,9 +121,10 @@ public final class InstantBuild {
             buf.writeVarInt(r.id);
             buf.writeBlockPos(r.from);
             buf.writeByte(r.fromRot.ordinal());
+            buf.writeBlockPos(r.builder);
         }, buf -> new Request(buf.readByte(), buf.readBlockPos(), buf.readVarInt(), buf.readUtf(256), buf.readUtf(512),
                 RotationMirror.values()[Math.floorMod(buf.readByte(), RotationMirror.values().length)], buf.readVarInt(), buf.readBlockPos(),
-                RotationMirror.values()[Math.floorMod(buf.readByte(), RotationMirror.values().length)]));
+                RotationMirror.values()[Math.floorMod(buf.readByte(), RotationMirror.values().length)], null, buf.readBlockPos()));
 
         @Override
         public Type<Request> type() {
@@ -132,9 +139,9 @@ public final class InstantBuild {
      * The payload protocol, part of every payload's id: a client and server of different protocols just don't share
      * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
      * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners; 9: shared
-     * ghosts and plans ({@link PlanShare}).
+     * ghosts and plans ({@link PlanShare}); 10: survival orders carry the chosen builder hut.
      */
-    public static final String PROTOCOL = "9";
+    public static final String PROTOCOL = "10";
 
     /** Registers the payload as optional, so clients and servers without the mod (or another protocol) still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
@@ -307,9 +314,14 @@ public final class InstantBuild {
      * Up to {@link #MAX_BATCH} road or wall pieces of one style pack, handled one at a time through the same checks as
      * single decorations, in the order given: {@code mode} = {@link #DECO} (placed, creative), {@link #DECO_ORDER}
      * (ordered, survival), {@link #DECO_DELETE} (matching blocks removed, creative) or {@link #DECO_REMOVE_ORDER}
-     * (a builder removes them, survival).
+     * (a builder removes them, survival); {@code builder}: the builder hut to claim survival orders ({@link BlockPos#ZERO}:
+     * any, checked like {@link Request#builder}).
      */
-    public record PieceBatch(int id, String pack, int mode, List<Piece> pieces) implements CustomPacketPayload {
+    public record PieceBatch(int id, String pack, int mode, List<Piece> pieces, BlockPos builder) implements CustomPacketPayload {
+        public PieceBatch(int id, String pack, int mode, List<Piece> pieces) {
+            this(id, pack, mode, pieces, BlockPos.ZERO);
+        }
+
         public boolean survival() {
             return mode == DECO_ORDER || mode == DECO_REMOVE_ORDER;
         }
@@ -330,6 +342,7 @@ public final class InstantBuild {
                     buf.writeVarInt(q.crop[2]);
                 }
             }
+            buf.writeBlockPos(b.builder);
         }, buf -> {
             int id = buf.readVarInt();
             String pack = buf.readUtf(256);
@@ -343,7 +356,7 @@ public final class InstantBuild {
                 // Bounds are checked against the blueprint when it has loaded (Crops.crop).
                 ps.add(new Piece(path, pos, rot, axis < 0 ? null : new int[]{axis == 0 ? 0 : 1, buf.readVarInt(), buf.readVarInt()}));
             }
-            return new PieceBatch(id, pack, mode, ps);
+            return new PieceBatch(id, pack, mode, ps, buf.readBlockPos());
         });
 
         @Override
@@ -391,6 +404,12 @@ public final class InstantBuild {
         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(p, new BatchResult(id, ok, reason));
     }
 
+    /** @return the colony's builder hut at {@code at}, or null (ZERO, null, another building or none: any builder) */
+    static com.minecolonies.core.colony.buildings.workerbuildings.BuildingBuilder builderOf(IColony colony, BlockPos at) {
+        if (at == null || at.equals(BlockPos.ZERO)) return null;
+        return colony.getServerBuildingManager().getBuilding(at) instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingBuilder b ? b : null;
+    }
+
     private static void handleBatch(PieceBatch b, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer p)) return;
         long now = System.currentTimeMillis();
@@ -425,7 +444,7 @@ public final class InstantBuild {
         java.util.ArrayDeque<Request> q = new java.util.ArrayDeque<>();
         for (Piece pc : b.pieces)
             q.add(new Request(b.mode, pc.pos, 0, b.pack, pc.path, RotationMirror.values()[Math.floorMod(pc.rot, RotationMirror.values().length)], 0, BlockPos.ZERO,
-                    RotationMirror.NONE, pc.crop));
+                    RotationMirror.NONE, pc.crop, b.builder));
         // A batch arriving while one runs joins its queue (one summary at the end).
         if (running != null) {
             running.addAll(q);
@@ -811,6 +830,8 @@ public final class InstantBuild {
                     r.mode == DECO_REMOVE_ORDER ? com.minecolonies.api.colony.workorders.WorkOrderType.REMOVE : com.minecolonies.api.colony.workorders.WorkOrderType.BUILD, pack, path,
                     org.apache.commons.lang3.text.WordUtils.capitalizeFully(split[split.length - 1].replace(".blueprint", "")), r.pos, rot, 0);
             order.setBlueprint(bp, level);
+            // The chosen builder, as MineColonies' DecorationBuildRequestMessage does it: only a builder hut of this colony.
+            if (builderOf(colony, r.builder) != null) order.setClaimedBy(r.builder);
             colony.getWorkManager().addWorkOrder(order, false);
             if (r.mode == DECO_REMOVE_ORDER) {
                 records.remove(colonyId, pack, path, r.pos, rot.ordinal());

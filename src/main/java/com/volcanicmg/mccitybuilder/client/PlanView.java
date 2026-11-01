@@ -119,7 +119,12 @@ final class PlanView {
             jointTypes = new java.util.HashMap<>(Plan.readJoints(text));
             builtPieces = new HashMap<>(Plan.readBuilt(text));
             targets = new HashMap<>();
-            for (int[] t : Plan.readTargets(text)) targets.put(new BlockPos(t[0], t[1], t[2]), t[3]);
+            targetBuilders = new HashMap<>();
+            for (int[] t : Plan.readTargets(text)) {
+                BlockPos at = new BlockPos(t[0], t[1], t[2]);
+                targets.put(at, t[3]);
+                if (t[4] != 0 || t[5] != 0 || t[6] != 0) targetBuilders.put(at, new BlockPos(t[4], t[5], t[6]));
+            }
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't read plan {}", file, e);
             entries = new ArrayList<>();
@@ -127,6 +132,7 @@ final class PlanView {
             jointTypes = new HashMap<>();
             builtPieces = new HashMap<>();
             targets = new HashMap<>();
+            targetBuilders = new HashMap<>();
         }
         colonyId = colony.getID();
         colonyDim = colony.getDimension();
@@ -184,6 +190,8 @@ final class PlanView {
 
     /** Survival: hut position → the level its builder orders go up to ({@link BuildUp}); saved with the plan. */
     static Map<BlockPos, Integer> targets = new HashMap<>();
+    /** The builder hut a target's orders go to (absent: any builder); saved with the plan. */
+    static Map<BlockPos, BlockPos> targetBuilders = new HashMap<>();
     /** The colony (and its dimension) the plan and targets were loaded for; -1 until a planner opens (and after logout). */
     static int colonyId = -1;
     static net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> colonyDim;
@@ -198,6 +206,7 @@ final class PlanView {
         file = null;
         colonyId = -1;
         targets = new HashMap<>();
+        targetBuilders = new HashMap<>();
         // Blueprints loaded on this connection throw "World mismatch" on the next one.
         loads.clear();
         rotated.clear();
@@ -215,7 +224,10 @@ final class PlanView {
             Plan.pruneBuilt(builtPieces, lines);
             if (builtPieces.size() != had) builtVersion++;
             List<int[]> ts = new ArrayList<>();
-            targets.forEach((p, lv) -> ts.add(new int[]{p.getX(), p.getY(), p.getZ(), lv}));
+            targets.forEach((p, lv) -> {
+                BlockPos b = targetBuilders.getOrDefault(p, BlockPos.ZERO);
+                ts.add(new int[]{p.getX(), p.getY(), p.getZ(), lv, b.getX(), b.getY(), b.getZ()});
+            });
             Files.writeString(file, Plan.write(entries, lines, jointTypes, builtPieces, ts));
         } catch (Exception e) {
             CityBuilder.LOGGER.warn("CityBuilder: can't save plan {}", file, e);
@@ -510,7 +522,7 @@ final class PlanView {
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", e.pack(), path == null ? e.path() : path, at,
                     RotationMirror.values()[e.rot()]).sendToServer();
             Planner.expectBuilding(at);
-            if (e.level() > 1) BuildUp.set(at, e.level());
+            if (e.level() > 1) BuildUp.set(at, e.level(), Planner.builder());
         }
         entries = keep;
         selected = -1;
@@ -591,7 +603,8 @@ final class PlanView {
             nextBatchId++;
             BlockPos at = new BlockPos(e.x(), e.y(), e.z());
             int mode = e.isHut() ? InstantBuild.PLACE : Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER;
-            PacketDistributor.sendToServer(new InstantBuild.Request(mode, at, e.isHut() ? e.level() : 0, e.pack(), e.path(), RotationMirror.values()[e.rot()], id));
+            PacketDistributor.sendToServer(new InstantBuild.Request(mode, at, e.isHut() ? e.level() : 0, e.pack(), e.path(), RotationMirror.values()[e.rot()], id,
+                    BlockPos.ZERO, RotationMirror.NONE, null, Planner.creative() ? BlockPos.ZERO : Planner.builder()));
             return;
         }
         if (!entryRun || !entryQueue.idle()) return;
@@ -1018,7 +1031,9 @@ final class PlanView {
         int id = nextBatchId++;
         batchLine.put(id, l);
         batchSent.put(id, new ArrayList<>(sent));
-        queue.add(new InstantBuild.PieceBatch(id, l.pack(), Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER, pieces));
+        // Every piece order of the Build goes to the picked builder; Any leaves them unclaimed for whichever builder is free.
+        queue.add(new InstantBuild.PieceBatch(id, l.pack(), Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER, pieces,
+                Planner.creative() ? BlockPos.ZERO : Planner.builder()));
     }
 
     /**

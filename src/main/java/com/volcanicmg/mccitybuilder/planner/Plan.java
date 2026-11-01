@@ -245,11 +245,19 @@ public final class Plan {
         return write(entries, lines, joints, built, List.of());
     }
 
-    /** @return all of the above plus survival level targets {x, y, z, level} (rows {@code T}; older builds skip them) */
+    /**
+     * @return all of the above plus survival level targets {x, y, z, level} or {x, y, z, level, builder x, y, z} (rows
+     * {@code T}; a builder other than 0,0,0 in its own row {@code TB x y z bx by bz}, so older builds keep the target
+     * and only skip the builder)
+     */
     public static String write(List<Entry> entries, List<Line> lines, java.util.Map<Long, Integer> joints, java.util.Map<String, List<BuiltPiece>> built,
                                List<int[]> targets) {
         StringBuilder sb = new StringBuilder("mccitybuilder-plan\t" + VERSION + "\n");
-        for (int[] t : targets) sb.append("T\t").append(t[0]).append('\t').append(t[1]).append('\t').append(t[2]).append('\t').append(t[3]).append('\n');
+        for (int[] t : targets) {
+            sb.append("T\t").append(t[0]).append('\t').append(t[1]).append('\t').append(t[2]).append('\t').append(t[3]).append('\n');
+            if (t.length >= 7 && (t[4] != 0 || t[5] != 0 || t[6] != 0))
+                sb.append(String.join("\t", "TB", "" + t[0], "" + t[1], "" + t[2], "" + t[4], "" + t[5], "" + t[6])).append('\n');
+        }
         for (var en : new java.util.TreeMap<>(built).entrySet())
             for (BuiltPiece b : en.getValue())
                 sb.append(String.join("\t", "P", "" + b.x0(), "" + b.z0(), "" + b.x1(), "" + b.z1(), b.path(), "" + b.turns(), "" + b.ax(), "" + b.ay(), "" + b.az(),
@@ -268,7 +276,10 @@ public final class Plan {
         return sb.toString();
     }
 
-    /** @return the survival level targets in {@code text} ({x, y, z, level}, rows {@code T}); damaged rows and levels outside 1..64 are skipped */
+    /**
+     * @return the survival level targets in {@code text} ({x, y, z, level, builder x, y, z}; rows {@code T}, the builder
+     * from a {@code TB} row at the same spot, else 0,0,0 = any); damaged rows and levels outside 1..64 are skipped
+     */
     public static List<int[]> readTargets(String text) {
         List<int[]> out = new ArrayList<>();
         if (text == null) return out;
@@ -278,10 +289,22 @@ public final class Plan {
             String[] f = row.split("\t");
             if (f.length != 5 || !f[0].equals("T")) continue;
             try {
-                int[] t = {Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3]), Integer.parseInt(f[4].trim())};
+                int[] t = {Integer.parseInt(f[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3]), Integer.parseInt(f[4].trim()), 0, 0, 0};
                 if (t[3] >= 1 && t[3] <= 64) out.add(t);
             } catch (NumberFormatException ignored) {
                 // A damaged row: skip it.
+            }
+        }
+        for (String row : rows) {
+            String[] f = row.trim().split("\t");
+            if (f.length != 7 || !f[0].equals("TB")) continue;
+            try {
+                int[] v = new int[6];
+                for (int i = 0; i < 6; i++) v[i] = Integer.parseInt(f[i + 1]);
+                for (int[] t : out)
+                    if (t[0] == v[0] && t[1] == v[1] && t[2] == v[2]) System.arraycopy(v, 3, t, 4, 3);
+            } catch (NumberFormatException ignored) {
+                // A damaged row: the target keeps any builder.
             }
         }
         return out;
