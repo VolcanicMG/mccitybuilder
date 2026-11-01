@@ -362,6 +362,55 @@ public final class SelfCheck {
         Terrain hill = new Terrain((x, z) -> (int) Math.round(64 + 14 * Math.exp(-(x * x + (z - 40) * (z - 40)) / 300.0)), (x, z) -> 64);
         Jerk h = jerk(new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(-14, 64 + 12, 0, 0)), hill, 240, 1, 0, "pan past a hill");
         check(h.minSpeed() >= 0.95 * flat.maxSpeed(), "panning toward a hill slows the camera: " + h + " vs flat " + flat);
+        // Panning low toward a step at uneven frame times (with a 0.1 s hitch): the clearance never climbs past the most
+        // it was asked for, and the height doesn't bob (at most one rise and one settle).
+        for (int step : new int[]{8, 12}) {
+            Terrain cliff = new Terrain((x, z) -> z >= 20 ? 64 + step : 64, (x, z) -> 64);
+            var r = new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 10, 0, 0));
+            double[] dts = {1 / 60.0, 1 / 30.0, 1 / 144.0, 1 / 60.0, 1 / 45.0};
+            double maxNeed = 0, maxClear = 0, py = r.drone.y(), lastDy = 0;
+            int flips = 0;
+            for (int i = 0; i < 400; i++) {
+                double dt = i == 150 ? 0.1 : dts[i % dts.length];
+                r.frame(cliff, dt, 0, i < 200 ? 1 : 0, 0, null, 1.2, 64);
+                aboveSurface(r, cliff, "pan to a " + step + "-block step");
+                maxNeed = Math.max(maxNeed, r.localSurface(cliff, dt) + 0.5 + DroneCamera.CLEARANCE - r.drone.altitude);
+                maxClear = Math.max(maxClear, r.drone.clearance);
+                double dy = r.drone.y() - py;
+                py = r.drone.y();
+                if (Math.abs(dy) > 1e-3) {
+                    if (lastDy != 0 && Math.signum(dy) != Math.signum(lastDy)) flips++;
+                    lastDy = dy;
+                }
+            }
+            System.out.printf("CityBuilder self-check: camera pan to a %d-block step, uneven frames: clearance peak %.2f (most needed %.2f), dy flips %d%n", step, maxClear, maxNeed, flips);
+            check(maxClear <= maxNeed + 0.05, "clearance overshoots at a " + step + "-block step: " + maxClear + " > " + maxNeed);
+            check(flips <= 2, "height bobs at a " + step + "-block step: " + flips + " flips");
+        }
+        // Column reads per frame while panning fast (the windows overlap; each column is read once per frame).
+        int[] reads = {0};
+        Terrain counting = new Terrain((x, z) -> {
+            reads[0]++;
+            return 64;
+        }, (x, z) -> 64);
+        var cr = new com.volcanicmg.mccitybuilder.planner.CameraRig(new DroneCamera(0, 64 + 30, 0, 0));
+        for (int i = 0; i < 60; i++) cr.frame(counting, 1 / 60.0, 0, 1, 0, null, 3.6, 64);
+        reads[0] = 0;
+        for (int i = 0; i < 60; i++) cr.frame(counting, 1 / 60.0, 0, 1, 0, null, 3.6, 64);
+        System.out.println("CityBuilder self-check: camera column reads per frame, fast pan: " + reads[0] / 60);
+        check(reads[0] / 60 < 1500, "camera reads too many columns per frame: " + reads[0] / 60);
+        // The clearance alone, for a need that appears at once (a target jump next to something tall): no overshoot.
+        for (double gap : new double[]{3, 6, 10, 20}) {
+            DroneCamera d = new DroneCamera(0, 74, 0, 0);
+            double peak = 0;
+            for (int i = 0; i < 300; i++) {
+                double dt = i == 20 ? 0.1 : i % 2 == 0 ? 1 / 60.0 : 1 / 30.0;
+                d.update(dt, 0, 0, 1, 64, 74 - DroneCamera.CLEARANCE + gap, 64);
+                peak = Math.max(peak, d.clearance);
+            }
+            System.out.printf("CityBuilder self-check: clearance step of %.0f: peak %.3f%n", gap, peak);
+            check(peak <= gap + 0.05, "clearance overshoots a step of " + gap + ": " + peak);
+        }
     }
 
     private static void rigIntegration() {

@@ -186,8 +186,12 @@ public final class DroneCamera {
             clearVel += CameraMath.clamp(w * w * (goal - clearance) - 2 * w * clearVel, -CLEAR_ACCEL, CLEAR_ACCEL) * h;
             clearance += clearVel * h;
         }
-        // Never below zero (open ground) and never left rising past what is needed.
+        // Never below zero (open ground), never past the goal it is moving toward (no overshoot for the hold to keep).
         if (clearance < 0) clearance = clearVel = 0;
+        if (clearVel > 0 && clearance > goal || clearVel < 0 && clearance < goal) {
+            clearance = goal;
+            clearVel = 0;
+        }
         // Safety net: whatever moves the height, the camera glides there.
         // The cap grows with the gap itself, so a climb toward an obstacle never stalls at the minimum.
         double target = altitude + clearance;

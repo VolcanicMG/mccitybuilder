@@ -90,7 +90,7 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   glide - up to one frame + 1.5 s + 4 blocks, at most 64; nothing ahead while it isn't moving, so turning in place
   never reacts to what the view sweeps across), which lifts the camera through the clearance (a critically damped
   spring toward the need, acceleration capped at 150 blocks/s², held 0.6 s before it releases) and the speed cap; and
-  the **hard floor**: 1.5 above the column under the drawn camera, 2 lower per block of distance for the columns
+  the **hard floor**: 2.1 above the column under the drawn camera (clear of two-block plants, which the heightmap skips), 2 lower per block of distance for the columns
   within 2 (never inside one), applied before and after the frame's move. Where the move would need more climb than
   the vertical cap allows this frame (a wall), the drawn x / z is held while the clearance climbs; anything less is a
   climb, so the hold no longer toggles over small bumps. The full 3-block clearance comes from the eased path. The

@@ -45,6 +45,9 @@ public final class CameraRig {
      */
     public void frame(World w, double dt, double right, double ahead, double turnRate, double[] pivot, double speedPerBlock, double centreGround) {
         clock += dt;
+        // The terrain may change between frames, never within one.
+        columns.clear();
+        columnsOf = w;
         if (Double.isNaN(broad) || clock >= SAMPLE_PERIOD) {
             clock = 0;
             // Stays NaN until a real sample (enough loaded columns): no guessed baseline to correct later.
@@ -83,12 +86,32 @@ public final class CameraRig {
         moveZ = dt > 0 ? (drone.camZ() - pz) / dt : 0;
     }
 
+    // Surface heights read this frame (the floor and clearance windows overlap heavily); MIN_VALUE = not loaded.
+    private final java.util.HashMap<Long, Integer> columns = new java.util.HashMap<>();
+    private World columnsOf;
+
+    /** @return {@code w}'s surface at a column, read once per frame, or MIN_VALUE where it isn't loaded */
+    private int surface(World w, int x, int z) {
+        if (w != columnsOf) {
+            columns.clear();
+            columnsOf = w;
+        }
+        long k = (long) x << 32 ^ (z & 0xFFFFFFFFL);
+        Integer h = columns.get(k);
+        if (h == null) {
+            Integer s = w.surface(x, z);
+            h = s == null ? Integer.MIN_VALUE : s;
+            columns.put(k, h);
+        }
+        return h;
+    }
+
     /**
      * The hard floor: {@link #FLOOR_GAP} above the column under the camera, falling off by {@link #FLOOR_FALL} per block
      * of distance for the columns around (never inside one); the full {@link DroneCamera#CLEARANCE} comes from the
      * eased clearance, whose obstacle falls off by {@link #OBSTACLE_FALL} per block.
      */
-    public static final double FLOOR_GAP = 1.5, FLOOR_FALL = 2, OBSTACLE_FALL = 1;
+    public static final double FLOOR_GAP = 2.1, FLOOR_FALL = 2, OBSTACLE_FALL = 1;
 
     /**
      * @return the lowest height the drawn camera may be at over (x, z), -inf with none loaded; continuous in x / z,
@@ -102,13 +125,13 @@ public final class CameraRig {
      * @return the highest surface around (x, z) within {@code r} columns, each lowered by {@code fall} per block of
      * distance to it beyond {@code full} blocks
      */
-    private static double near(World w, double x, double z, int r, double full, double fall) {
+    private double near(World w, double x, double z, int r, double full, double fall) {
         double top = Double.NEGATIVE_INFINITY;
         int cx = (int) Math.floor(x), cz = (int) Math.floor(z);
         for (int dx = -r; dx <= r; dx++)
             for (int dz = -r; dz <= r; dz++) {
-                Integer h = w.surface(cx + dx, cz + dz);
-                if (h == null) continue;
+                int h = surface(w, cx + dx, cz + dz);
+                if (h == Integer.MIN_VALUE) continue;
                 // Distance from the point to the column's square (0 inside it).
                 double ex = Math.max(0, Math.max(cx + dx - x, x - (cx + dx + 1))), ez = Math.max(0, Math.max(cz + dz - z, z - (cz + dz + 1)));
                 top = Math.max(top, h - fall * Math.max(0, Math.hypot(ex, ez) - full));
