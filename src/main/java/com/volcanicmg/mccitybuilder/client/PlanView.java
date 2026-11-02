@@ -349,7 +349,8 @@ final class PlanView {
                 dirty = true;
             }
         }
-        if (!dirty) return;
+        // Plan mode off with nothing shown: stay dirty, so turning it on queues the previews again.
+        if (!dirty || !on && previews == 0) return;
         List<int[]> buildings = new ArrayList<>();
         for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) buildings.add(Planner.box(b));
         conflicts = Plan.conflicts(entries, buildings, Planner.claimed());
