@@ -676,27 +676,31 @@ public final class Planner {
 
     /**
      * The building or decoration under the mouse: a far building ({@link FarBuildings}: no drawn blocks, maybe no
-     * blocks at all to hit) whose box the ray enters before the block hit, else what contains the block hit.
+     * blocks at all to hit) whose box the ray enters before the block hit, else what contains the block hit, else a
+     * far building whose box holds the camera (last: from inside one, every ray would otherwise pick it).
      *
      * @param hit {@link #pick} at the same point (may be null)
      * @return an {@link IBuildingView}, a {@link Deco}, or null
      */
     static Object pickUnder(double fx, double fy, BlockHitResult hit) {
         Vec3[] r = ray(fx, fy);
-        IBuildingView far = null;
+        IBuildingView far = null, around = null;
         if (r != null) {
             double best = hit == null ? Double.MAX_VALUE : hit.getLocation().distanceToSqr(r[0]);
             for (IBuildingView b : FarBuildings.far()) {
                 AABB box = aabb(b);
-                // From inside the box (clip finds no entry): a hit right at the camera.
-                var at = box.contains(r[0]) ? java.util.Optional.of(r[0]) : box.clip(r[0], r[1]);
+                if (box.contains(r[0])) {
+                    around = b;
+                    continue;
+                }
+                var at = box.clip(r[0], r[1]);
                 if (at.isPresent() && at.get().distanceToSqr(r[0]) < best) {
                     best = at.get().distanceToSqr(r[0]);
                     far = b;
                 }
             }
         }
-        return far != null ? far : hit == null ? null : pickAt(hit.getBlockPos());
+        return far != null ? far : hit != null ? pickAt(hit.getBlockPos()) : around;
     }
 
     /** @return where a world point appears on screen {ndcX, ndcY}, or null when behind the camera */
