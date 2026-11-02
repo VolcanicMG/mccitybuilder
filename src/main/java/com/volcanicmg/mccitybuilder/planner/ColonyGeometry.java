@@ -28,10 +28,11 @@ public final class ColonyGeometry {
     /**
      * @return true when a chunk {@code dx, dz} chunks from the camera's is beyond render distance {@code rd} (chunks):
      * outside the circle of radius rd - 1, so the ring the renderer may or may not draw counts as not drawn (a preview
-     * there may sit over real blocks rather than leave a hole)
+     * there may sit over real blocks rather than leave a hole). {@code wasFar}: one already beyond stays so until inside
+     * rd - 2 (a camera on a chunk border doesn't flip it every frame).
      */
-    public static boolean beyondRender(int dx, int dz, int rd) {
-        int r = Math.max(0, rd - 1);
+    public static boolean beyondRender(int dx, int dz, int rd, boolean wasFar) {
+        int r = Math.max(0, rd - (wasFar ? 2 : 1));
         return (long) dx * dx + (long) dz * dz > (long) r * r;
     }
 

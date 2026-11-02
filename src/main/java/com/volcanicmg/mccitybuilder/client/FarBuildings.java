@@ -48,14 +48,12 @@ final class FarBuildings {
         }
         List<IBuildingView> out = new ArrayList<>();
         var cam = mc.gameRenderer.getMainCamera().getPosition();
-        // Drawn chunks are those near the camera (the planner's, not the player): the client may hold chunks out to
-        // the server's view distance, beyond the render distance, with blocks it never draws.
-        int ccx = net.minecraft.util.Mth.floor(cam.x) >> 4, ccz = net.minecraft.util.Mth.floor(cam.z) >> 4, rd = mc.options.getEffectiveRenderDistance();
+        java.util.Set<BlockPos> was = new java.util.HashSet<>();
+        for (IBuildingView b : far) was.add(b.getPosition());
         for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) {
             BlockPos p = b.getPosition();
-            int cx = p.getX() >> 4, cz = p.getZ() >> 4;
             // The chunk itself: the client's hasChunk stays true for chunks the server told it to drop.
-            if (mc.level.getChunkSource().getChunk(cx, cz, false) == null || ColonyGeometry.beyondRender(cx - ccx, cz - ccz, rd)) out.add(b);
+            if (mc.level.getChunkSource().getChunk(p.getX() >> 4, p.getZ() >> 4, false) == null || undrawn(p.getX(), p.getZ(), was.contains(p))) out.add(b);
         }
         out.sort(java.util.Comparator.comparingDouble(b -> b.getPosition().distToCenterSqr(cam)));
         far = out;
@@ -107,6 +105,18 @@ final class FarBuildings {
         previews.clear();
         freeSlots.clear();
         nextSlot = 0;
+    }
+
+    /**
+     * @return true when block column x, z is beyond render distance from the planner camera (its chunk, not the
+     * player's: the client may hold chunks out to the server's view distance, past what it draws)
+     * @param wasFar hysteresis for something already treated as far ({@link ColonyGeometry#beyondRender})
+     */
+    static boolean undrawn(int x, int z, boolean wasFar) {
+        Minecraft mc = Minecraft.getInstance();
+        var cam = mc.gameRenderer.getMainCamera().getPosition();
+        return ColonyGeometry.beyondRender((x >> 4) - (net.minecraft.util.Mth.floor(cam.x) >> 4), (z >> 4) - (net.minecraft.util.Mth.floor(cam.z) >> 4),
+                mc.options.getEffectiveRenderDistance(), wasFar);
     }
 
     /** @return the buildings shown as far this tick (nearest the camera first) */

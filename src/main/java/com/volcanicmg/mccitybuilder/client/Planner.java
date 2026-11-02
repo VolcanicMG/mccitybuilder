@@ -651,13 +651,16 @@ public final class Planner {
      * Casts the ray under the mouse from the planner camera.
      *
      * @param fx mouse x as a fraction of the window width; @param fy mouse y as a fraction of its height
-     * @return the block hit, or null
+     * @return the block hit, or null (also for a block beyond render distance, which the player doesn't see)
      */
     static BlockHitResult pick(double fx, double fy) {
         Vec3[] r = ray(fx, fy);
         if (r == null) return null;
         BlockHitResult hit = Minecraft.getInstance().level.clip(new ClipContext(r[0], r[1], ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, camera));
-        return hit.getType() == HitResult.Type.MISS ? null : hit;
+        // Blocks the client holds but doesn't draw (beyond render distance) are a miss: everything further along the
+        // ray is further from the camera too, so no re-clip.
+        if (hit.getType() == HitResult.Type.MISS || FarBuildings.undrawn(hit.getBlockPos().getX(), hit.getBlockPos().getZ(), false)) return null;
+        return hit;
     }
 
     /** @return the mouse ray {from, to} from the planner camera, or null without one */
@@ -684,7 +687,9 @@ public final class Planner {
         if (r != null) {
             double best = hit == null ? Double.MAX_VALUE : hit.getLocation().distanceToSqr(r[0]);
             for (IBuildingView b : FarBuildings.far()) {
-                var at = aabb(b).clip(r[0], r[1]);
+                AABB box = aabb(b);
+                // From inside the box (clip finds no entry): a hit right at the camera.
+                var at = box.contains(r[0]) ? java.util.Optional.of(r[0]) : box.clip(r[0], r[1]);
                 if (at.isPresent() && at.get().distanceToSqr(r[0]) < best) {
                     best = at.get().distanceToSqr(r[0]);
                     far = b;
