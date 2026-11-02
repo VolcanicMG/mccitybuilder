@@ -1122,7 +1122,7 @@ final class PlannerScreen extends Screen {
         }
         if (Planner.creative()) out.add("all");
         // Survival: the huts in the inventory come first, when there are any.
-        else if (!ownedHuts().isEmpty()) out.add("owned");
+        else if (!PlanView.on && !ownedHuts().isEmpty()) out.add("owned");
         out.addAll(HutCatalog.CATEGORIES);
         return out;
     }
@@ -1442,10 +1442,12 @@ final class PlannerScreen extends Screen {
         VanillaUi.slot(g, sx, sy, SLOT, SLOT);
         int count = mc.player.getInventory().countItem(hut.asItem());
         boolean locked = !creative && hut instanceof AbstractBlockHut<?> h && !h.areRequirementsMet(mc.level, mc.player.blockPosition(), mc.player);
+        // Plan mode plans anything: research and the inventory only matter when the plan is built (Build all checks both).
+        boolean blocked = locked && !PlanView.on;
         boolean missing = creative && Blueprints.missing(pack(), hut);
         g.renderItem(new ItemStack(hut), sx + 1, sy + 1);
         if (count > 0) g.renderItemDecorations(font, new ItemStack(hut, count), sx + 1, sy + 1);
-        if (locked || missing || count <= 0 && !creative && !PlanView.on) g.fill(sx + 1, sy + 1, sx + SLOT - 1, sy + SLOT - 1, locked ? 0xB0555555 : 0x908B8B8B);
+        if (blocked || missing || count <= 0 && !creative && !PlanView.on) g.fill(sx + 1, sy + 1, sx + SLOT - 1, sy + SLOT - 1, blocked ? 0xB0555555 : 0x908B8B8B);
         if (hut == Planner.placing) outline(g, sx + 1, sy + 1, SLOT - 2, SLOT - 2, 0xFFFFFFFF);
         // Survival: huts in the inventory get a green frame.
         else if (!creative && count > 0) outline(g, sx + 1, sy + 1, SLOT - 2, SLOT - 2, 0xFF55DD55);
@@ -1459,7 +1461,7 @@ final class PlannerScreen extends Screen {
         else tip.append(Component.literal("\n")).append(count > 0 ? Component.translatable("mccitybuilder.in_inventory", count)
                 : Component.translatable("mccitybuilder.none_in_inventory"));
         hits.add(new Hit(sx, sy, SLOT, SLOT, () -> {
-            if (locked) return;
+            if (blocked) return;
             click();
             if (Planner.placing == hut) Planner.stopPlacing();
             else Planner.startPlacing(hut);

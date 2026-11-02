@@ -70,7 +70,10 @@ final class FarBuildings {
             if (want.size() >= MAX_PREVIEWS) break;
             // Level 0: nothing built yet.
             if (b.getBuildingLevel() < 1 || b.getStructurePack() == null || b.getStructurePath() == null || b.getRotationMirror() == null) continue;
-            String now = HutCatalog.levelPath(b.getStructurePath(), b.getBuildingLevel()), path = now != null ? now : b.getStructurePath();
+            // The view's path can lack the extension or use \\ / a leading / (as the server side also allows for).
+            String stored = b.getStructurePath().replace('\\', '/').replaceFirst("^/", "");
+            if (!stored.endsWith(".blueprint")) stored += ".blueprint";
+            String now = HutCatalog.levelPath(stored, b.getBuildingLevel()), path = now != null ? now : stored;
             int rot = b.getRotationMirror().ordinal();
             if (PlanView.blueprint(b.getStructurePack(), path, rot) != null)
                 want.put(b.getPosition().asLong() + "|" + b.getStructurePack() + "|" + path + "|" + rot, new Want(b.getStructurePack(), path, rot, b.getPosition()));
