@@ -654,14 +654,44 @@ public final class Planner {
      * @return the block hit, or null
      */
     static BlockHitResult pick(double fx, double fy) {
+        Vec3[] r = ray(fx, fy);
+        if (r == null) return null;
+        BlockHitResult hit = Minecraft.getInstance().level.clip(new ClipContext(r[0], r[1], ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, camera));
+        return hit.getType() == HitResult.Type.MISS ? null : hit;
+    }
+
+    /** @return the mouse ray {from, to} from the planner camera, or null without one */
+    private static Vec3[] ray(double fx, double fy) {
         Minecraft mc = Minecraft.getInstance();
-        if (camera == null || mc.level == null) return null;
+        if (camera == null || drone == null || mc.level == null) return null;
         double aspect = (double) mc.getWindow().getWidth() / Math.max(1, mc.getWindow().getHeight());
         double[] d = CameraMath.ray(drone.yaw, drone.pitch, mc.options.fov().get(), aspect, fx * 2 - 1, 1 - fy * 2);
         // Far enough for shallow rays from the zoom ceiling (160 up at 30° is 320 to the centre alone).
-        Vec3 from = camera.position(), to = from.add(d[0] * PICK_REACH, d[1] * PICK_REACH, d[2] * PICK_REACH);
-        BlockHitResult hit = mc.level.clip(new ClipContext(from, to, ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, camera));
-        return hit.getType() == HitResult.Type.MISS ? null : hit;
+        Vec3 from = camera.position();
+        return new Vec3[]{from, from.add(d[0] * PICK_REACH, d[1] * PICK_REACH, d[2] * PICK_REACH)};
+    }
+
+    /**
+     * The building or decoration under the mouse: a far building ({@link FarBuildings}: no drawn blocks, maybe no
+     * blocks at all to hit) whose box the ray enters before the block hit, else what contains the block hit.
+     *
+     * @param hit {@link #pick} at the same point (may be null)
+     * @return an {@link IBuildingView}, a {@link Deco}, or null
+     */
+    static Object pickUnder(double fx, double fy, BlockHitResult hit) {
+        Vec3[] r = ray(fx, fy);
+        IBuildingView far = null;
+        if (r != null) {
+            double best = hit == null ? Double.MAX_VALUE : hit.getLocation().distanceToSqr(r[0]);
+            for (IBuildingView b : FarBuildings.far()) {
+                var at = aabb(b).clip(r[0], r[1]);
+                if (at.isPresent() && at.get().distanceToSqr(r[0]) < best) {
+                    best = at.get().distanceToSqr(r[0]);
+                    far = b;
+                }
+            }
+        }
+        return far != null ? far : hit == null ? null : pickAt(hit.getBlockPos());
     }
 
     /** @return where a world point appears on screen {ndcX, ndcY}, or null when behind the camera */

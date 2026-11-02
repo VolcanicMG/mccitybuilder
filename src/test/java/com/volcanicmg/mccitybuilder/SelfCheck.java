@@ -770,6 +770,9 @@ public final class SelfCheck {
         check(ColonyGeometry.smallestContaining(boxes, 5, 70, 5) == 1, "nested: smallest box wins");
         check(ColonyGeometry.smallestContaining(boxes, 15, 61, 15) == 0, "inside only the big box");
         check(ColonyGeometry.smallestContaining(boxes, 20, 80, 20) == 0, "max corner is inclusive");
+        check(!ColonyGeometry.beyondRender(0, 0, 8) && !ColonyGeometry.beyondRender(7, 0, 8) && ColonyGeometry.beyondRender(8, 0, 8)
+                && ColonyGeometry.beyondRender(5, 5, 8) && !ColonyGeometry.beyondRender(4, 5, 8) && ColonyGeometry.beyondRender(1, 0, 1),
+                "beyond render: outside the circle of radius rd - 1 around the camera's chunk (the edge ring counts as not drawn)");
         check(ColonyGeometry.smallestContaining(boxes, 25, 65, 25) == -1, "between buildings");
         // A decoration's box at its anchor from blueprint offsets; a click inside it beats the building around it.
         int[] deco = ColonyGeometry.placed(new int[]{-1, 0, -2, 1, 3, 0}, 10, 64, 10);

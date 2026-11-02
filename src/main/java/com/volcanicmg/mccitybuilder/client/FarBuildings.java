@@ -7,6 +7,7 @@ import com.minecolonies.api.colony.buildings.views.IBuildingView;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.volcanicmg.mccitybuilder.Config;
+import com.volcanicmg.mccitybuilder.planner.ColonyGeometry;
 import com.volcanicmg.mccitybuilder.planner.HutCatalog;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,8 +19,9 @@ import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
 
 /**
- * Colony buildings whose hut chunk this client hasn't loaded (beyond render distance; Distant Horizons shows only
- * LOD terrain there): in the planner each gets its outline box, and the nearest {@link #MAX_PREVIEWS} their blocks at
+ * Colony buildings whose hut chunk this client doesn't draw (no chunk, or beyond render distance from the planner
+ * camera; Distant Horizons shows only LOD terrain there): in the planner each gets its outline box, picking reaches it
+ * through its box ({@link Planner#pickUnder}), and the nearest {@link #MAX_PREVIEWS} their blocks at
  * the current level as Structurize previews. A preview that stays keeps its slot (no rebuild); it goes when the chunk
  * loads, the building goes, the planner closes or on logout.
  */
@@ -45,12 +47,16 @@ final class FarBuildings {
             return;
         }
         List<IBuildingView> out = new ArrayList<>();
+        var cam = mc.gameRenderer.getMainCamera().getPosition();
+        // Drawn chunks are those near the camera (the planner's, not the player): the client may hold chunks out to
+        // the server's view distance, beyond the render distance, with blocks it never draws.
+        int ccx = net.minecraft.util.Mth.floor(cam.x) >> 4, ccz = net.minecraft.util.Mth.floor(cam.z) >> 4, rd = mc.options.getEffectiveRenderDistance();
         for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) {
             BlockPos p = b.getPosition();
+            int cx = p.getX() >> 4, cz = p.getZ() >> 4;
             // The chunk itself: the client's hasChunk stays true for chunks the server told it to drop.
-            if (mc.level.getChunkSource().getChunk(p.getX() >> 4, p.getZ() >> 4, false) == null) out.add(b);
+            if (mc.level.getChunkSource().getChunk(cx, cz, false) == null || ColonyGeometry.beyondRender(cx - ccx, cz - ccz, rd)) out.add(b);
         }
-        var cam = mc.gameRenderer.getMainCamera().getPosition();
         out.sort(java.util.Comparator.comparingDouble(b -> b.getPosition().distToCenterSqr(cam)));
         far = out;
         previews(out);
@@ -101,6 +107,11 @@ final class FarBuildings {
         previews.clear();
         freeSlots.clear();
         nextSlot = 0;
+    }
+
+    /** @return the buildings shown as far this tick (nearest the camera first) */
+    static List<IBuildingView> far() {
+        return far;
     }
 
     /** Every far building's box, a soft blue outline. */

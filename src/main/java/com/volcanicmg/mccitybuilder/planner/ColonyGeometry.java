@@ -25,6 +25,16 @@ public final class ColonyGeometry {
         return (int) (c >>> 32);
     }
 
+    /**
+     * @return true when a chunk {@code dx, dz} chunks from the camera's is beyond render distance {@code rd} (chunks):
+     * outside the circle of radius rd - 1, so the ring the renderer may or may not draw counts as not drawn (a preview
+     * there may sit over real blocks rather than leave a hole)
+     */
+    public static boolean beyondRender(int dx, int dz, int rd) {
+        int r = Math.max(0, rd - 1);
+        return (long) dx * dx + (long) dz * dz > (long) r * r;
+    }
+
     /** @return every chunk overlapping the block box [x0..x1] x [z0..z1] (inclusive, any order) */
     public static List<Long> footprintChunks(int x0, int z0, int x1, int z1) {
         List<Long> out = new ArrayList<>();

@@ -200,7 +200,7 @@ final class PlannerScreen extends Screen {
             LineView.hoverPiece = LineView.hoverLine >= 0 ? PlanView.pieceAt(LineView.hoverLine, hit.getBlockPos()) : null;
         }
         // Re-picked every frame from the current camera; a miss only clears it after a few frames, so it holds steady.
-        Object now = !overUi && !Planner.isPlacing() && hit != null ? Planner.pickAt(hit.getBlockPos()) : null;
+        Object now = !overUi && !Planner.isPlacing() ? Planner.pickUnder(mouseX / (double) width, mouseY / (double) height, hit) : null;
         if (now != null || overUi || Planner.isPlacing() || ++hoverMisses > HOVER_HOLD) {
             Planner.hovered = now instanceof IBuildingView b ? b : null;
             Planner.hoveredDeco = now instanceof Planner.Deco d ? d : null;
@@ -2152,7 +2152,7 @@ final class PlannerScreen extends Screen {
             Planner.select(null);
             return true;
         }
-        Object picked = pe >= 0 || hit == null ? null : Planner.pickAt(hit.getBlockPos());
+        Object picked = pe >= 0 ? null : Planner.pickUnder(mx / width, my / height, hit);
         if (picked instanceof Planner.Deco d) Planner.selectDeco(d);
         else Planner.select((IBuildingView) picked);
         return true;
