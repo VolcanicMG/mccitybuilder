@@ -52,8 +52,7 @@ final class FarBuildings {
         for (IBuildingView b : far) was.add(b.getPosition());
         for (IBuildingView b : colony.getClientBuildingManager().getBuildings().values()) {
             BlockPos p = b.getPosition();
-            // The chunk itself: the client's hasChunk stays true for chunks the server told it to drop.
-            if (mc.level.getChunkSource().getChunk(p.getX() >> 4, p.getZ() >> 4, false) == null || undrawn(p.getX(), p.getZ(), was.contains(p))) out.add(b);
+            if (undrawn(p.getX(), p.getZ(), was.contains(p))) out.add(b);
         }
         out.sort(java.util.Comparator.comparingDouble(b -> b.getPosition().distToCenterSqr(cam)));
         far = out;
@@ -111,15 +110,22 @@ final class FarBuildings {
     }
 
     /**
-     * @return true when block column x, z is beyond render distance from the planner camera (its chunk, not the
-     * player's: the client may hold chunks out to the server's view distance, past what it draws)
+     * @return true when block column x, z isn't drawn: beyond render distance from the planner camera (its chunk, not
+     * the player's: the client may hold chunks out to the server's view distance, past what it draws), or its chunk or
+     * one of the 8 around it is missing. The renderer only meshes a chunk whose neighbours are loaded (Sodium all 8,
+     * vanilla the 4 sides), so the ring of chunks at the edge of what the client holds is present but never drawn.
      * @param wasFar hysteresis for something already treated as far ({@link ColonyGeometry#beyondRender})
      */
     static boolean undrawn(int x, int z, boolean wasFar) {
         Minecraft mc = Minecraft.getInstance();
         var cam = mc.gameRenderer.getMainCamera().getPosition();
-        return ColonyGeometry.beyondRender((x >> 4) - (net.minecraft.util.Mth.floor(cam.x) >> 4), (z >> 4) - (net.minecraft.util.Mth.floor(cam.z) >> 4),
-                mc.options.getEffectiveRenderDistance(), wasFar);
+        int cx = x >> 4, cz = z >> 4;
+        if (ColonyGeometry.beyondRender(cx - (net.minecraft.util.Mth.floor(cam.x) >> 4), cz - (net.minecraft.util.Mth.floor(cam.z) >> 4), mc.options.getEffectiveRenderDistance(), wasFar))
+            return true;
+        // The chunk itself, not hasChunk: the client's hasChunk stays true for chunks the server told it to drop.
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dz = -1; dz <= 1; dz++) if (mc.level.getChunkSource().getChunk(cx + dx, cz + dz, false) == null) return true;
+        return false;
     }
 
     /** @return the buildings shown as far this tick (nearest the camera first) */
