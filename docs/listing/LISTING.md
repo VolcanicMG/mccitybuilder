@@ -11,7 +11,7 @@ Copy-paste source for both project pages. Keep the two in step when features cha
 | Summary (CurseForge, max 256) | Plan and build your MineColonies town from the sky: an overhead city-builder view to place huts and decorations, draw walls and roads with your style pack's pieces, and run your builders. Beta. |
 | Summary (Modrinth, max ~250) | Same as above. |
 | Release type | **Beta** |
-| Version | 1.0.0-beta.1 |
+| Version | 0.1.0 |
 | Game version / loader | 1.21.1 / NeoForge |
 | Environment (Modrinth) | Client: required · Server: required |
 | License | MIT |
@@ -20,7 +20,7 @@ Copy-paste source for both project pages. Keep the two in step when features cha
 | Dependencies | MineColonies (required), Structurize (required) |
 | CurseForge categories | Map and Information, Utility & QoL, Addons (MineColonies if offered) |
 | Modrinth categories | Utility, Management, Decoration |
-| Icon | Needed: 400×400 PNG (none yet) |
+| Icon | `src/main/resources/icon.png` (128 px, in-game); 400 px store icon is the same art at 7× |
 
 ## Description (Markdown, both sites)
 
@@ -92,10 +92,10 @@ In `world/serverconfig/mccitybuilder-server.toml`:
 4. The **?** on the road/wall panel opens the guide.
 ```
 
-## First changelog (1.0.0-beta.1)
+## First changelog (0.1.0)
 
 ```markdown
-First public beta.
+First public release.
 
 - Overhead planner view for MineColonies colonies (J).
 - Place huts and decorations with style-pack previews; creative instant place, upgrade, repair, move and remove.

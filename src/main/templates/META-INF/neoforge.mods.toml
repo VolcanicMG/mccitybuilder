@@ -9,6 +9,7 @@ version="${mod_version}"
 displayName="${mod_name}"
 authors="VolcanicMG"
 displayURL="https://github.com/VolcanicMG/mccitybuilder"
+logoFile="icon.png"
 description='''
 Plan and build your MineColonies town from the sky: an overhead city-builder view to place huts and decorations, draw walls and roads with your style pack's pieces, and run your builders through MineColonies' own build and work-order system. Beta.
 '''

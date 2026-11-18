@@ -1,6 +1,21 @@
 # Changelog
 
-## 1.0.0-beta.1
+## 0.1.0
+
+First public release.
+
+- Overhead planner view for MineColonies colonies (J), with a camera that follows the terrain and keeps to the colony.
+- Place huts and decorations with style-pack previews, alternate designs, a level picker and a builder picker;
+  creative instant place, upgrade, repair, move and remove; survival Build, Upgrade, Repair and Pick up.
+- Wall and road tools with automatic joints, loop closing, Fill gaps, and shared or single-builder orders.
+- Builder queue with reordering and assignment.
+- Hut names and worker counts, citizen markers with hover cards (blockers, status, needs, happiness, skills) and
+  hut-to-worker lines, all visible past your render distance.
+- Plan mode for whole districts (no hut items needed), shared live with colony members.
+- 3D step-by-step help and context-aware controls.
+- Server-checked multiplayer with settings for survival inventory access.
+
+## Development builds (before 0.1.0)
 
 - Camera: no more jitter low over terrain or when turning at the colony edge (terrain under and around the camera
   is weighed by distance instead of whole-block windows, the climb eases in, turning against the edge keeps its
