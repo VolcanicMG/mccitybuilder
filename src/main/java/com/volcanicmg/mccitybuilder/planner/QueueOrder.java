@@ -51,4 +51,19 @@ public final class QueueOrder {
         int i = stage == null ? -1 : STAGES.indexOf(stage);
         return i < 0 ? -1 : (i + 0.5) / STAGES.size();
     }
+
+    /**
+     * Free materials: the work order a mark funds. Order ids only grow ({@code WorkManager.topWorkOrderId}), so an
+     * order older than the mark (someone else's at the same spot) is never taken.
+     *
+     * @param after the colony's highest work order id when the mark came
+     * @param ids   the ids of the orders at the marked site
+     * @param taken order ids other marks already fund
+     * @return the first order made at the site after the mark (the lowest such id), or 0 while there is none
+     */
+    public static int fundedOrder(int after, Iterable<Integer> ids, java.util.Set<Integer> taken) {
+        int best = 0;
+        for (int id : ids) if (id > after && !taken.contains(id) && (best == 0 || id < best)) best = id;
+        return best;
+    }
 }

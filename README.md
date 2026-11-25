@@ -62,6 +62,10 @@ The controls panel (bottom right) always lists the keys for what you're doing ri
   materials come from your colony.
 - **Creative** adds instant tools: place, upgrade, repair, move and remove buildings and decorations at once.
   Removing restores the ground that was there before, and containers keep or return their items.
+- **Creative build mode** (the "Build:" picker in the placing, hut, road / wall and plan panels): **Instant** pastes at
+  once; **Builders** sends the survival work orders so you can watch your builders work (materials from the colony);
+  **Builders (free)** does the same but the server hands the builders the materials they ask for (needs City Builder
+  on the server). Move, Remove and Clean stay instant.
 
 ## Server settings
 

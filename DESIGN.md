@@ -191,6 +191,31 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Place first puts the hut block and calls `onBlockPlacedByBuildTool` (registers the building at level 0), then the
   same paste and finish take it to the chosen level.
 
+### Creative build mode and free materials (protocol 11, `server/FreeMaterials`)
+
+- Client config `creativeBuildMode` (INSTANT default, BUILDERS_FREE, BUILDERS), cycled in the placing, selected-hut,
+  road / wall and plan panels while in creative. `Planner.instant()` (creative and INSTANT) replaces `creative()` at
+  every "paste now" branch: place, Upgrade / Build, Repair, Build all, road / wall Build (DECO vs DECO_ORDER) and
+  `BuildUp` (which ran only outside creative). Move, Remove, Clean and decoration Move / Repair / Delete stay
+  creative-instant. Builder modes show the builder picker and take the survival paths.
+- Hut placement in a builder mode uses MineColonies' survival handler (verified in 1.1.1403 `SurvivalHandler.handle`:
+  no hut item in the inventory is accepted for a creative player, `new ItemStack(hut)` stands in; `reduceStackInItemHandler`
+  then takes one only if the inventory holds one). Build all counts every hut as held and skips the research check.
+- `FreeMaterials.Fund(sites)` (play-to-server, up to 16 positions): sent just before each order-making message in
+  BUILDERS_FREE (the placement whose build request follows, `BuildUp`'s next level, Upgrade's window, Repair, the
+  DECO_ORDER request / piece batch, the survival decoration window). The server keeps a mark (dimension, colony at
+  the site, site, sender, highest order id at that moment) only for a creative sender with `allowed(UPGRADE)`
+  (MANAGE_HUTS), at most 20 messages / s and 256 marks per player; a waiting mark at the same site is renewed.
+- Every 40 ticks: an unbound mark binds the lowest order id at its site above the stored id and not bound by another
+  mark (`QueueOrder.fundedOrder`; ids only grow, so an older order there is never taken), or goes after 5 min;
+  a bound mark goes when its order is gone (built or cancelled) or its colony is. When the marker is online, in
+  creative and still `allowed`, and the order's claiming builder hut (`AbstractBuildingStructureBuilder`) has that
+  order as its current one, each of its citizens' open `IDeliverable` requests (not `Food`) is filled the way
+  MineColonies' creative fulfil does it (`RequestWindowCitizen` → `TransferItemsToCitizenRequestMessage` +
+  `UpdateRequestStateMessage(OVERRULED)`): the request's first display stack, if it matches, at the requested count
+  into the citizen's inventory (what doesn't fit is dropped), then `IRequestManager.overruleRequest(token, stack)`.
+- Marks are `SavedData` in the overworld (`mccitybuilder_funded`), so orders stay funded across restarts.
+
 ### Moving and removing (server part, protocol 4)
 
 - `Request` carries a source position and rotation (`from`, `fromRot`); `PieceBatch` a mode instead of a survival

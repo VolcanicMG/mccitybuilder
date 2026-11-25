@@ -18,6 +18,7 @@ public final class Config {
     public static final ModConfigSpec.BooleanValue SHOW_CITIZENS;
     public static final ModConfigSpec.BooleanValue SHOW_STAFFING;
     public static final ModConfigSpec.BooleanValue SHOW_UNLOADED_BUILDINGS;
+    public static final ModConfigSpec.EnumValue<BuildMode> BUILD_MODE;
     public static final ModConfigSpec SERVER_SPEC;
     public static final ModConfigSpec.BooleanValue PLANNER_REMOTE_INVENTORIES;
     public static final ModConfigSpec.BooleanValue STRICT_INVENTORY_REACH;
@@ -41,6 +42,8 @@ public final class Config {
         SHOW_STAFFING = c.comment("Planner overlay: show 'assigned/slots' over huts and outline under-staffed ones.").define("showStaffing", true);
         SHOW_UNLOADED_BUILDINGS = c.comment("Planner overlay: buildings beyond your render distance (chunks your client hasn't loaded) show their outline, and the nearest 16 their blocks as a preview.")
                 .define("showUnloadedBuildings", true);
+        BUILD_MODE = c.comment("Creative only: what City Builder's build actions do. INSTANT pastes at once; BUILDERS_FREE makes builder work orders whose material requests the server fills for free (needs City Builder on the server, else like BUILDERS); BUILDERS makes the survival work orders, materials from the colony.")
+                .defineEnum("creativeBuildMode", BuildMode.INSTANT);
         CLIENT_SPEC = c.build();
         ModConfigSpec.Builder s = new ModConfigSpec.Builder();
         PLANNER_REMOTE_INVENTORIES = s.comment("Survival players may open huts' and citizens' windows (and so their inventories) from City Builder's planner, however far away. Off: the planner's Open, O key, queue rows and citizen markers don't open them in survival (creative always may). Only City Builder's own UI: MineColonies' windows are untouched (see strictInventoryReach).")
@@ -57,6 +60,11 @@ public final class Config {
         } catch (IllegalStateException e) {
             return false;
         }
+    }
+
+    /** How creative build actions run (survival always uses builders). */
+    public enum BuildMode {
+        INSTANT, BUILDERS_FREE, BUILDERS
     }
 
     private Config() {

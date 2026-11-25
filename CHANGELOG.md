@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Creative build mode ("Build: Instant / Builders (free) / Builders", < >) in the hut placing panel, the selected
+  hut's panel, the road / wall panel and the plan panel, saved in the client config (`creativeBuildMode`, default
+  Instant). Instant pastes as before. The builder modes run the survival flows from creative: huts placed at level 1
+  (no hut item needed) and built up level by level, Upgrade opens MineColonies' window, Repair, road / wall piece
+  orders and Build all make work orders, and the builder picker shows. Builders (free) also has the server fill those
+  orders' builder material requests for free (MineColonies' own "fulfil", every 2 s, only while you are online, in
+  creative and allowed to manage huts). Free materials need City Builder on the server (protocol 11: older builds
+  don't share City Builder's channels); without it the mode reads "Builders (not free)". Move, Remove, Clean and
+  decoration Move / Repair / Delete stay instant.
+
 ## 0.1.0
 
 First public release.

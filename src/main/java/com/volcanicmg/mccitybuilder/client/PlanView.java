@@ -466,14 +466,16 @@ final class PlanView {
 
     /**
      * Builds the plan (or just the selected entry). Creative: queued, one request at a time. Survival: huts with an
-     * item in the inventory are placed (build requests follow); the rest stay in the plan and are reported.
+     * item in the inventory are placed (build requests follow); the rest stay in the plan and are reported. Creative
+     * in a builder mode: the survival way, every hut counted as in the inventory.
      *
      * @return a message for the player
      */
     static Component commit(boolean selectedOnly) {
         LineView.closeJointMenu(false);
         Minecraft mc = Minecraft.getInstance();
-        boolean creative = Planner.creative(), server = Planner.serverInstant();
+        // Creative builder modes go the survival way, without needing hut items.
+        boolean instant = Planner.instant(), noItems = Planner.creative(), server = Planner.serverInstant();
         Map<Plan.Build, Integer> kept = new java.util.EnumMap<>(Plan.Build.class);
         int items = 0, segments = 0;
         Map<Block, Integer> left = new HashMap<>();
@@ -491,21 +493,21 @@ final class PlanView {
             }
             boolean outside = i < conflicts.size() && conflicts.get(i) == Plan.Conflict.OUTSIDE;
             Block hut = e.isHut() ? BuiltInRegistries.BLOCK.get(ResourceLocation.parse(e.hut())) : null;
-            boolean have = false;
-            if (hut != null && !creative) {
+            boolean have = noItems;
+            if (hut != null && !noItems) {
                 int n = left.computeIfAbsent(hut, h -> mc.player.getInventory().countItem(h.asItem()));
                 boolean locked = hut instanceof AbstractBlockHut<?> h && !h.areRequirementsMet(mc.level, mc.player.blockPosition(), mc.player);
                 have = n > 0 && !locked;
                 if (have) left.put(hut, n - 1);
             }
-            Plan.Build d = Plan.decide(outside, creative, server, e.isHut(), have);
+            Plan.Build d = Plan.decide(outside, instant, server, e.isHut(), have);
             if (d != Plan.Build.SEND) {
                 kept.merge(d, 1, Integer::sum);
                 keep.add(e);
                 continue;
             }
             items++;
-            if (server && (creative || !e.isHut())) {
+            if (server && (instant || !e.isHut())) {
                 // Through the server part: stays in the plan until the server says it was built (or why not).
                 if (entryQueue.idle() && !entryRun) entryQueue.reset();
                 entryQueue.add(e);
@@ -513,7 +515,7 @@ final class PlanView {
                 keep.add(e);
                 continue;
             }
-            if (creative) {
+            if (instant) {
                 queue.add(e);
                 continue;
             }
@@ -522,6 +524,7 @@ final class PlanView {
             String path = HutCatalog.levelPath(e.path(), 1);
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", e.pack(), path == null ? e.path() : path, at,
                     RotationMirror.values()[e.rot()]).sendToServer();
+            Planner.fund(at);
             Planner.expectBuilding(at);
             if (e.level() > 1) BuildUp.set(at, e.level(), Planner.builder());
         }
@@ -603,9 +606,10 @@ final class PlanView {
         if (e != null) {
             nextBatchId++;
             BlockPos at = new BlockPos(e.x(), e.y(), e.z());
-            int mode = e.isHut() ? InstantBuild.PLACE : Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER;
+            int mode = e.isHut() ? InstantBuild.PLACE : Planner.instant() ? InstantBuild.DECO : InstantBuild.DECO_ORDER;
+            if (mode == InstantBuild.DECO_ORDER) Planner.fund(at);
             PacketDistributor.sendToServer(new InstantBuild.Request(mode, at, e.isHut() ? e.level() : 0, e.pack(), e.path(), RotationMirror.values()[e.rot()], id,
-                    BlockPos.ZERO, RotationMirror.NONE, null, Planner.creative() ? BlockPos.ZERO : Planner.builder()));
+                    BlockPos.ZERO, RotationMirror.NONE, null, Planner.instant() ? BlockPos.ZERO : Planner.builder()));
             return;
         }
         if (!entryRun || !entryQueue.idle()) return;
@@ -639,6 +643,7 @@ final class PlanView {
         if (next instanceof InstantBuild.PieceBatch b) {
             // Road / wall pieces: real style-pack decorations, up to 16 per batch, in drawing order; the next batch
             // goes once the server answered this one (accepted or refused), at least 1.1 s apart (its rate limit).
+            if (b.mode() == InstantBuild.DECO_ORDER) Planner.fund(b.pieces().stream().map(InstantBuild.Piece::pos).toList());
             PacketDistributor.sendToServer(b);
             waitUntil = now + 10_000;
             waitingFor = b;
@@ -648,7 +653,7 @@ final class PlanView {
         BlockPos at = new BlockPos(e.x(), e.y(), e.z());
         RotationMirror rot = RotationMirror.values()[e.rot()];
         if (Planner.serverInstant()) {
-            int mode = e.isHut() ? InstantBuild.PLACE : Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER;
+            int mode = e.isHut() ? InstantBuild.PLACE : Planner.instant() ? InstantBuild.DECO : InstantBuild.DECO_ORDER;
             PacketDistributor.sendToServer(new InstantBuild.Request(mode, at, e.isHut() ? e.level() : 0,
                     e.pack(), e.path(), rot));
             waitUntil = now + (e.isHut() ? 15_000 : 3_000);
@@ -1033,8 +1038,8 @@ final class PlanView {
         batchLine.put(id, l);
         batchSent.put(id, new ArrayList<>(sent));
         // Every piece order of the Build goes to the picked builder; Any leaves them unclaimed for whichever builder is free.
-        queue.add(new InstantBuild.PieceBatch(id, l.pack(), Planner.creative() ? InstantBuild.DECO : InstantBuild.DECO_ORDER, pieces,
-                Planner.creative() ? BlockPos.ZERO : Planner.builder()));
+        queue.add(new InstantBuild.PieceBatch(id, l.pack(), Planner.instant() ? InstantBuild.DECO : InstantBuild.DECO_ORDER, pieces,
+                Planner.instant() ? BlockPos.ZERO : Planner.builder()));
     }
 
     /**

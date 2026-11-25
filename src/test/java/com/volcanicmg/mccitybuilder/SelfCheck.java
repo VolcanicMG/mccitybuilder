@@ -744,6 +744,11 @@ public final class SelfCheck {
         check(QueueOrder.move(s, 1, 1).size() <= 4 && QueueOrder.move(s, 9, 0).isEmpty(), "no-op / out of range");
         List<QueueOrder.Entry> already = List.of(new QueueOrder.Entry(7, 2), new QueueOrder.Entry(8, 1));
         check(QueueOrder.move(already, 0, 0).isEmpty(), "unchanged order sends nothing");
+        // Free materials: only an order made after the mark, the first such, never one another mark holds.
+        check(QueueOrder.fundedOrder(10, List.of(4, 10), java.util.Set.of()) == 0, "older orders at the site aren't funded");
+        check(QueueOrder.fundedOrder(10, List.of(14, 12, 9), java.util.Set.of()) == 12, "first order after the mark");
+        check(QueueOrder.fundedOrder(10, List.of(14, 12), java.util.Set.of(12)) == 14, "an order another mark funds is skipped");
+        check(QueueOrder.fundedOrder(0, List.of(), java.util.Set.of()) == 0, "no order yet");
     }
 
     /** @return ids in the order MineColonies would take them after applying the priority changes */

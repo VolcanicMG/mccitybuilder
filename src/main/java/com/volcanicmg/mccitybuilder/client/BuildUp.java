@@ -11,7 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 
 /**
- * Survival "build up to level N": a hut placed (or built from the plan) with a level above 1 is placed at level 1 as
+ * Survival (and creative builder modes) "build up to level N": a hut placed (or built from the plan) with a level above 1 is placed at level 1 as
  * MineColonies requires, then gets a builder order for its next level each time the last one finished, until it
  * reaches the target ({@link PlanView#targets}, saved with the plan). A target goes when it is reached, the building
  * is gone, an order disappears without the level rising (cancelled), or ours never shows up (refused).
@@ -73,7 +73,7 @@ final class BuildUp {
     /** Each client tick, with or without the planner open: watches each target, ordering the next level when due. */
     static void tick() {
         Minecraft mc = Minecraft.getInstance();
-        if (PlanView.targets.isEmpty() || mc.level == null || mc.player == null || mc.player.isCreative() || !mc.level.dimension().equals(PlanView.colonyDim)) return;
+        if (PlanView.targets.isEmpty() || mc.level == null || mc.player == null || Planner.instant() || !mc.level.dimension().equals(PlanView.colonyDim)) return;
         IColonyView colony = IColonyManager.getInstance().getColonyView(PlanView.colonyId, mc.level.dimension());
         if (colony == null) return;
         // Requests only from inside the colony, where its view is current; outside it is only watched.
@@ -116,6 +116,7 @@ final class BuildUp {
         // The picked builder while it is still one of the colony's builder huts, else any.
         BlockPos builder = PlanView.targetBuilders.getOrDefault(at, BlockPos.ZERO);
         if (!(b.getColony().getClientBuildingManager().getBuilding(builder) instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingBuilder.View)) builder = BlockPos.ZERO;
+        Planner.fund(at);
         new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, builder).sendToServer();
         return null;
     }

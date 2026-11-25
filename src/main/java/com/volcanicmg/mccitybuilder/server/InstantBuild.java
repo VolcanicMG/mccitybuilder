@@ -139,9 +139,10 @@ public final class InstantBuild {
      * The payload protocol, part of every payload's id: a client and server of different protocols just don't share
      * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
      * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners; 9: shared
-     * ghosts and plans ({@link PlanShare}); 10: survival orders carry the chosen builder hut.
+     * ghosts and plans ({@link PlanShare}); 10: survival orders carry the chosen builder hut; 11: creative free-material
+     * marks ({@link FreeMaterials}).
      */
-    public static final String PROTOCOL = "10";
+    public static final String PROTOCOL = "11";
 
     /** Registers the payload as optional, so clients and servers without the mod (or another protocol) still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
@@ -151,7 +152,8 @@ public final class InstantBuild {
                 .playToServer(DecoSync.Query.TYPE, DecoSync.Query.CODEC, DecoSync::handleQuery)
                 .playToClient(DecoSync.Decos.TYPE, DecoSync.Decos.CODEC, (d, ctx) -> DecoSync.accept(d))
                 .playBidirectional(PlanShare.Ghost.TYPE, PlanShare.Ghost.CODEC, PlanShare::handleGhost)
-                .playBidirectional(PlanShare.Shared.TYPE, PlanShare.Shared.CODEC, PlanShare::handleShared);
+                .playBidirectional(PlanShare.Shared.TYPE, PlanShare.Shared.CODEC, PlanShare::handleShared)
+                .playToServer(FreeMaterials.Fund.TYPE, FreeMaterials.Fund.CODEC, FreeMaterials::handle);
     }
 
     /** Prunes per-player state on logout. */
@@ -159,10 +161,12 @@ public final class InstantBuild {
         NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, e -> {
             DecoSync.flush();
             PlanShare.tick(e.getServer());
+            FreeMaterials.tick(e.getServer());
         });
         NeoForge.EVENT_BUS.addListener(net.neoforged.neoforge.event.server.ServerStoppedEvent.class, e -> {
             DecoSync.clear();
             PlanShare.clear();
+            FreeMaterials.clear();
         });
         // Another dimension: its colonies are other ones; the planner asks again when it opens there.
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> {
@@ -178,6 +182,7 @@ public final class InstantBuild {
             batches.remove(e.getEntity().getUUID());
             batchStats.remove(e.getEntity().getUUID());
             refused.remove(e.getEntity().getUUID());
+            FreeMaterials.forget(e.getEntity().getUUID());
             DecoSync.forget(e.getEntity().getUUID());
             if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, true);
         });

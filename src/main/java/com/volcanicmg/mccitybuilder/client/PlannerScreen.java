@@ -527,8 +527,8 @@ final class PlannerScreen extends Screen {
         String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
         String status = sel != null ? null : LineView.status();
         String fam = sel != null ? sel.family() : status == null ? LineView.family() : null;
-        boolean pickBuilder = !Planner.creative();
-        int w = 220, h = status != null ? 40 : pickBuilder ? 296 : 276, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = height - h - 4;
+        boolean pickBuilder = !Planner.instant(), pickMode = Planner.creative();
+        int w = 220, h = status != null ? 40 : 276 + (pickBuilder ? 20 : 0) + (pickMode ? 20 : 0), x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = height - h - 4;
         stackTop = y - 4;
         panels.add(new int[]{x, y, w, h});
         linePanelBox = new int[]{x, y, w, h};
@@ -647,6 +647,7 @@ final class PlannerScreen extends Screen {
         if (prog != null) info = prog.getString();
         g.drawString(font, font.plainSubstrByWidth(info, iw), ix + 1, iy, 0xFF555555, false);
         iy += 12;
+        if (pickMode) iy = buildModePicker(g, ix, iy, iw, mx, my);
         if (pickBuilder) iy = builderPicker(g, ix, iy, iw, mx, my, true);
         boolean server = Planner.serverInstant();
         String[] bkeys = {"done", "undo", "remove", "build", "clear"};
@@ -1008,9 +1009,9 @@ final class PlannerScreen extends Screen {
     /** Plan mode: the plan's state and its Build all / Build selected / Clear buttons. */
     private void planPanel(GuiGraphics g, int mx, int my) {
         if (!PlanView.on) return;
-        boolean pickBuilder = !Planner.creative();
-        int w = 200, h = pickBuilder ? 78 : 58, x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
-        if (Planner.selected != null || Planner.selectedDeco != null) y -= 62;
+        boolean pickBuilder = !Planner.instant(), pickMode = Planner.creative();
+        int w = 200, h = 58 + (pickBuilder ? 20 : 0) + (pickMode ? 20 : 0), x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
+        if (Planner.selected != null || Planner.selectedDeco != null) y -= selectionH() + 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
         long bad = PlanView.conflicts.stream().filter(c -> c != com.volcanicmg.mccitybuilder.planner.Plan.Conflict.NONE).count();
@@ -1026,6 +1027,7 @@ final class PlannerScreen extends Screen {
         boolean[] off = {empty, !PlanView.hasSelection() && PlanView.selectedLine() == null, empty};
         Runnable[] run = {() -> toast(PlanView.commit(false)), () -> toast(PlanView.commit(true)), PlanView::clear};
         int bw = (w - 2 * PAD - 4) / 3, by = y + PAD + 24;
+        if (pickMode) by = buildModePicker(g, x + PAD, by, w - 2 * PAD, mx, my);
         if (pickBuilder) by = builderPicker(g, x + PAD, by, w - 2 * PAD, mx, my, false);
         for (int i = 0; i < 3; i++) {
             int bx = x + PAD + i * (bw + 2);
@@ -1236,7 +1238,7 @@ final class PlannerScreen extends Screen {
         int gridH = decoMode ? Math.max(1, Math.min(drows.size(), DECO_ROWS)) * DECO_ROW_H : rows * SLOT;
         Map<String, Integer> need = Planner.placingHut != null ? Blueprints.cost(Planner.placingHut) : null;
         // The placing block; a hut adds a level picker row.
-        int placingH = !Planner.isPlacing() ? 12 : 62 + (levelPicker() ? 20 : 0) + (designPicker() ? 20 : 0) + (builderPickerShown() ? 20 : 0);
+        int placingH = !Planner.isPlacing() ? 12 : 62 + (levelPicker() ? 20 : 0) + (designPicker() ? 20 : 0) + (modePickerShown() ? 20 : 0) + (builderPickerShown() ? 20 : 0);
         int fixedH = PAD + 20 + 16 + 4 + 20 + 20 + (recent.isEmpty() ? 0 : 10 + SLOT + 4) + gridH + 6 + placingH + 12 + 10 + PAD;
         // As many material rows as fit on screen (at least 3, at most 12).
         int costRows = Math.max(3, Math.min(COST_ROWS, (height - 8 - fixedH) / 10));
@@ -1352,13 +1354,14 @@ final class PlannerScreen extends Screen {
         g.drawString(font, Component.translatable("mccitybuilder.height", off), ix + 1, yy + 37, VanillaUi.LABEL, false);
         iconButton(g, "up", ix + iw - 40, yy + 32, mx, my, () -> Planner.raise(1), Component.translatable("mccitybuilder.raise"));
         iconButton(g, "down", ix + iw - 20, yy + 32, mx, my, () -> Planner.raise(-1), Component.translatable("mccitybuilder.lower"));
-        if (Planner.creative()) g.drawString(font, Component.translatable("mccitybuilder.creative_instant"), ix + 1, yy + 50, 0xFF2050A0, false);
+        if (Planner.instant() || Planner.moving != null || Planner.movingDeco != null)
+            g.drawString(font, Component.translatable("mccitybuilder.creative_instant"), ix + 1, yy + 50, 0xFF2050A0, false);
         else if (Planner.deco != null) g.drawString(font, Component.translatable("mccitybuilder.deco_survival"), ix + 1, yy + 50, 0xFF2050A0, false);
         if (levelPicker()) {
             // Level picker: 1 .. the highest level the style pack has a blueprint for (survival: placed at 1, then built up to it).
             Blueprints.Hut one = Blueprints.alt(pack(), Planner.placing, Planner.placingAlt);
             int max = one == null ? 1 : Blueprints.maxLevel(one);
-            boolean c = Planner.creative();
+            boolean c = Planner.instant() || Planner.moving != null;
             picker(g, ix, yy + 62, iw, Component.translatable(c ? "mccitybuilder.paste_level" : "mccitybuilder.build_level", Planner.placingLevel, max).getString(), mx, my, d -> {
                 Planner.setPlacingLevel(Math.floorMod(Planner.placingLevel - 1 + d, max) + 1);
                 click();
@@ -1374,6 +1377,7 @@ final class PlannerScreen extends Screen {
                 click();
             }, Component.translatable("mccitybuilder.design.tip"));
         }
+        if (modePickerShown()) yy = buildModePicker(g, ix, yy - 2, iw, mx, my);
         // Survival huts: which builder takes the build order (decorations go through MineColonies' own window, which asks).
         if (builderPickerShown()) yy = builderPicker(g, ix, yy - 2, iw, mx, my, false);
         // The list is the shown blueprint's: the picked level's for a hut (that level alone, not the levels below).
@@ -1517,7 +1521,7 @@ final class PlannerScreen extends Screen {
     /** Place / Enter: sends the placement with feedback. */
     private void place() {
         if (Planner.confirm()) {
-            toast(Component.translatable(Planner.creative() ? "mccitybuilder.placed_creative" : "mccitybuilder.placed"));
+            toast(Component.translatable(Planner.instant() ? "mccitybuilder.placed_creative" : "mccitybuilder.placed"));
             Minecraft.getInstance().getSoundManager().play(net.minecraft.client.resources.sounds.SimpleSoundInstance.forUI(
                     net.minecraft.sounds.SoundEvents.ANVIL_PLACE, 1.2f, 0.35f));
         } else if (Planner.invalidReason != null) toast(Component.translatable("mccitybuilder.invalid." + Planner.invalidReason));
@@ -1542,6 +1546,22 @@ final class PlannerScreen extends Screen {
         hits.add(new Hit(x, y, bw, 16, () -> step.accept(-1), tip));
         hits.add(new Hit(x + w - bw, y, bw, 16, () -> step.accept(1), tip));
         return y + 20;
+    }
+
+    /**
+     * Creative only: the build mode (Instant / Builders (free) / Builders), saved in the client config. Builders (free)
+     * on a server without City Builder reads "Builders (not free)" (it runs as Builders).
+     *
+     * @return the y below it
+     */
+    private int buildModePicker(GuiGraphics g, int x, int y, int w, int mx, int my) {
+        var m = com.volcanicmg.mccitybuilder.Config.BUILD_MODE.get();
+        String k = "mccitybuilder.build_mode." + m.name().toLowerCase(java.util.Locale.ROOT)
+                + (m == com.volcanicmg.mccitybuilder.Config.BuildMode.BUILDERS_FREE && !Planner.funded() ? "_no_server" : "");
+        return picker(g, x, y, w, Component.translatable(k).getString(), mx, my, d -> {
+            Planner.cycleBuildMode(d);
+            click();
+        }, Component.translatable(k + ".tip"));
     }
 
     /**
@@ -1705,7 +1725,17 @@ final class PlannerScreen extends Screen {
     }
 
     private static boolean builderPickerShown() {
-        return Planner.placing != null && Planner.moving == null && !Planner.creative();
+        return Planner.placing != null && Planner.moving == null && !Planner.instant();
+    }
+
+    // Creative build mode: not while moving (always instant).
+    private static boolean modePickerShown() {
+        return Planner.creative() && Planner.moving == null && Planner.movingDeco == null;
+    }
+
+    /** @return the selected building's or decoration's panel height (a creative building's adds the build mode row) */
+    private static int selectionH() {
+        return Planner.selectedDeco == null && Planner.selected != null && Planner.creative() ? 78 : 58;
     }
 
     private void selection(GuiGraphics g, int mx, int my) {
@@ -1718,9 +1748,11 @@ final class PlannerScreen extends Screen {
         // Bottom, right of the palette (which can run tall).
         // Creative with the server part adds an instant Clean (placeholders) button; it pastes over pending work orders too.
         boolean instant = Planner.creative() && Planner.serverInstant(), open = !Planner.remoteOpenOff();
-        int n = instant ? 6 : open ? 4 : 3, w = instant ? PALETTE_W + 136 : PALETTE_W + 44, h = 58, x = 4 + PALETTE_W + 4, y = height - h - 4;
+        int n = instant ? 6 : open ? 4 : 3, w = instant ? PALETTE_W + 136 : PALETTE_W + 44, h = selectionH(), x = 4 + PALETTE_W + 4, y = height - h - 4;
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
+        // Creative: the build mode for Build / Upgrade / Repair, under the buttons.
+        if (Planner.creative()) buildModePicker(g, x + PAD, y + PAD + 46, w - 2 * PAD, mx, my);
         g.drawString(font, font.plainSubstrByWidth(name(b) + "  " + levelText(b), w - 2 * PAD), x + PAD + 1, y + PAD, VanillaUi.LABEL, false);
         String info = Component.translatable("mccitybuilder.workers", b.getAllAssignedCitizens().size()).getString()
                 + (b.hasWorkOrder() ? "  " + Component.translatable("mccitybuilder.has_work_order").getString() : "");
@@ -1750,7 +1782,8 @@ final class PlannerScreen extends Screen {
             if (Planner.startMove(b)) toast(Component.translatable("mccitybuilder.move_started"));
         }, () -> remove(b)};
         // Why a button is off, or null when it is on.
-        boolean pending = b.hasWorkOrder() && !instant;
+        // Builder modes: a second BUILD request would cancel the order (MineColonies toggles it).
+        boolean pending = b.hasWorkOrder() && !(instant && Planner.instant());
         boolean townHall = b instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingTownHall.View, family = b.getParent() != null && !b.getParent().equals(BlockPos.ZERO);
         String[] why = {b.isBuildingMaxLevel() ? "mccitybuilder.upgrade.max" : pending ? "mccitybuilder.upgrade.pending" : null,
                 b.getBuildingLevel() == 0 ? "mccitybuilder.repair.unbuilt" : pending ? "mccitybuilder.upgrade.pending" : null, null,
@@ -1831,13 +1864,15 @@ final class PlannerScreen extends Screen {
      * Upgrade: creative pastes at once (any level with CityBuilder on the server, else only level 0 → 1); survival
      * opens the hut's own build window (MineColonies' WindowBuildBuilding: needed materials, the builder to assign,
      * its own request on confirm), which isn't an inventory, so it opens from here whatever the server allows.
+     * Creative builder modes: the survival window, the order it makes funded in Builders (free).
      */
     private void upgrade(IBuildingView b) {
-        if (!Planner.creative() && Planner.colony() != null) {
+        if (!Planner.instant() && Planner.colony() != null) {
+            Planner.fund(b.getPosition());
             new com.minecolonies.core.client.gui.WindowBuildBuilding(Planner.colony(), b).open();
             return;
         }
-        boolean pasted = Planner.creative() && Planner.creativeUpgrade(b);
+        boolean pasted = Planner.instant() && Planner.creativeUpgrade(b);
         if (!pasted) Planner.requestBuild(b, BuildRequestMessage.Mode.BUILD);
         toast(Component.translatable(pasted ? "mccitybuilder.upgraded_creative" : "mccitybuilder.requested"));
     }
@@ -1900,10 +1935,13 @@ final class PlannerScreen extends Screen {
         return Planner.serverInstant() ? null : "mccitybuilder.pickup.no_server";
     }
 
-    /** Repair: creative with CityBuilder on the server repairs at once; otherwise a builder work order. */
+    /** Repair: creative Instant with CityBuilder on the server repairs at once; otherwise a builder work order. */
     private void repair(IBuildingView b) {
-        boolean pasted = Planner.creative() && Planner.creativeRepair(b);
-        if (!pasted) Planner.requestBuild(b, BuildRequestMessage.Mode.REPAIR);
+        boolean pasted = Planner.instant() && Planner.creativeRepair(b);
+        if (!pasted) {
+            Planner.fund(b.getPosition());
+            Planner.requestBuild(b, BuildRequestMessage.Mode.REPAIR);
+        }
         toast(Component.translatable(pasted ? "mccitybuilder.repaired_creative" : "mccitybuilder.requested"));
     }
 
@@ -2405,13 +2443,13 @@ final class PlannerScreen extends Screen {
                     }
                 }
                 case GLFW.GLFW_KEY_U -> {
-                    if (!b.isBuildingMaxLevel() && (!b.hasWorkOrder() || Planner.creative() && Planner.serverInstant())) {
+                    if (!b.isBuildingMaxLevel() && (!b.hasWorkOrder() || Planner.instant() && Planner.serverInstant())) {
                         click();
                         upgrade(b);
                     }
                 }
                 case GLFW.GLFW_KEY_P -> {
-                    if (b.getBuildingLevel() > 0 && (!b.hasWorkOrder() || Planner.creative() && Planner.serverInstant())) {
+                    if (b.getBuildingLevel() > 0 && (!b.hasWorkOrder() || Planner.instant() && Planner.serverInstant())) {
                         click();
                         repair(b);
                     }

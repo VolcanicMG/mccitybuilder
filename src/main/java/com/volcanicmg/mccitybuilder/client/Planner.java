@@ -20,6 +20,7 @@ import com.volcanicmg.mccitybuilder.planner.HutCatalog;
 import com.volcanicmg.mccitybuilder.planner.PlacementState;
 import com.volcanicmg.mccitybuilder.planner.CameraRig;
 import com.volcanicmg.mccitybuilder.planner.Columns;
+import com.volcanicmg.mccitybuilder.server.FreeMaterials;
 import com.volcanicmg.mccitybuilder.server.InstantBuild;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.minecraft.client.Camera;
@@ -931,11 +932,41 @@ public final class Planner {
         return mc.player != null && mc.player.isCreative();
     }
 
+    /** @return true when build actions paste at once: creative with build mode Instant (the other modes use builders) */
+    static boolean instant() {
+        return creative() && Config.BUILD_MODE.get() == Config.BuildMode.INSTANT;
+    }
+
+    /** @return true when the orders made get free materials: creative, Builders (free) and City Builder on the server */
+    static boolean funded() {
+        var c = Minecraft.getInstance().getConnection();
+        return creative() && Config.BUILD_MODE.get() == Config.BuildMode.BUILDERS_FREE && c != null && c.hasChannel(FreeMaterials.Fund.TYPE);
+    }
+
+    /** Builders (free): the next work order made at each site (hut position, decoration anchor) gets free materials. Else nothing. */
+    static void fund(java.util.List<BlockPos> sites) {
+        if (!funded()) return;
+        for (int i = 0; i < sites.size(); i += FreeMaterials.MAX_SITES)
+            PacketDistributor.sendToServer(new FreeMaterials.Fund(java.util.List.copyOf(sites.subList(i, Math.min(sites.size(), i + FreeMaterials.MAX_SITES)))));
+    }
+
+    static void fund(BlockPos site) {
+        fund(java.util.List.of(site.immutable()));
+    }
+
+    /** Steps the creative build mode, saved in the client config. */
+    static void cycleBuildMode(int d) {
+        var all = Config.BuildMode.values();
+        Config.BUILD_MODE.set(all[Math.floorMod(Config.BUILD_MODE.get().ordinal() + d, all.length)]);
+        Config.BUILD_MODE.save();
+    }
+
     /**
      * Sends the placement. Survival: Structurize's build tool message with MineColonies' survival handler (hut block
      * placed at level 0, item taken), then a build request once the building view arrives. Creative: the build tool's
      * {@code HandlerType.Pretty} paste: placeholders become fill / air, waypoints are registered instead of placed, and
      * MineColonies registers the building (at level 1 whatever the blueprint's level: its setup misreads the digit).
+     * Creative in a builder mode ({@link #instant()} false): the survival path.
      */
     static boolean confirm() {
         BlockPos at = anchor();
@@ -957,10 +988,14 @@ public final class Planner {
         if (deco != null) {
             // Decorations: creative pastes (server part if present, else Structurize's own pretty paste); survival goes
             // through MineColonies' survival handler, which opens its decoration build window (a builder work order).
-            if (creative() && serverInstant())
+            if (instant() && serverInstant())
                 PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.DECO, at, 0, deco.pack(), deco.path(), rotation));
-            else new BuildToolPlacementMessage(creative() ? BuildToolPlacementMessage.HandlerType.Pretty : BuildToolPlacementMessage.HandlerType.Survival,
-                    creative() ? "" : "minecolonies", deco.pack(), deco.path(), at, rotation).sendToServer();
+            else {
+                // The order MineColonies' window makes is funded once it appears (Builders (free)).
+                if (!instant()) fund(at);
+                new BuildToolPlacementMessage(instant() ? BuildToolPlacementMessage.HandlerType.Pretty : BuildToolPlacementMessage.HandlerType.Survival,
+                        instant() ? "" : "minecolonies", deco.pack(), deco.path(), at, rotation).sendToServer();
+            }
             stopPlacing();
             return true;
         }
@@ -970,16 +1005,18 @@ public final class Planner {
             stopPlacing();
             return true;
         }
-        if (creative() && serverInstant()) {
-            PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.PLACE, at, creative() ? placingLevel : 1, placingHut.pack(), placingHut.path(), rotation));
-        } else if (creative()) {
+        if (instant() && serverInstant()) {
+            PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.PLACE, at, placingLevel, placingHut.pack(), placingHut.path(), rotation));
+        } else if (instant()) {
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Pretty, "", placingHut.pack(), placingHut.path(),
                     at, rotation).sendToServer();
         } else {
             // Survival places level 1 (MineColonies' rule); a higher chosen level is reached by orders one level at a time.
+            // Creative builder modes too: MineColonies' survival handler needs no hut item from a creative player.
             String one = HutCatalog.levelPath(placingHut.path(), 1);
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", placingHut.pack(), one != null ? one : placingHut.path(),
                     at, rotation).sendToServer();
+            fund(at);
             expectBuilding(at);
             if (placingLevel > 1) BuildUp.set(at, placingLevel, builder());
         }
