@@ -300,9 +300,32 @@ public final class Planner {
         previousCameraType = mc.options.getCameraType();
         mc.options.setCameraType(CameraType.FIRST_PERSON);
         active = true;
+        plannerState(c.getID());
         updateCamera(1);
         mc.setCameraEntity(camera);
         mc.setScreen(new PlannerScreen());
+    }
+
+    /** Tells the server the planner is open over {@code colony} (0: closed), for MineColonies' building-message range check. */
+    private static void plannerState(int colony) {
+        var conn = Minecraft.getInstance().getConnection();
+        if (conn != null && conn.hasChannel(com.volcanicmg.mccitybuilder.server.PlannerRange.Open.TYPE))
+            PacketDistributor.sendToServer(new com.volcanicmg.mccitybuilder.server.PlannerRange.Open(colony));
+    }
+
+    /**
+     * True when MineColonies drops building messages from beyond 15 blocks (1.1.1420+): with the planner closed they
+     * only reach the server from near the building (City Builder on the server lets them through while it is open).
+     */
+    static final boolean RANGE_LIMITED = classExists("com.minecolonies.core.network.IRangeRestrictedPacket");
+
+    private static boolean classExists(String name) {
+        try {
+            Class.forName(name, false, Planner.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
     }
 
     /** Leaves planner view (also on death, damage, dimension change, disconnect). @param why message or null */
@@ -310,6 +333,7 @@ public final class Planner {
         if (!active) return;
         active = false;
         Minecraft mc = Minecraft.getInstance();
+        plannerState(0);
         stopPlacing();
         PlannerScreen.tipStep = -1;
         PlanView.hide();

@@ -11,6 +11,10 @@
   creative and allowed to manage huts). Free materials need City Builder on the server (protocol 11: older builds
   don't share City Builder's channels); without it the mode reads "Builders (not free)". Move, Remove, Clean and
   decoration Move / Repair / Delete stay instant.
+- MineColonies 1.1.1420+ ignores building actions (build / upgrade / repair / remove requests, builder picks, hut
+  window buttons) from more than 15 blocks away. City Builder on the server now lets them through while you have the
+  planner open over that colony (MineColonies' permission checks still apply); a server without City Builder drops
+  them on 1.1.1420+. Build-up orders wait for the open planner there instead of being lost. 1.1.1403 is unaffected.
 
 ## 0.1.0
 

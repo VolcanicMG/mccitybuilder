@@ -80,7 +80,9 @@ final class BuildUp {
         if (colony == null) return;
         // Requests only from inside the colony, where its view is current; outside it is only watched.
         var claim = IColonyManager.getInstance().getClaimData(mc.level.dimension(), new ChunkPos(mc.player.blockPosition()));
-        boolean fresh = claim != null && claim.getOwningColony() == PlanView.colonyId;
+        // MineColonies 1.1.1420+ drops build requests from beyond 15 blocks unless the planner is open and the server
+        // has City Builder (PlannerRange): wait for that instead of sending one that is lost (and then counted refused).
+        boolean fresh = claim != null && claim.getOwningColony() == PlanView.colonyId && (!Planner.RANGE_LIMITED || Planner.active() && Planner.serverInstant());
         long now = System.currentTimeMillis();
         boolean changed = false;
         List<BuildRequestMessage> due = new ArrayList<>();

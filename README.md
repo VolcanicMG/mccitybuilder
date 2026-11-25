@@ -27,7 +27,9 @@ NeoForge 1.21.1 · MineColonies addon · **Beta** · MIT
 - Minecraft **1.21.1**, NeoForge **21.1.262+**
 - **MineColonies 1.1.1403+** and **Structurize 1.0.832+** (with their own dependencies)
 - Install City Builder on **both client and server**. A server without it still lets you plan and send build
-  requests, but creative instant tools and wall/road sharing need it there.
+  requests, but creative instant tools and wall/road sharing need it there. With **MineColonies 1.1.1420+** it is
+  needed there for any building action from the overhead view too (MineColonies ignores building actions from more
+  than 15 blocks away; City Builder lets them through while your planner is open over that colony).
 
 ## Getting started
 

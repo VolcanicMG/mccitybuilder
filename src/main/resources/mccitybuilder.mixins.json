@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.volcanicmg.mccitybuilder.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "BuildingMessageRangeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

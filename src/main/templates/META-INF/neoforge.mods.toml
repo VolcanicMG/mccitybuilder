@@ -14,6 +14,10 @@ description='''
 Plan and build your MineColonies town from the sky: an overhead city-builder view to place huts and decorations, draw walls and roads with your style pack's pieces, and run your builders through MineColonies' own build and work-order system. Beta.
 '''
 
+# MineColonies 1.1.1420+'s building-message range check lets planner users through (server side).
+[[mixins]]
+config="${mod_id}.mixins.json"
+
 [[dependencies.${mod_id}]]
     modId="neoforge"
     type="required"

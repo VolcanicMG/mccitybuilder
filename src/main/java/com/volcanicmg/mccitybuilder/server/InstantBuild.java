@@ -140,7 +140,7 @@ public final class InstantBuild {
      * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
      * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners; 9: shared
      * ghosts and plans ({@link PlanShare}); 10: survival orders carry the chosen builder hut; 11: creative free-material
-     * marks ({@link FreeMaterials}).
+     * marks ({@link FreeMaterials}) and the planner-open state ({@link PlannerRange}).
      */
     public static final String PROTOCOL = "11";
 
@@ -153,7 +153,8 @@ public final class InstantBuild {
                 .playToClient(DecoSync.Decos.TYPE, DecoSync.Decos.CODEC, (d, ctx) -> DecoSync.accept(d))
                 .playBidirectional(PlanShare.Ghost.TYPE, PlanShare.Ghost.CODEC, PlanShare::handleGhost)
                 .playBidirectional(PlanShare.Shared.TYPE, PlanShare.Shared.CODEC, PlanShare::handleShared)
-                .playToServer(FreeMaterials.Fund.TYPE, FreeMaterials.Fund.CODEC, FreeMaterials::handle);
+                .playToServer(FreeMaterials.Fund.TYPE, FreeMaterials.Fund.CODEC, FreeMaterials::handle)
+                .playToServer(PlannerRange.Open.TYPE, PlannerRange.Open.CODEC, PlannerRange::handle);
     }
 
     /** Prunes per-player state on logout. */
@@ -167,10 +168,12 @@ public final class InstantBuild {
             DecoSync.clear();
             PlanShare.clear();
             FreeMaterials.clear();
+            PlannerRange.clear();
         });
         // Another dimension: its colonies are other ones; the planner asks again when it opens there.
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> {
             DecoSync.forget(e.getEntity().getUUID());
+            PlannerRange.forget(e.getEntity().getUUID());
             if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, false);
         });
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
@@ -183,6 +186,7 @@ public final class InstantBuild {
             batchStats.remove(e.getEntity().getUUID());
             refused.remove(e.getEntity().getUUID());
             FreeMaterials.forget(e.getEntity().getUUID());
+            PlannerRange.forget(e.getEntity().getUUID());
             DecoSync.forget(e.getEntity().getUUID());
             if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, true);
         });

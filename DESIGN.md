@@ -154,6 +154,29 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - The planner pastes only when the client player is in creative (the gate the build tool's UI applies). The
   server-side gaps above are MineColonies'/Structurize's, not opened further by the planner.
 
+### MineColonies 1.1.1420's building-message range check (server part, `mixin/BuildingMessageRangeMixin`, `server/PlannerRange`)
+
+- 1.1.1420 made `AbstractBuildingServerMessage` (46 messages: `BuildRequestMessage`, `BuilderSelectWorkOrderMessage`,
+  hire / fire, hut inventory and transfer messages, ...) implement `IRangeRestrictedPacket`: its final
+  `onExecute(IPayloadContext, ServerPlayer, IColony)` returns silently unless `isInRange(player.blockPosition(),
+  building.getID())` (interface default: `distSqr <= 225`, `getMaxRange` unused). The planner's player stands still
+  while the camera flies, so every building action beyond 15 blocks (Build / Upgrade / Repair / Remove, BuildUp, the
+  build request after placement, queue builder picks, MineColonies' hut windows opened from the planner) was lost.
+- Mixin (config `mccitybuilder.mixins.json`, `[[mixins]]` in `neoforge.mods.toml`, no refmap: NeoForge 1.21.1 runs
+  Mojang names and MineColonies isn't obfuscated): MixinExtras `@WrapOperation` on the `INVOKE`
+  `AbstractBuildingServerMessage.isInRange(Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;)Z` inside
+  `onExecute(Lnet/neoforged/neoforge/network/handling/IPayloadContext;Lnet/minecraft/server/level/ServerPlayer;Lcom/minecolonies/api/colony/IColony;)V`:
+  the original result, or `PlannerRange.planning(player, colony)`. Only the distance test changes; the message's
+  permission checks (`AbstractColonyServerMessage`) run before and its own handler after. `require = 0`, config not
+  required: 1.1.1403 has no such call and the mixin just doesn't apply.
+- `PlannerRange.Open(colony)` (play-to-server, protocol 11): sent when the planner opens (its colony id) and closes
+  (0). The server records it only for a non-spectator member with hut access of that colony (PlanShare's member
+  rule), with the dimension; `planning` needs the same colony id and dimension and re-checks membership. Cleared on
+  close, logout, dimension change and server stop. Scoped to the planned colony, so the flag can't widen another
+  colony's range; a forged flag skips only the distance test for a colony the player may already manage.
+- Client: on 1.1.1420+ (the interface class is present) `BuildUp` sends its level orders only while the planner is
+  open and the server has City Builder, instead of losing them to the range check (and then giving the target up).
+
 ### Instant creative builds (server part, `server/InstantBuild`)
 
 - An optional play-to-server payload (`mccitybuilder:instant_build`, registered `optional()`): clients and servers

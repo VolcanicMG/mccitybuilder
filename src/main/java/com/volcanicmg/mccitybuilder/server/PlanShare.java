@@ -189,7 +189,7 @@ public final class PlanShare {
     }
 
     /** @return true for a colony member with hut access (who may open the planner there) */
-    private static boolean member(IColony c, ServerPlayer p) {
+    static boolean member(IColony c, ServerPlayer p) {
         return c.getPermissions().isColonyMember(p) && c.getPermissions().hasPermission(p, Action.ACCESS_HUTS);
     }
 
