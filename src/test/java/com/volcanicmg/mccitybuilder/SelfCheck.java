@@ -2268,6 +2268,18 @@ public final class SelfCheck {
         check(Plan.crossings(List.of(dg, lrun), lrun, l -> false).isEmpty(), "a diagonal segment's end isn't crossed");
         List<Plan.Line> fx = new java.util.ArrayList<>(List.of(lw, lrun2));
         check(Plan.splitThrough(fx, lrun2, l -> false, cc -> cc[0] == 0 && cc[1] == 0).size() == 1 && fx.size() == 2, "no split where a built joint stands");
+        // Two segments crossing at one cell: one split there, no zero-length half (issue #2).
+        List<Plan.Line> dup = new java.util.ArrayList<>(List.of(h, new Plan.Line("wall", -10, 0, 10, 0, "p", "f", 1, -1, false, false), run));
+        var pd = Plan.splitThrough(dup, run, l -> false);
+        check(pd.size() == 2 && dup.stream().noneMatch(l -> l.x0() == l.x1() && l.z0() == l.z1()), "a duplicate crossing makes no zero-length part");
+        // A run not in the list: nothing split, no exception.
+        List<Plan.Line> without = new java.util.ArrayList<>(List.of(h));
+        check(Plan.splitThrough(without, run, l -> false).size() == 1, "a run missing from the list isn't split");
+        // Auto-connect: the grown elbow must leave the second leg pointing at the end.
+        int[] el0 = {5, 0}, target = {5, 5};
+        check(!LineSnap.connectPassed(el0, el0, target) && !LineSnap.connectPassed(el0, new int[]{5, 2}, target), "a connect leg toward the end is valid");
+        check(LineSnap.connectPassed(el0, new int[]{5, 5}, target) && LineSnap.connectPassed(el0, new int[]{7, 0}, target)
+                && LineSnap.connectPassed(el0, new int[]{5, 7}, target), "a zero-length or reversed connect leg is refused");
         // A built joint piece there: the drop refuses it (the crossing cell is under a built T piece).
         var builtTee = java.util.Map.of("k", List.of(new Plan.BuiltPiece(-3510, -4583, -3502, -4583, "roads/t.blueprint", 0, -3502, 64, -4583, -3506, -4587, -3498, -4579, "TEE")));
         check(Plan.builtJointAt(builtTee.values(), c2.get(0)), "through a built joint: refused");

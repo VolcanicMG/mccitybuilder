@@ -119,6 +119,16 @@ public final class LineSnap {
         return Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
     }
 
+    /**
+     * Auto-connect: the elbow moves from {@code el0} to {@code el} when the chain's last segment grows for the corner.
+     *
+     * @return true when the second leg (elbow to {@code target}) is gone: zero length, or pointing away from the target
+     */
+    public static boolean connectPassed(int[] el0, int[] el, int[] target) {
+        return el[0] == target[0] && el[1] == target[1] || Integer.signum(target[0] - el[0]) != Integer.signum(target[0] - el0[0])
+                || Integer.signum(target[1] - el[1]) != Integer.signum(target[1] - el0[1]);
+    }
+
     /** @return true when the live segment must be laid out again: no layout yet, or its key (ends, plan, options) changed */
     public static boolean relayout(int[] prevKey, int[] key) {
         return prevKey == null || !java.util.Arrays.equals(prevKey, key);

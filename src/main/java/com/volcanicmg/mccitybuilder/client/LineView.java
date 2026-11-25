@@ -166,6 +166,7 @@ final class LineView {
     static void clearLive() {
         if (liveA != null) PlanView.relayout();
         liveA = liveB = null;
+        liveTouched = List.of();
         live = List.of();
         liveCross = List.of();
         cursor = null;
@@ -280,6 +281,15 @@ final class LineView {
             liveShort = 0;
             liveLen = 1;
             complete = true;
+        } else if (connect != null && LineSnap.connectPassed(connect, elbowNow(), b)) {
+            // The grown elbow reached or passed the end: no valid second leg to lay out (the click refuses it too).
+            live = List.of();
+            liveGap = null;
+            liveShort = 0;
+            liveLen = 1;
+            connectFits = false;
+            complete = true;
+            relayoutIfTouchedChanged();
         } else {
             List<Plan.Line> all = new ArrayList<>(PlanView.lines);
             // The chain's last segment grown for the corner.
@@ -335,11 +345,10 @@ final class LineView {
             for (int k = 0; k < last; k++)
                 if (onLine(all.get(k), a) || onLine(all.get(k), b) || crossed(all.get(k)) || connect != null && onLine(all.get(k), elbowNow()))
                     for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
-            boolean wasEmpty = live.isEmpty();
             live = ps;
-            if (wasEmpty != live.isEmpty() || liveA == null || liveA[0] != a[0] || liveA[1] != a[1] || liveB[0] != b[0] || liveB[1] != b[1]) PlanView.relayout();
             liveA = a.clone();
             liveB = b.clone();
+            relayoutIfTouchedChanged();
             liveShort = lay.shortened().get(last);
             liveGap = lay.gaps().get(last);
             liveNeed = lay.need().get(last);
@@ -376,6 +385,16 @@ final class LineView {
 
     // The live segment's ends as last laid out; the plan skips its ghosts for segments touching them (the live layout draws them).
     private static int[] liveA, liveB;
+    // The planned segments the live layout drew last (the plan skips their own pieces).
+    private static List<Plan.Line> liveTouched = List.of();
+
+    /** Re-lays the plan only when the set of segments the live layout draws changed, not every time the live end moves. */
+    private static void relayoutIfTouchedChanged() {
+        List<Plan.Line> t = new ArrayList<>();
+        for (Plan.Line l : PlanView.lines) if (liveTouches(l)) t.add(l);
+        if (!t.equals(liveTouched)) PlanView.relayout();
+        liveTouched = t;
+    }
 
     /** @return true when the live layout draws this planned segment's pieces instead of the plan */
     static boolean liveTouches(Plan.Line l) {
@@ -1271,9 +1290,7 @@ final class LineView {
     private static boolean clickConnect() {
         int[] el0 = connect, el = elbowNow(), target = end, s1 = grow == null ? start : new int[]{start[0] + grow[0], start[1] + grow[1]};
         // The grown elbow must still leave the second segment pointing at the end, long enough for its pieces.
-        boolean passed = el[0] == target[0] && el[1] == target[1] || Integer.signum(target[0] - el[0]) != Integer.signum(target[0] - el0[0])
-                || Integer.signum(target[1] - el[1]) != Integer.signum(target[1] - el0[1]);
-        if (passed || !connectFits || !LineSnap.canDrop(liveLen, liveNeed)) {
+        if (LineSnap.connectPassed(el0, el, target) ||!connectFits || !LineSnap.canDrop(liveLen, liveNeed)) {
             flash = "mccitybuilder.line.connect_short";
             flashUntil = System.currentTimeMillis() + 2000;
             return false;

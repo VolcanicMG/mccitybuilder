@@ -589,10 +589,13 @@ public final class Plan {
         boolean runX = run.z0() == run.z1();
         for (int[] c : crossings(lines, run, locked)) {
             if (c[2] != 0 || fixedAt.test(c)) continue;
-            // Only the crossed segment: same tool, across the run (never the run itself or another line through the cell).
-            split(lines, c, l -> locked.test(l) || parts.contains(l) || !l.tool().equals(run.tool()) || (l.z0() == l.z1()) == runX);
             Line last = parts.get(parts.size() - 1);
             int i = lines.indexOf(last);
+            // A cell already split at (two segments cross there) or a run not in the list: a split would leave a zero-length half.
+            if (i < 0 || c[0] == last.x0() && c[1] == last.z0() || c[0] == last.x1() && c[1] == last.z1()) continue;
+            // Only the crossed segment: same tool, across the run (never the run itself or another line through the cell).
+            split(lines, c, l -> locked.test(l) || parts.contains(l) || !l.tool().equals(run.tool()) || (l.z0() == l.z1()) == runX);
+            i = lines.indexOf(last);
             Line[] h = halves(last, c);
             lines.set(i, h[0]);
             lines.add(i + 1, h[1]);
