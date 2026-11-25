@@ -1,0 +1,56 @@
+name: Feature request
+description: An idea or improvement for City Builder.
+title: "[Idea] "
+labels: ["enhancement", "needs triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: The goal or problem, in your own words. What gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+      description: Your idea for the feature. Sketches and screenshots welcome.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Pick all that apply.
+      multiple: true
+      options:
+        - Camera
+        - Placing huts & decorations
+        - Roads & walls
+        - Plan mode
+        - Builder queue
+        - Managing buildings
+        - Citizens & overlays
+        - Multiplayer
+        - UI & controls
+        - Compatibility
+        - Performance
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Game mode
+      description: Which mode is this for?
+      options:
+        - Survival
+        - Creative
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Other mods that do something similar, related issues, etc.

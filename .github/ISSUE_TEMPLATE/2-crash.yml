@@ -1,0 +1,92 @@
+name: Crash report
+description: The game crashed, froze, or kicked you from a server.
+title: "[Crash] "
+labels: ["bug", "crash", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The crash report is the most useful part: it's in `crash-reports/` (game crash) or at the end of `logs/latest.log` (kick or server crash).
+  - type: textarea
+    id: what
+    attributes:
+      label: What were you doing when it crashed?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Does it happen every time? What sets it off?
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of City Builder were you using? Pick all that apply.
+      multiple: true
+      options:
+        - Camera
+        - Placing huts & decorations
+        - Roads & walls
+        - Plan mode
+        - Builder queue
+        - Managing buildings
+        - Citizens & overlays
+        - Multiplayer
+        - UI & controls
+        - Compatibility
+        - Performance
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Game mode
+      options:
+        - Survival
+        - Creative
+        - Both
+    validations:
+      required: true
+  - type: dropdown
+    id: env
+    attributes:
+      label: Where are you playing?
+      options:
+        - Singleplayer
+        - Dedicated server
+        - LAN
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: City Builder version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: NeoForge, MineColonies and Structurize versions
+      placeholder: "NeoForge 21.1.262, MineColonies 1.1.1403, Structurize 1.0.832"
+    validations:
+      required: true
+  - type: input
+    id: pack
+    attributes:
+      label: Modpack or other notable mods
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash report or log
+      description: Paste the crash report, or attach the file / a link to a paste site. For a server crash, include the server's log too.
+      render: shell
+    validations:
+      required: true

@@ -1,0 +1,52 @@
+# Turns issue-form answers (Area, Game mode, Where are you playing?) into labels. Only answers in the fixed lists
+# below map to labels; the issue text is read from an env var, never inlined into the script.
+name: Issue labels
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Label from form answers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          # The answers under "### <heading>" as ",a,b,c," (multi-select answers come as "a, b").
+          answers() {
+            printf '%s\n' "$BODY" | tr -d '\r' | awk -v h="### $1" '$0 == h { on = 1; next } /^### / { on = 0 } on && NF' \
+              | tr '\n' ',' | sed 's/, */,/g; s/^/,/'
+          }
+          labels=()
+          pick() { # heading, then "Answer=label" pairs
+            local got; got=$(answers "$1"); shift
+            for pair in "$@"; do
+              case "$got" in *",${pair%%=*},"*) labels+=("${pair#*=}") ;; esac
+            done
+          }
+          pick "Area" \
+            "Camera=area: camera" \
+            "Placing huts & decorations=area: placement" \
+            "Roads & walls=area: roads & walls" \
+            "Plan mode=area: plan mode" \
+            "Builder queue=area: builder queue" \
+            "Managing buildings=area: buildings" \
+            "Citizens & overlays=area: citizens & overlays" \
+            "Multiplayer=area: multiplayer" \
+            "UI & controls=area: ui" \
+            "Compatibility=area: compatibility" \
+            "Performance=area: performance"
+          pick "Game mode" "Survival=mode: survival" "Creative=mode: creative" "Both=mode: survival" "Both=mode: creative"
+          pick "Where are you playing?" "Singleplayer=env: singleplayer" "Dedicated server=env: server" "LAN=env: lan"
+          if [ ${#labels[@]} -eq 0 ]; then echo "No form answers to label."; exit 0; fi
+          joined=$(IFS=,; echo "${labels[*]}")
+          echo "Adding: $joined"
+          gh issue edit "$NUMBER" -R "$REPO" --add-label "$joined"

@@ -1,0 +1,97 @@
+name: Bug report
+description: Something doesn't work the way it should (no crash).
+title: "[Bug] "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please search the [open issues](https://github.com/VolcanicMG/mccitybuilder/issues) first, and use the **Crash report** form if the game crashed.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the planner (J)
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of City Builder? Pick all that apply.
+      multiple: true
+      options:
+        - Camera
+        - Placing huts & decorations
+        - Roads & walls
+        - Plan mode
+        - Builder queue
+        - Managing buildings
+        - Citizens & overlays
+        - Multiplayer
+        - UI & controls
+        - Compatibility
+        - Performance
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Game mode
+      options:
+        - Survival
+        - Creative
+        - Both
+    validations:
+      required: true
+  - type: dropdown
+    id: env
+    attributes:
+      label: Where are you playing?
+      options:
+        - Singleplayer
+        - Dedicated server
+        - LAN
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: City Builder version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: NeoForge, MineColonies and Structurize versions
+      placeholder: "NeoForge 21.1.262, MineColonies 1.1.1403, Structurize 1.0.832"
+    validations:
+      required: true
+  - type: input
+    id: pack
+    attributes:
+      label: Modpack or other notable mods
+      description: e.g. a modpack name, Sodium/Embeddium, Distant Horizons, shader packs.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Paste the relevant part of `logs/latest.log`, or attach the file / a link to a paste site.
+      render: shell
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Drag images or a short clip here if they help.
