@@ -281,9 +281,12 @@ final class LineView {
             liveShort = 0;
             liveLen = 1;
             complete = true;
+            relayoutIfTouchedChanged();
         } else if (connect != null && LineSnap.connectPassed(connect, elbowNow(), b)) {
             // The grown elbow reached or passed the end: no valid second leg to lay out (the click refuses it too).
             live = List.of();
+            liveCross = List.of();
+            liveOffs = null;
             liveGap = null;
             liveShort = 0;
             liveLen = 1;

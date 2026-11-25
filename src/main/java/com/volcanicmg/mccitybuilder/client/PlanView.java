@@ -480,6 +480,7 @@ final class PlanView {
         int items = 0, segments = 0;
         Map<Block, Integer> left = new HashMap<>();
         List<Plan.Entry> keep = new ArrayList<>();
+        List<BlockPos> funds = new ArrayList<>();
         for (int i = 0; i < entries.size(); i++) {
             Plan.Entry e = entries.get(i);
             if (selectedOnly && i != selected) {
@@ -524,10 +525,12 @@ final class PlanView {
             String path = HutCatalog.levelPath(e.path(), 1);
             new BuildToolPlacementMessage(BuildToolPlacementMessage.HandlerType.Survival, "minecolonies", e.pack(), path == null ? e.path() : path, at,
                     RotationMirror.values()[e.rot()]).sendToServer();
-            Planner.fund(at);
+            funds.add(at);
             Planner.expectBuilding(at);
             if (e.level() > 1) BuildUp.set(at, e.level(), Planner.builder());
         }
+        // One mark message per 16 huts (the server takes 20 a second); their build requests go in later ticks.
+        Planner.fund(funds, false);
         entries = keep;
         selected = -1;
         // Roads and walls, in drawing order: real pieces through the server part (creative: placed; survival: work orders).
@@ -643,7 +646,7 @@ final class PlanView {
         if (next instanceof InstantBuild.PieceBatch b) {
             // Road / wall pieces: real style-pack decorations, up to 16 per batch, in drawing order; the next batch
             // goes once the server answered this one (accepted or refused), at least 1.1 s apart (its rate limit).
-            if (b.mode() == InstantBuild.DECO_ORDER) Planner.fund(b.pieces().stream().map(InstantBuild.Piece::pos).toList());
+            if (b.mode() == InstantBuild.DECO_ORDER) Planner.fund(b.pieces().stream().map(InstantBuild.Piece::pos).toList(), false);
             PacketDistributor.sendToServer(b);
             waitUntil = now + 10_000;
             waitingFor = b;

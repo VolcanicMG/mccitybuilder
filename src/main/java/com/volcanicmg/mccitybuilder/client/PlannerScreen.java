@@ -1868,7 +1868,7 @@ final class PlannerScreen extends Screen {
      */
     private void upgrade(IBuildingView b) {
         if (!Planner.instant() && Planner.colony() != null) {
-            Planner.fund(b.getPosition());
+            Planner.fundWindow(b.getPosition());
             new com.minecolonies.core.client.gui.WindowBuildBuilding(Planner.colony(), b).open();
             return;
         }

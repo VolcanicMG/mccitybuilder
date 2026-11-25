@@ -64,8 +64,8 @@ The controls panel (bottom right) always lists the keys for what you're doing ri
   Removing restores the ground that was there before, and containers keep or return their items.
 - **Creative build mode** (the "Build:" picker in the placing, hut, road / wall and plan panels): **Instant** pastes at
   once; **Builders** sends the survival work orders so you can watch your builders work (materials from the colony);
-  **Builders (free)** does the same but the server hands the builders the materials they ask for (needs City Builder
-  on the server). Move, Remove and Clean stay instant.
+  **Builders (free)** does the same but the server hands the builders the materials and tools they ask for while on
+  those orders (needs City Builder on the server). Move, Remove and Clean stay instant.
 
 ## Server settings
 

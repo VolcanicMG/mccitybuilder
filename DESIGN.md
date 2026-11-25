@@ -201,19 +201,27 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Hut placement in a builder mode uses MineColonies' survival handler (verified in 1.1.1403 `SurvivalHandler.handle`:
   no hut item in the inventory is accepted for a creative player, `new ItemStack(hut)` stands in; `reduceStackInItemHandler`
   then takes one only if the inventory holds one). Build all counts every hut as held and skips the research check.
-- `FreeMaterials.Fund(sites)` (play-to-server, up to 16 positions): sent just before each order-making message in
-  BUILDERS_FREE (the placement whose build request follows, `BuildUp`'s next level, Upgrade's window, Repair, the
-  DECO_ORDER request / piece batch, the survival decoration window). The server keeps a mark (dimension, colony at
-  the site, site, sender, highest order id at that moment) only for a creative sender with `allowed(UPGRADE)`
-  (MANAGE_HUTS), at most 20 messages / s and 256 marks per player; a waiting mark at the same site is renewed.
+- `FreeMaterials.Fund(sites, window)` (play-to-server, up to 16 positions): sent just before the order-making
+  messages in BUILDERS_FREE, one message per batch (Build all's huts, `BuildUp`'s due levels of a tick, a piece
+  batch). `window` = the order comes from a MineColonies window (Upgrade's `WindowBuildBuilding`, the survival
+  decoration window); otherwise a request already on its way (the placement whose build request follows within the
+  15 s building-view wait, `BuildUp`'s next level, Repair, a DECO_ORDER request or piece batch). The server keeps a
+  mark (dimension, colony at the site, site, sender, highest order id at that moment, kind) only for a creative
+  sender with `allowed(UPGRADE)` (MANAGE_HUTS), at most 20 messages / s and 256 marks per player; a waiting mark at
+  the same site is renewed (with the new kind).
 - Every 40 ticks: an unbound mark binds the lowest order id at its site above the stored id and not bound by another
-  mark (`QueueOrder.fundedOrder`; ids only grow, so an older order there is never taken), or goes after 5 min;
-  a bound mark goes when its order is gone (built or cancelled) or its colony is. When the marker is online, in
-  creative and still `allowed`, and the order's claiming builder hut (`AbstractBuildingStructureBuilder`) has that
-  order as its current one, each of its citizens' open `IDeliverable` requests (not `Food`) is filled the way
-  MineColonies' creative fulfil does it (`RequestWindowCitizen` → `TransferItemsToCitizenRequestMessage` +
-  `UpdateRequestStateMessage(OVERRULED)`): the request's first display stack, if it matches, at the requested count
-  into the citizen's inventory (what doesn't fit is dropped), then `IRequestManager.overruleRequest(token, stack)`.
+  mark (`QueueOrder.fundedOrder`; ids only grow, so an older order there is never taken), or goes after 60 s (a
+  sent request) / 5 min (a window) (`QueueOrder.fundExpired`); a bound mark goes when its order is gone (built or
+  cancelled) or its colony is. Known gap: a window closed without ordering leaves its mark for up to 5 min, and an
+  order anyone makes at that exact site in that time is funded (still only while the marker is online, creative and
+  permitted). When the marker is online, in creative and still `allowed`, and the order's claiming builder hut
+  (`AbstractBuildingStructureBuilder`) has that order as its current one, each of its citizens' open `IDeliverable`
+  requests (not `Food`: materials and the tools it asks for while on that order) is filled the way MineColonies'
+  creative fulfil does it (`RequestWindowCitizen` → `TransferItemsToCitizenRequestMessage` +
+  `UpdateRequestStateMessage(OVERRULED)`): `IRequestManager.overruleRequest(token, stack)` with the request's first
+  display stack (if it matches) at the requested count, then, only if that returned, those items into the citizen's
+  inventory (what doesn't fit is dropped). Each mark's step is wrapped (a `RuntimeException` is logged once per mark
+  and retried next round), so a MineColonies failure can't stop the server tick.
 - Marks are `SavedData` in the overworld (`mccitybuilder_funded`), so orders stay funded across restarts.
 
 ### Moving and removing (server part, protocol 4)

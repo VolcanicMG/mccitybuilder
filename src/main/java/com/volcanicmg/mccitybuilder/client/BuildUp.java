@@ -4,7 +4,9 @@ import com.minecolonies.api.colony.IColonyManager;
 import com.minecolonies.api.colony.IColonyView;
 import com.minecolonies.api.colony.buildings.views.IBuildingView;
 import com.minecolonies.core.network.messages.server.colony.building.BuildRequestMessage;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -81,21 +83,26 @@ final class BuildUp {
         boolean fresh = claim != null && claim.getOwningColony() == PlanView.colonyId;
         long now = System.currentTimeMillis();
         boolean changed = false;
+        List<BuildRequestMessage> due = new ArrayList<>();
+        List<BlockPos> funds = new ArrayList<>();
         for (var it = PlanView.targets.entrySet().iterator(); it.hasNext(); ) {
             var en = it.next();
             BlockPos at = en.getKey();
-            if (step(colony.getClientBuildingManager().getBuilding(at), en.getValue(), at, now, fresh) != null) {
+            if (step(colony.getClientBuildingManager().getBuilding(at), en.getValue(), at, now, fresh, due, funds) != null) {
                 it.remove();
                 PlanView.targetBuilders.remove(at);
                 forgetState(at);
                 changed = true;
             }
         }
+        // Many targets can be due in one tick: one mark message for all of them, before their requests.
+        Planner.fund(funds, false);
+        for (BuildRequestMessage m : due) m.sendToServer();
         if (changed) PlanView.targetsChanged();
     }
 
-    /** @return why the hut's target goes (non-null), after sending its next order if it is due one */
-    private static String step(IBuildingView b, int target, BlockPos at, long now, boolean fresh) {
+    /** @return why the hut's target goes (non-null), after queueing its next order in {@code due} (its site in {@code funds}) if it is due one */
+    private static String step(IBuildingView b, int target, BlockPos at, long now, boolean fresh, List<BuildRequestMessage> due, List<BlockPos> funds) {
         if (b == null) return now - since.getOrDefault(at, now) > GRACE_MS ? "gone" : null;
         int level = b.getBuildingLevel();
         if (level >= target || b.isBuildingMaxLevel()) return "reached";
@@ -116,8 +123,8 @@ final class BuildUp {
         // The picked builder while it is still one of the colony's builder huts, else any.
         BlockPos builder = PlanView.targetBuilders.getOrDefault(at, BlockPos.ZERO);
         if (!(b.getColony().getClientBuildingManager().getBuilding(builder) instanceof com.minecolonies.core.colony.buildings.workerbuildings.BuildingBuilder.View)) builder = BlockPos.ZERO;
-        Planner.fund(at);
-        new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, builder).sendToServer();
+        funds.add(at);
+        due.add(new BuildRequestMessage(b, BuildRequestMessage.Mode.BUILD, builder));
         return null;
     }
 }

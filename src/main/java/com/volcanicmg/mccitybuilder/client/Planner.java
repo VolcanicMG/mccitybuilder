@@ -943,15 +943,26 @@ public final class Planner {
         return creative() && Config.BUILD_MODE.get() == Config.BuildMode.BUILDERS_FREE && c != null && c.hasChannel(FreeMaterials.Fund.TYPE);
     }
 
-    /** Builders (free): the next work order made at each site (hut position, decoration anchor) gets free materials. Else nothing. */
-    static void fund(java.util.List<BlockPos> sites) {
+    /**
+     * Builders (free): the next work order made at each site (hut position, decoration anchor) gets free materials.
+     * Else nothing. One call per batch of sites (the server takes 20 messages a second).
+     *
+     * @param window the order comes from a MineColonies window the player may close unordered (the mark waits longer)
+     */
+    static void fund(java.util.List<BlockPos> sites, boolean window) {
         if (!funded()) return;
         for (int i = 0; i < sites.size(); i += FreeMaterials.MAX_SITES)
-            PacketDistributor.sendToServer(new FreeMaterials.Fund(java.util.List.copyOf(sites.subList(i, Math.min(sites.size(), i + FreeMaterials.MAX_SITES)))));
+            PacketDistributor.sendToServer(new FreeMaterials.Fund(java.util.List.copyOf(sites.subList(i, Math.min(sites.size(), i + FreeMaterials.MAX_SITES))), window));
     }
 
+    /** {@link #fund(java.util.List, boolean)} for one site whose order request is already on its way. */
     static void fund(BlockPos site) {
-        fund(java.util.List.of(site.immutable()));
+        fund(java.util.List.of(site.immutable()), false);
+    }
+
+    /** {@link #fund(java.util.List, boolean)} for one site whose order a MineColonies window makes. */
+    static void fundWindow(BlockPos site) {
+        fund(java.util.List.of(site.immutable()), true);
     }
 
     /** Steps the creative build mode, saved in the client config. */
@@ -992,7 +1003,7 @@ public final class Planner {
                 PacketDistributor.sendToServer(new InstantBuild.Request(InstantBuild.DECO, at, 0, deco.pack(), deco.path(), rotation));
             else {
                 // The order MineColonies' window makes is funded once it appears (Builders (free)).
-                if (!instant()) fund(at);
+                if (!instant()) fundWindow(at);
                 new BuildToolPlacementMessage(instant() ? BuildToolPlacementMessage.HandlerType.Pretty : BuildToolPlacementMessage.HandlerType.Survival,
                         instant() ? "" : "minecolonies", deco.pack(), deco.path(), at, rotation).sendToServer();
             }

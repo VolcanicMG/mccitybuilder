@@ -66,4 +66,15 @@ public final class QueueOrder {
         for (int id : ids) if (id > after && !taken.contains(id) && (best == 0 || id < best)) best = id;
         return best;
     }
+
+    /**
+     * How long a free-materials mark waits for its order: a MineColonies window (Upgrade, decoration) may stay open a
+     * while; a request already sent makes its order within a hut's building-view wait (15 s) or a queued piece batch.
+     */
+    public static final long FUND_WINDOW_MS = 300_000, FUND_DIRECT_MS = 60_000;
+
+    /** @return true when a mark that still has no order should go: older than its kind's wait */
+    public static boolean fundExpired(boolean window, long ageMs) {
+        return ageMs > (window ? FUND_WINDOW_MS : FUND_DIRECT_MS);
+    }
 }

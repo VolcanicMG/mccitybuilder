@@ -749,6 +749,9 @@ public final class SelfCheck {
         check(QueueOrder.fundedOrder(10, List.of(14, 12, 9), java.util.Set.of()) == 12, "first order after the mark");
         check(QueueOrder.fundedOrder(10, List.of(14, 12), java.util.Set.of(12)) == 14, "an order another mark funds is skipped");
         check(QueueOrder.fundedOrder(0, List.of(), java.util.Set.of()) == 0, "no order yet");
+        // A mark from a sent request goes soon (a closed window's mark mustn't fund a later stranger's order for long).
+        check(QueueOrder.fundExpired(false, 61_000) && !QueueOrder.fundExpired(false, 30_000), "a direct mark waits about a minute");
+        check(!QueueOrder.fundExpired(true, 61_000) && QueueOrder.fundExpired(true, 301_000), "a window's mark waits five minutes");
     }
 
     /** @return ids in the order MineColonies would take them after applying the priority changes */

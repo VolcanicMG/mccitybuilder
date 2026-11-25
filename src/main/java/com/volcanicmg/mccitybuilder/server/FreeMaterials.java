@@ -40,37 +40,41 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 /**
  * Creative "Builders (free)": a creative player marks the sites of the builder work orders they make ({@link Fund});
  * the first order made at a site after its mark is funded, and every 2 s the builder working a funded order gets its
- * open material requests filled the way MineColonies' creative "fulfil" does it (the requested items into the
- * builder citizen's inventory, then {@code IRequestManager.overruleRequest}). The server decides everything: the colony
- * at the site, the sender's creative mode and permission (when marking and again before every fill), and the items
- * (the request's own). Marks are kept in the overworld's saved data until their order is gone, the colony is gone, or
- * no order came within {@link #GRACE_MS}.
+ * open material and tool requests filled the way MineColonies' creative "fulfil" does it
+ * ({@code IRequestManager.overruleRequest}, then the requested items into the builder citizen's inventory). The server
+ * decides everything: the colony at the site, the sender's creative mode and permission (when marking and again before
+ * every fill), and the items (the request's own). Marks are kept in the overworld's saved data until their order is
+ * gone, the colony is gone, or no order came in time ({@link QueueOrder#fundExpired}).
  */
 public final class FreeMaterials {
     public static final int MAX_SITES = InstantBuild.MAX_BATCH;
     // Per player: marks kept, messages per second.
     static final int MAX_PER_PLAYER = 256, MAX_MESSAGES = 20;
-    // A mark waits this long for its order (MineColonies' decoration window, a hut's building view, a queued batch).
-    static final long GRACE_MS = 300_000;
     private static final int EVERY_TICKS = 40;
     private static final Map<UUID, long[]> window = new HashMap<>();
 
     private FreeMaterials() {
     }
 
-    /** Sites (hut positions, decoration anchors) whose next work order should get free materials. */
-    public record Fund(List<BlockPos> sites) implements CustomPacketPayload {
+    /**
+     * Sites (hut positions, decoration anchors) whose next work order should get free materials.
+     *
+     * @param window the order comes from a MineColonies window the player may close without ordering (a long wait for
+     *               it); false: from a request already on its way (a short one)
+     */
+    public record Fund(List<BlockPos> sites, boolean window) implements CustomPacketPayload {
         public static final Type<Fund> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "fund_" + InstantBuild.PROTOCOL));
         public static final StreamCodec<RegistryFriendlyByteBuf, Fund> CODEC = StreamCodec.of((buf, f) -> {
             List<BlockPos> s = f.sites.subList(0, Math.min(f.sites.size(), MAX_SITES));
             buf.writeVarInt(s.size());
             for (BlockPos p : s) buf.writeBlockPos(p);
+            buf.writeBoolean(f.window);
         }, buf -> {
             int n = buf.readVarInt();
             if (n < 0 || n > MAX_SITES) throw new DecoderException("too many fund sites: " + n);
             List<BlockPos> s = new ArrayList<>();
             for (int i = 0; i < n; i++) s.add(buf.readBlockPos());
-            return new Fund(s);
+            return new Fund(s, buf.readBoolean());
         });
 
         @Override
@@ -95,7 +99,7 @@ public final class FreeMaterials {
         Store s = Store.of(p.server);
         for (BlockPos pos : f.sites) {
             IColony c = level.isLoaded(pos) ? IColonyManager.getInstance().getColonyByPosFromWorld(level, pos) : null;
-            if (c != null && InstantBuild.allowed(c, p, InstantBuild.UPGRADE)) s.mark(level.dimension().location().toString(), c, pos.immutable(), p, now);
+            if (c != null && InstantBuild.allowed(c, p, InstantBuild.UPGRADE)) s.mark(level.dimension().location().toString(), c, pos.immutable(), p, f.window, now);
         }
     }
 
@@ -118,47 +122,54 @@ public final class FreeMaterials {
         boolean changed = false;
         for (var it = s.marks.iterator(); it.hasNext(); ) {
             Mark m = it.next();
-            ServerLevel level = server.getLevel(ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(m.dim)));
-            IColony c = level == null ? null : IColonyManager.getInstance().getColonyByWorld(m.colony, level);
-            if (c == null) {
-                it.remove();
-                changed = true;
-                continue;
-            }
-            if (m.order == 0) {
-                List<Integer> here = new ArrayList<>();
-                for (IServerWorkOrder o : c.getWorkManager().getWorkOrders().values()) if (m.pos.equals(o.getLocation())) here.add(o.getID());
-                Set<Integer> t = taken.computeIfAbsent(m.dim + "|" + m.colony, k -> new HashSet<>());
-                m.order = QueueOrder.fundedOrder(m.after, here, t);
-                if (m.order == 0) {
-                    if (now - m.since > GRACE_MS) {
-                        it.remove();
-                        changed = true;
-                    }
+            // A MineColonies exception must not take the server tick down: logged once per mark, retried next round.
+            try {
+                ServerLevel level = server.getLevel(ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(m.dim)));
+                IColony c = level == null ? null : IColonyManager.getInstance().getColonyByWorld(m.colony, level);
+                if (c == null) {
+                    it.remove();
+                    changed = true;
                     continue;
                 }
-                t.add(m.order);
-                changed = true;
+                if (m.order == 0) {
+                    List<Integer> here = new ArrayList<>();
+                    for (IServerWorkOrder o : c.getWorkManager().getWorkOrders().values()) if (m.pos.equals(o.getLocation())) here.add(o.getID());
+                    Set<Integer> t = taken.computeIfAbsent(m.dim + "|" + m.colony, k -> new HashSet<>());
+                    m.order = QueueOrder.fundedOrder(m.after, here, t);
+                    if (m.order == 0) {
+                        if (QueueOrder.fundExpired(m.window, now - m.since)) {
+                            it.remove();
+                            changed = true;
+                        }
+                        continue;
+                    }
+                    t.add(m.order);
+                    changed = true;
+                }
+                IServerWorkOrder o = c.getWorkManager().getWorkOrder(m.order);
+                // Built or cancelled.
+                if (o == null) {
+                    it.remove();
+                    changed = true;
+                    continue;
+                }
+                // Its maker offline, out of creative or no longer permitted: the order waits like any other.
+                ServerPlayer p = server.getPlayerList().getPlayer(m.owner);
+                if (p == null || !p.isCreative() || !InstantBuild.allowed(c, p, InstantBuild.UPGRADE) || !o.isClaimed()) continue;
+                if (c.getServerBuildingManager().getBuilding(o.getClaimedBy()) instanceof AbstractBuildingStructureBuilder b && b.hasWorkOrder()
+                        && b.getWorkOrder().getID() == m.order) fill(c, b);
+            } catch (RuntimeException ex) {
+                if (!m.warned) CityBuilder.LOGGER.warn("CityBuilder: free materials for the order at {} failed", m.pos.toShortString(), ex);
+                m.warned = true;
             }
-            IServerWorkOrder o = c.getWorkManager().getWorkOrder(m.order);
-            // Built or cancelled.
-            if (o == null) {
-                it.remove();
-                changed = true;
-                continue;
-            }
-            // Its maker offline, out of creative or no longer permitted: the order waits like any other.
-            ServerPlayer p = server.getPlayerList().getPlayer(m.owner);
-            if (p == null || !p.isCreative() || !InstantBuild.allowed(c, p, InstantBuild.UPGRADE) || !o.isClaimed()) continue;
-            if (c.getServerBuildingManager().getBuilding(o.getClaimedBy()) instanceof AbstractBuildingStructureBuilder b && b.hasWorkOrder()
-                    && b.getWorkOrder().getID() == m.order) fill(c, b);
         }
         if (changed) s.setDirty();
     }
 
     /**
-     * Fills the builder's open item requests as MineColonies' creative "fulfil" button does: the request's first
-     * display stack at the requested count into the citizen's inventory, then the request overruled with it.
+     * Fills the builder's open item requests (materials, tools) as MineColonies' creative "fulfil" button does: the
+     * request overruled with its first display stack at the requested count, then those items into the citizen's
+     * inventory (only once the overrule went through, so a failing one never hands out items twice).
      */
     private static void fill(IColony c, AbstractBuildingStructureBuilder b) {
         for (ICitizenData citizen : b.getAllAssignedCitizen()) {
@@ -167,10 +178,11 @@ public final class FreeMaterials {
                 if (!(r.getRequest() instanceof IDeliverable d) || d instanceof Food || d.getCount() <= 0) continue;
                 ItemStack shown = r.getDisplayStacks().stream().findFirst().orElse(ItemStack.EMPTY);
                 if (shown.isEmpty() || !d.matches(shown)) continue;
+                int count = d.getCount();
+                c.getRequestManager().overruleRequest(r.getId(), shown.copyWithCount(count));
                 // What doesn't fit is dropped (creative items); the builder asks again for anything still missing.
-                for (int left = d.getCount(); left > 0; left -= shown.getMaxStackSize())
+                for (int left = count; left > 0; left -= shown.getMaxStackSize())
                     InventoryUtils.addItemStackToItemHandlerWithResult(citizen.getInventory(), shown.copyWithCount(Math.min(left, shown.getMaxStackSize())));
-                c.getRequestManager().overruleRequest(r.getId(), shown.copyWithCount(d.getCount()));
             }
         }
     }
@@ -183,8 +195,10 @@ public final class FreeMaterials {
         final UUID owner;
         int order;
         long since;
+        // From a MineColonies window (a long wait); warned: its failure was logged (not saved).
+        boolean window, warned;
 
-        Mark(String dim, int colony, BlockPos pos, UUID owner, int after, int order, long since) {
+        Mark(String dim, int colony, BlockPos pos, UUID owner, int after, int order, long since, boolean window) {
             this.dim = dim;
             this.colony = colony;
             this.pos = pos;
@@ -192,6 +206,7 @@ public final class FreeMaterials {
             this.after = after;
             this.order = order;
             this.since = since;
+            this.window = window;
         }
     }
 
@@ -210,7 +225,7 @@ public final class FreeMaterials {
                 CompoundTag c = (CompoundTag) t;
                 if (c.hasUUID("owner") && ResourceLocation.tryParse(c.getString("dim")) != null)
                     s.marks.add(new Mark(c.getString("dim"), c.getInt("colony"), BlockPos.of(c.getLong("pos")), c.getUUID("owner"), c.getInt("after"),
-                            c.getInt("order"), c.getLong("since")));
+                            c.getInt("order"), c.getLong("since"), c.getBoolean("window")));
             }
             return s;
         }
@@ -227,6 +242,7 @@ public final class FreeMaterials {
                 c.putInt("after", m.after);
                 c.putInt("order", m.order);
                 c.putLong("since", m.since);
+                c.putBoolean("window", m.window);
                 l.add(c);
             }
             tag.put("marks", l);
@@ -234,12 +250,13 @@ public final class FreeMaterials {
         }
 
         /** Marks the site for the player (a mark still waiting there is renewed), up to {@link #MAX_PER_PLAYER} each. */
-        void mark(String dim, IColony c, BlockPos pos, ServerPlayer p, long now) {
+        void mark(String dim, IColony c, BlockPos pos, ServerPlayer p, boolean window, long now) {
             int mine = 0;
             for (Mark m : marks) {
                 if (!m.owner.equals(p.getUUID())) continue;
                 if (m.order == 0 && m.colony == c.getID() && m.dim.equals(dim) && m.pos.equals(pos)) {
                     m.since = now;
+                    m.window = window;
                     setDirty();
                     return;
                 }
@@ -251,7 +268,7 @@ public final class FreeMaterials {
             }
             int after = 0;
             for (int id : c.getWorkManager().getWorkOrders().keySet()) after = Math.max(after, id);
-            marks.add(new Mark(dim, c.getID(), pos, p.getUUID(), after, 0, now));
+            marks.add(new Mark(dim, c.getID(), pos, p.getUUID(), after, 0, now, window));
             setDirty();
         }
     }
