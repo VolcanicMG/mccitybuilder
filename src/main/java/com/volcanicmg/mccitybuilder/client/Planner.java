@@ -214,6 +214,11 @@ public final class Planner {
             if (mc.player != null) mc.setCameraEntity(mc.player);
             if (previousCameraType != null) mc.options.setCameraType(previousCameraType);
             if (mc.screen instanceof PlannerScreen) mc.setScreen(null);
+            try {
+                plannerState(0);
+            } catch (Throwable ignored) {
+                // Best effort: the server also forgets it at logout.
+            }
         }
     }
 

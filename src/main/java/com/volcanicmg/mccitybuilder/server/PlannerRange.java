@@ -53,11 +53,14 @@ public final class PlannerRange {
         dims.put(p.getUUID(), p.serverLevel().dimension());
     }
 
-    /** @return true when the player has the planner open over this colony, in its dimension, and is still a member with hut access */
+    /**
+     * @return true when the player has the planner open over this colony, in its dimension, stands inside it (the
+     * planner closes when they leave) and is still a member with hut access
+     */
     public static boolean planning(ServerPlayer p, IColony c) {
         Integer id = colonies.get(p.getUUID());
         return id != null && c != null && id == c.getID() && p.serverLevel().dimension().equals(dims.get(p.getUUID())) && c.getDimension().equals(dims.get(p.getUUID()))
-                && !p.isSpectator() && PlanShare.member(c, p);
+                && !p.isSpectator() && c.isCoordInColony(p.serverLevel(), p.blockPosition()) && PlanShare.member(c, p);
     }
 
     static void forget(UUID id) {

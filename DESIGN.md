@@ -171,7 +171,9 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   required: 1.1.1403 has no such call and the mixin just doesn't apply.
 - `PlannerRange.Open(colony)` (play-to-server, protocol 11): sent when the planner opens (its colony id) and closes
   (0). The server records it only for a non-spectator member with hut access of that colony (PlanShare's member
-  rule), with the dimension; `planning` needs the same colony id and dimension and re-checks membership. Cleared on
+  rule), with the dimension; `planning` needs the same colony id and dimension, the player standing inside that
+  colony (`IColony.isCoordInColony`, the planner's own rule: it closes when they leave) and re-checks membership.
+  The client also sends the close from `Planner.fail()`'s last-resort path. Cleared on
   close, logout, dimension change and server stop. Scoped to the planned colony, so the flag can't widen another
   colony's range; a forged flag skips only the distance test for a colony the player may already manage.
 - Client: on 1.1.1420+ (the interface class is present) `BuildUp` sends its level orders only while the planner is
@@ -239,9 +241,14 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   order anyone makes at that exact site in that time is funded (still only while the marker is online, creative and
   permitted). When the marker is online, in creative and still `allowed`, and the order's claiming builder hut
   (`AbstractBuildingStructureBuilder`) has that order as its current one, the open `IDeliverable` requests (not
-  `Food`) of its first loaded builder and of the hut itself are filled: the builder's own list (tools, some stacks)
-  and `getOpenRequests(-1)`, where MineColonies 1.1.1420 files most of an order's materials (live-verified: furnace,
-  planks, bed, door…). Each is filled the way MineColonies'
+  `Food`, not `MinimumStack`) of its first loaded builder and of the hut itself are filled: the builder's own list
+  (tools, some stacks) and `getOpenRequests(-1)`, where MineColonies 1.1.1420 files most of an order's materials
+  (live-verified: furnace, planks, bed, door…). That hut list also holds the builder hut's minimum-stock requests
+  (`MinimumStockModule` files `MinimumStack` there) and leftovers of earlier, unfunded orders, so from it only items
+  the current order still needs are filled, at most that many: the `BuildingResourcesModule`
+  (`getFirstModuleOccurance`) `getNeededResources()` entry with the same item and components
+  (`ItemStack.isSameItemSameComponents`), its `getAmount()` (MineColonies lowers it as blocks are placed; its
+  `available` is only refreshed for views, so it isn't used). Each is filled the way MineColonies'
   creative fulfil does it (`RequestWindowCitizen` → `TransferItemsToCitizenRequestMessage` +
   `UpdateRequestStateMessage(OVERRULED)`): `IRequestManager.overruleRequest(token, stack)` with the request's first
   display stack (if it matches) at the requested count, then, only if that returned, those items into the citizen's

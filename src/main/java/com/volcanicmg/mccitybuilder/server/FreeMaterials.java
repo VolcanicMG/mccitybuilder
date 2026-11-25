@@ -6,6 +6,9 @@ import com.minecolonies.api.colony.IColonyManager;
 import com.minecolonies.api.colony.requestsystem.request.IRequest;
 import com.minecolonies.api.colony.requestsystem.requestable.Food;
 import com.minecolonies.api.colony.requestsystem.requestable.IDeliverable;
+import com.minecolonies.api.colony.requestsystem.requestable.MinimumStack;
+import com.minecolonies.core.colony.buildings.modules.BuildingResourcesModule;
+import com.minecolonies.core.colony.buildings.utils.BuildingBuilderResource;
 import com.minecolonies.api.colony.workorders.IServerWorkOrder;
 import com.minecolonies.api.util.InventoryUtils;
 import com.minecolonies.core.colony.buildings.AbstractBuildingStructureBuilder;
@@ -171,17 +174,21 @@ public final class FreeMaterials {
      * requests (tools, some stacks) and the hut's material list (MineColonies files most of an order's materials under
      * the building, citizen id -1). Each is overruled with its first display stack at the requested count, then those
      * items go into the first loaded builder citizen's inventory (only once the overrule went through, so a failing
-     * one never hands out items twice).
+     * one never hands out items twice). The hut's list also holds other requests (its minimum stock, leftovers of
+     * earlier orders): from it only items the current order still needs, at most that many
+     * ({@code BuildingResourcesModule.getNeededResources()}); minimum-stock requests never.
      */
     private static void fill(IColony c, AbstractBuildingStructureBuilder b) {
+        BuildingResourcesModule needs = b.getFirstModuleOccurance(BuildingResourcesModule.class);
         for (ICitizenData citizen : b.getAllAssignedCitizen()) {
             if (citizen.getEntity().isEmpty()) continue;
             for (int owner : new int[]{citizen.getId(), -1})
                 for (IRequest<?> r : List.copyOf(b.getOpenRequests(owner))) {
-                    if (!(r.getRequest() instanceof IDeliverable d) || d instanceof Food || d.getCount() <= 0) continue;
+                    if (!(r.getRequest() instanceof IDeliverable d) || d instanceof Food || d instanceof MinimumStack || d.getCount() <= 0) continue;
                     ItemStack shown = r.getDisplayStacks().stream().findFirst().orElse(ItemStack.EMPTY);
                     if (shown.isEmpty() || !d.matches(shown)) continue;
-                    int count = d.getCount();
+                    int count = owner == -1 ? Math.min(d.getCount(), stillNeeded(needs, shown)) : d.getCount();
+                    if (count <= 0) continue;
                     c.getRequestManager().overruleRequest(r.getId(), shown.copyWithCount(count));
                     // What doesn't fit is dropped (creative items); the builder asks again for anything still missing.
                     for (int left = count; left > 0; left -= shown.getMaxStackSize())
@@ -190,6 +197,14 @@ public final class FreeMaterials {
             // One builder: the hut's list is filled once.
             return;
         }
+    }
+
+    /** @return how many of this item the builder's current order still needs to place (0: none, or no module) */
+    private static int stillNeeded(BuildingResourcesModule needs, ItemStack s) {
+        if (needs == null) return 0;
+        for (BuildingBuilderResource n : needs.getNeededResources().values())
+            if (ItemStack.isSameItemSameComponents(n.getItemStack(), s)) return n.getAmount();
+        return 0;
     }
 
     /** A funded site: the order made there after {@code after} (bound once seen, 0 before), by {@code owner}. */
