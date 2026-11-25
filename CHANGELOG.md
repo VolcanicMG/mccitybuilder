@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - Creative build mode ("Build: Instant / Builders (free) / Builders", < >) in the hut placing panel, the selected
   hut's panel, the road / wall panel and the plan panel, saved in the client config (`creativeBuildMode`, default
@@ -15,6 +15,11 @@
   window buttons) from more than 15 blocks away. City Builder on the server now lets them through while you have the
   planner open over that colony (MineColonies' permission checks still apply); a server without City Builder drops
   them on 1.1.1420+. Build-up orders wait for the open planner there instead of being lost. 1.1.1403 is unaffected.
+
+- Road / wall tool hardening (#2): an auto-connect leg that would be zero-length or reversed is refused while
+  aiming as well as on the click, a crossing at a run's own end no longer makes a zero-length piece, and the live
+  preview only re-lays the plan when the set of segments it touches changes (much less work while dragging).
+- Builds against MineColonies 1.1.1420, Structurize 1.0.840 and Domum Ornamentum 1.0.237 (1.1.1403 still works).
 
 ## 0.1.0
 

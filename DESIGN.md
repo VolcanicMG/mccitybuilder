@@ -254,6 +254,8 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   display stack (if it matches) at the requested count, then, only if that returned, those items into the citizen's
   inventory (what doesn't fit is dropped). Each mark's step is wrapped (a `RuntimeException` is logged once per mark
   and retried next round), so a MineColonies failure can't stop the server tick.
+- While a funded order runs, materials taken out of the builder hut are asked for again and filled again (capped at
+  what the order still needs), the same as MineColonies' own creative fulfil.
 - Marks are `SavedData` in the overworld (`mccitybuilder_funded`), so orders stay funded across restarts.
 
 ### Moving and removing (server part, protocol 4)
