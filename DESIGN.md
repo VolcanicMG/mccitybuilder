@@ -238,8 +238,10 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   cancelled) or its colony is. Known gap: a window closed without ordering leaves its mark for up to 5 min, and an
   order anyone makes at that exact site in that time is funded (still only while the marker is online, creative and
   permitted). When the marker is online, in creative and still `allowed`, and the order's claiming builder hut
-  (`AbstractBuildingStructureBuilder`) has that order as its current one, each of its citizens' open `IDeliverable`
-  requests (not `Food`: materials and the tools it asks for while on that order) is filled the way MineColonies'
+  (`AbstractBuildingStructureBuilder`) has that order as its current one, the open `IDeliverable` requests (not
+  `Food`) of its first loaded builder and of the hut itself are filled: the builder's own list (tools, some stacks)
+  and `getOpenRequests(-1)`, where MineColonies 1.1.1420 files most of an order's materials (live-verified: furnace,
+  planks, bed, door…). Each is filled the way MineColonies'
   creative fulfil does it (`RequestWindowCitizen` → `TransferItemsToCitizenRequestMessage` +
   `UpdateRequestStateMessage(OVERRULED)`): `IRequestManager.overruleRequest(token, stack)` with the request's first
   display stack (if it matches) at the requested count, then, only if that returned, those items into the citizen's

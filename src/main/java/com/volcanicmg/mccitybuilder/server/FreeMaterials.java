@@ -167,23 +167,28 @@ public final class FreeMaterials {
     }
 
     /**
-     * Fills the builder's open item requests (materials, tools) as MineColonies' creative "fulfil" button does: the
-     * request overruled with its first display stack at the requested count, then those items into the citizen's
-     * inventory (only once the overrule went through, so a failing one never hands out items twice).
+     * Fills the builder's open item requests as MineColonies' creative "fulfil" button does: the builder's own
+     * requests (tools, some stacks) and the hut's material list (MineColonies files most of an order's materials under
+     * the building, citizen id -1). Each is overruled with its first display stack at the requested count, then those
+     * items go into the first loaded builder citizen's inventory (only once the overrule went through, so a failing
+     * one never hands out items twice).
      */
     private static void fill(IColony c, AbstractBuildingStructureBuilder b) {
         for (ICitizenData citizen : b.getAllAssignedCitizen()) {
             if (citizen.getEntity().isEmpty()) continue;
-            for (IRequest<?> r : List.copyOf(b.getOpenRequests(citizen.getId()))) {
-                if (!(r.getRequest() instanceof IDeliverable d) || d instanceof Food || d.getCount() <= 0) continue;
-                ItemStack shown = r.getDisplayStacks().stream().findFirst().orElse(ItemStack.EMPTY);
-                if (shown.isEmpty() || !d.matches(shown)) continue;
-                int count = d.getCount();
-                c.getRequestManager().overruleRequest(r.getId(), shown.copyWithCount(count));
-                // What doesn't fit is dropped (creative items); the builder asks again for anything still missing.
-                for (int left = count; left > 0; left -= shown.getMaxStackSize())
-                    InventoryUtils.addItemStackToItemHandlerWithResult(citizen.getInventory(), shown.copyWithCount(Math.min(left, shown.getMaxStackSize())));
-            }
+            for (int owner : new int[]{citizen.getId(), -1})
+                for (IRequest<?> r : List.copyOf(b.getOpenRequests(owner))) {
+                    if (!(r.getRequest() instanceof IDeliverable d) || d instanceof Food || d.getCount() <= 0) continue;
+                    ItemStack shown = r.getDisplayStacks().stream().findFirst().orElse(ItemStack.EMPTY);
+                    if (shown.isEmpty() || !d.matches(shown)) continue;
+                    int count = d.getCount();
+                    c.getRequestManager().overruleRequest(r.getId(), shown.copyWithCount(count));
+                    // What doesn't fit is dropped (creative items); the builder asks again for anything still missing.
+                    for (int left = count; left > 0; left -= shown.getMaxStackSize())
+                        InventoryUtils.addItemStackToItemHandlerWithResult(citizen.getInventory(), shown.copyWithCount(Math.min(left, shown.getMaxStackSize())));
+                }
+            // One builder: the hut's list is filled once.
+            return;
         }
     }
 
