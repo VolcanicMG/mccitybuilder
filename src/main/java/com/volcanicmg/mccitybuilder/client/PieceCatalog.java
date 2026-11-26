@@ -70,6 +70,9 @@ final class PieceCatalog {
         failed.clear();
         PieceView.clear();
         overrides.clear();
+        setups.clear();
+        toolPieces.clear();
+        bodies.clear();
     }
 
     /** @return a fresh copy of the blueprint turned {@code turns} quarter turns, or null while it loads */
@@ -115,8 +118,9 @@ final class PieceCatalog {
     static Map<String, PieceSets.Family> families(String pack) {
         Map<String, PieceSets.Family> done = families.get(pack);
         if (done != null) return done;
+        Map<String, String> setup = setup(pack);
         List<String> folders = new ArrayList<>();
-        for (String f : Blueprints.decoFolders(pack)) if (PieceSets.tool(f + "/x.blueprint") != null) folders.add(f);
+        for (String f : Blueprints.decoFolders(pack)) if (pieceFolder(f, setup)) folders.add(f);
         if (Blueprints.decoFolders(pack).isEmpty()) return null;
         List<PieceSets.Piece> pieces = new ArrayList<>();
         boolean loading = false;
@@ -140,15 +144,21 @@ final class PieceCatalog {
         Map<String, Integer[]> votes = new HashMap<>();
         java.util.Set<String> own = new java.util.HashSet<>();
         for (PieceSets.Piece p : pieces) {
-            if (PieceLayout.ownGround(p.path())) own.add(p.path());
+            if (PieceLayout.ownGround(p.path(), PieceSets.toolOf(p.path(), setup))) own.add(p.path());
             Blueprint bp = rotated(pack, p.path(), 0);
             int tag = BlueprintTagUtils.getGroundAnchorOffset(bp, Integer.MIN_VALUE);
             Integer t = tag == Integer.MIN_VALUE ? null : tag;
             votes.put(p.path(), new Integer[]{t == null ? 1 : t, PieceLayout.groundVote(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids(bp),
-                    bp.getPrimaryBlockOffset().getY(), t, "road".equals(PieceSets.tool(p.path())))});
+                    bp.getPrimaryBlockOffset().getY(), t, "road".equals(PieceSets.toolOf(p.path(), setup)))});
         }
         groundOffsets.put(pack, PieceLayout.groundOffsets(votes, own));
-        Map<String, PieceSets.Family> out = PieceSets.classify(pieces);
+        Map<String, Integer> sides = new HashMap<>();
+        for (PieceSets.Piece p : pieces) sides.put(p.path(), shape(pack, p.path(), "road".equals(PieceSets.toolOf(p.path(), setup))));
+        Map<String, PieceSets.Family> out = PieceSets.classify(pieces, sides, setup);
+        for (PieceSets.Piece p : pieces) {
+            PieceSets.Role hint = PieceSets.shapeHint(p.base(), sides.get(p.path()));
+            if (hint != null) CityBuilder.LOGGER.debug("City Builder: {} of {} reads as {} by name, its shape says {}", p.path(), pack, PieceSets.decide(p.base(), sides.get(p.path())), hint);
+        }
         families.put(pack, out);
         return out;
     }
@@ -162,9 +172,93 @@ final class PieceCatalog {
         return out;
     }
 
-    /** @return the groups used for a role: the user's override if any, else every group the classifier found */
+    // "pack|path|road": a piece's body seen from above (PieceSets.body).
+    private static final Map<String, boolean[]> bodies = new HashMap<>();
+
+    /** @return the piece's body seen from above as a road (walkable surface) or wall (mass), or null while it loads */
+    static boolean[] body(String pack, String path, boolean road) {
+        String k = pack + "|" + path + "|" + road;
+        boolean[] b = bodies.get(k);
+        if (b != null) return b;
+        Blueprint bp = rotated(pack, path, 0);
+        if (bp == null) return null;
+        b = PieceSets.body(new PieceLayout.Grid(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids(bp), 0), road);
+        bodies.put(k, b);
+        return b;
+    }
+
+    /** @return the piece's open sides ({@link PieceSets#openSides}), or null while it loads */
+    static Integer shape(String pack, String path, boolean road) {
+        boolean[] b = body(pack, path, road);
+        Blueprint bp = rotated(pack, path, 0);
+        return b == null ? null : PieceSets.openSides(b, bp.getSizeX(), bp.getSizeZ());
+    }
+
+    /** @return true when a folder (or a blueprint the set-up named in it) holds road / wall pieces */
+    private static boolean pieceFolder(String f, Map<String, String> setup) {
+        if (PieceSets.toolOf(f + "/x.blueprint", setup) != null) return true;
+        for (var en : setup.entrySet())
+            if (en.getKey().startsWith(PieceSets.TOOL + f + "/") && !en.getKey().substring(PieceSets.TOOL.length() + f.length() + 1).contains("/")
+                    && !PieceSets.NONE.equals(en.getValue())) return true;
+        return false;
+    }
+
+    // Per pack: {families, set-up, the paths the tools place} (worked out again when either changes).
+    private static final Map<String, Object[]> toolPieces = new HashMap<>();
+
+    /**
+     * @return true for a blueprint of a road / wall folder that the road / wall tools don't place (a slope, an unused
+     * or excluded piece, a family without a straight): the palette's Other tab; false while the pack's pieces load
+     */
+    static boolean other(String pack, String path) {
+        if (toolOf(pack, path) == null) return false;
+        Map<String, PieceSets.Family> fs = families(pack);
+        if (fs == null) return false;
+        Map<String, String> su = setup(pack);
+        Object[] c = toolPieces.get(pack);
+        if (c == null || c[0] != fs || c[1] != su) {
+            c = new Object[]{fs, su, PieceSets.toolPieces(fs, (f, r) -> groups(pack, f, r))};
+            toolPieces.put(pack, c);
+        }
+        return !((java.util.Set<?>) c[2]).contains(path);
+    }
+
+    /** @return a blueprint's tool ("road", "wall" or null) with the pack's set-up applied (built-in, then the player's) */
+    static String toolOf(String pack, String path) {
+        return PieceSets.toolOf(path, setup(pack));
+    }
+
+    // Per pack: the merged set-up (read per decoration and per joint each frame); dropped whenever the overrides change.
+    private static final Map<String, Map<String, String>> setups = new HashMap<>();
+
+    /** @return the pack's set-up and role keys (read-only): the mod's built-in file overlaid by the player's own */
+    static Map<String, String> setup(String pack) {
+        return setups.computeIfAbsent(pack, k -> {
+            Map<String, String> m = new LinkedHashMap<>(PieceSets.builtIn(pack));
+            m.putAll(overrides(pack));
+            return java.util.Collections.unmodifiableMap(m);
+        });
+    }
+
+    /**
+     * Applies set-up changes (key to value; null removes the player's key) to the pack's overrides, saves them and
+     * sorts the pack's pieces again.
+     */
+    static void setSetup(String pack, Map<String, String> changes) {
+        Map<String, String> m = overrides(pack);
+        changes.forEach((k, v) -> {
+            if (v == null) m.remove(k);
+            else m.put(k, v);
+        });
+        saveOverrides(pack);
+        families.remove(pack);
+        PieceLayout.clearCache();
+        PlanView.linesChanged();
+    }
+
+    /** @return the groups used for a role: the user's override if any (else the built-in one), else every group the classifier found */
     static List<PieceSets.Group> groups(String pack, PieceSets.Family f, PieceSets.Role r) {
-        String o = overrides(pack).get(f.tool() + ":" + f.key() + "|" + r.name());
+        String o = setup(pack).get(f.tool() + ":" + f.key() + "|" + r.name());
         List<PieceSets.Group> all = new ArrayList<>(r == PieceSets.Role.STRAIGHT ? f.straights() : f.of(r));
         if (o == null) return all;
         if (o.equals("-")) return List.of();
@@ -210,7 +304,12 @@ final class PieceCatalog {
         saveOverrides(pack);
     }
 
+    /** Bumped whenever a pack's overrides change (what is derived from the set-up is worked out again). */
+    static int setupVersion;
+
     private static void saveOverrides(String pack) {
+        setups.remove(pack);
+        setupVersion++;
         try {
             Path f = overridesFile(pack);
             Files.createDirectories(f.getParent());
@@ -251,6 +350,26 @@ final class PieceCatalog {
         if (dr != null) dr.remove(key);
         if (shiftDepth == null) m.remove(key);
         else m.put(key, shiftDepth[0] + "," + shiftDepth[1]);
+        saveOverrides(pack);
+        PieceLayout.clearCache();
+        PlanView.linesChanged();
+    }
+
+    /** Sets (or with null, removes) one raw override (a joint setting) and saves the pack's overrides. */
+    static void setOverride(String pack, String key, String value) {
+        Map<String, String> m = overrides(pack);
+        if (value == null) m.remove(key);
+        else m.put(key, value);
+        saveOverrides(pack);
+        PieceLayout.clearCache();
+        PlanView.linesChanged();
+    }
+
+    /** Drops saved alignments / joint settings and their drafts, saving the overrides once. */
+    static void clearAlignments(String pack, java.util.Collection<String> keys) {
+        overrides(pack).keySet().removeAll(keys);
+        Map<String, String> dr = drafts.get(pack);
+        if (dr != null) dr.keySet().removeAll(keys);
         saveOverrides(pack);
         PieceLayout.clearCache();
         PlanView.linesChanged();

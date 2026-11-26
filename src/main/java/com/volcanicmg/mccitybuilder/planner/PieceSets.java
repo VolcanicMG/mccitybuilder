@@ -92,10 +92,10 @@ public final class PieceSets {
             return roles.getOrDefault(r, List.of());
         }
 
-        /** @return straights, longest first */
+        /** @return straights, named ones before those only their shape made straights (S&K's arches), then longest first */
         public List<Group> straights() {
             List<Group> s = new ArrayList<>(of(Role.STRAIGHT));
-            s.sort(Comparator.comparingInt((Group g) -> -g.first().run()).thenComparing(Group::base));
+            s.sort(Comparator.comparing((Group g) -> unreadable(g.base())).thenComparingInt(g -> -g.first().run()).thenComparing(Group::base));
             return s;
         }
 
@@ -121,27 +121,230 @@ public final class PieceSets {
         return out;
     }
 
-    /** @return "wall", "road", or null for a blueprint path outside the road / wall folders */
-    public static String tool(String path) {
+    /**
+     * @return "wall" / "road" for MineColonies' own folders (walls/, infrastructure/roads/, crossroads/), else null:
+     * the 0.2 rule, for what must not change for decorations already placed (their ground offset, how they're removed)
+     */
+    public static String mineColoniesTool(String path) {
         String p = path.toLowerCase(Locale.ROOT).replace('\\', '/');
         if (p.startsWith("walls/") || p.contains("/walls/")) return "wall";
         if (p.contains("infrastructure/roads/") || p.contains("/crossroads/") || p.startsWith("roads/")) return "road";
         return null;
     }
 
-    /** @return the role a blueprint's name suggests (keywords, most specific first) */
+    // Folder names that make a road (under infrastructure/) or wall set in packs that don't use MineColonies' folders.
+    private static final java.util.Set<String> ROAD_DIRS = java.util.Set.of("road", "roads", "street", "streets", "boulevard", "boulevards",
+            "highway", "highways", "path", "paths", "道路");
+    private static final java.util.Set<String> WALL_DIRS = java.util.Set.of("walls", "rampart", "ramparts", "fortification", "fortifications",
+            "palisade", "palisades", "retainingwall", "retainingwalls", "城墙");
+    // Not set pieces though they sit in a road / wall folder (bridge, streetlight...; also the Chinese words).
+    private static final String[] NOT_PIECES = {"bridge", "tunnel", "aqueduct", "railing", "streetlight", "lamp", "sewer", "pier", "桥", "路灯",
+            "栏杆", "水道"};
+
+    /**
+     * @return "wall", "road", or null for a blueprint path outside the road / wall folders: MineColonies' folders
+     * (walls/, infrastructure/roads/), else a folder named like a road under infrastructure/ (road, street, avenue...)
+     * or like a wall anywhere (wall, rampart, palisade...), unless the path names a non-piece (bridge, streetlight...)
+     */
+    public static String tool(String path) {
+        String t = mineColoniesTool(path);
+        if (t != null) return t;
+        String p = path.toLowerCase(Locale.ROOT).replace('\\', '/');
+        if (has(p, NOT_PIECES)) return null;
+        String[] seg = p.split("/");
+        boolean infra = false;
+        for (int i = 0; i < seg.length - 1; i++) {
+            // A bare "wall" folder under infrastructure/ is a building's (Rebel Base hangar walls); retaining walls say so.
+            if (WALL_DIRS.contains(seg[i]) || seg[i].equals("wall") && !infra) return "wall";
+            if (infra && (ROAD_DIRS.contains(seg[i]) || seg[i].startsWith("avenue"))) return "road";
+            infra |= seg[i].equals("infrastructure");
+        }
+        return null;
+    }
+
+    /** @return the role a blueprint's name suggests (keywords, most specific first; a bracketed tag first of all) */
     public static Role role(String name) {
         String n = name.toLowerCase(Locale.ROOT);
+        Role tag = tagRole(n);
+        if (tag != null) return tag;
         if (has(n, "gate", "drawbridge", "barbican")) return Role.GATE;
-        if (has(n, "inner", "insidecorner", "incorner")) return Role.INNER;
-        if (has(n, "tjunction", "tcorner", "t_junction", "junction", "end_t")) return Role.TEE;
-        if (has(n, "intersection", "cross")) return Role.CROSS;
-        if (has(n, "corner", "curve", "turn", "outer")) return Role.CORNER;
+        if (has(n, "inner", "insidecorner", "incorner", "cornerin", "insideturn")) return Role.INNER;
+        if (has(n, "crossthree", "threeway", "three_way", "three-way")) return Role.TEE;
+        if (has(n, "tjunction", "tcorner", "t_junction", "junction", "end_t") || token(n, "tee")) return Role.TEE;
+        if (has(n, "intersection", "cross", "fourway", "four_way", "four-way", "十字")) return Role.CROSS;
+        if (notInSet(n)) return Role.OTHER;
+        if (has(n, "corner", "curve", "turn", "outer", "bend", "弯")) return Role.CORNER;
         if (has(n, "tower", "pillar", "watch")) return Role.TOWER;
-        if (has(n, "stair", "climb", "step", "incline", "slope", "hill", "sloped")) return Role.SLOPE;
+        if (has(n, "stair", "climb", "step", "incline", "slope", "hill", "sloped", "↑", "楼梯") || tokens(n).anyMatch(t -> t.equals("up") || UP_N.matcher(t).lookingAt()) || UP.matcher(n).find()
+                || n.contains("ramp") && !n.contains("rampart")) return Role.SLOPE;
         if (n.startsWith("end") || n.contains("_end") || n.contains("endroad")) return Role.END;
-        if (has(n, "straight", "segment", "wall", "long", "oong", "short", "path", "walk", "section", "medium", "road", "palisade")) return Role.STRAIGHT;
+        if (has(n, "straight", "segment", "wall", "long", "oong", "short", "path", "walk", "section", "medium", "road", "palisade", "长", "短",
+                "道路")) return Role.STRAIGHT;
         return Role.OTHER;
+    }
+
+    // "oneup", "threeup": a piece that climbs that many blocks.
+    private static final java.util.regex.Pattern UP = java.util.regex.Pattern.compile("(one|two|three|four|five|six|seven|eight)up"),
+            UP_N = java.util.regex.Pattern.compile("up(one|two|three|four|five|six|seven|eight)");
+
+    // A name's words: runs of letters / digits ("tee_base": tee, base; "street" is one word).
+    private static java.util.stream.Stream<String> tokens(String n) {
+        return java.util.Arrays.stream(n.split("[^\\p{L}\\p{N}]+"));
+    }
+
+    private static boolean token(String n, String word) {
+        return tokens(n).anyMatch(word::equals);
+    }
+    private static final java.util.regex.Pattern TAG = java.util.regex.Pattern.compile("[\\[【]([^\\]】]*)[\\]】]");
+
+    /** @return the role a bracketed tag gives ([━] straight, 【curve】 corner, [gate]), OTHER for a glyph it can't read, null without one */
+    private static Role tagRole(String n) {
+        var m = TAG.matcher(n);
+        if (!m.find()) return null;
+        String t = m.group(1);
+        if (has(t, "╲", "╱", "grade separation", "立交")) return Role.OTHER;
+        if (has(t, "gate", "\u57ce\u95e8")) return Role.GATE;
+        if (has(t, "curve", "弯")) return Role.CORNER;
+        if (has(t, "↑")) return Role.SLOPE;
+        if (has(t, "long", "short", "长", "短") || !t.isEmpty() && t.chars().allMatch(c -> c == '━')) return Role.STRAIGHT;
+        // Words or a number (【Bottom】, 【1】) say nothing; bare glyphs ([■], [∩]) are a shape only the blocks can tell.
+        return t.codePoints().anyMatch(Character::isLetterOrDigit) ? null : Role.OTHER;
+    }
+
+    /** @return true when the name says the piece plays no role in a set: diagonals, offsets, shims, overpasses */
+    public static boolean notInSet(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.startsWith("diag") || n.startsWith("offset") || token(n, "ess") || n.contains("shim") || has(n, "╲", "╱", "grade separation", "立交");
+    }
+
+    // ---- shape: which sides a piece's body leaves through (bits 1 east +x, 2 south +z, 4 west, 8 north) ----
+
+    /**
+     * @param road true: the body is the walkable surface (columns topped within a block of the most common top
+     *             height: no lamp, wall or kerb rising above it); false: the mass (columns topped at least half as
+     *             high as the highest: an arch counts, a parapet's footing doesn't)
+     * @return the piece's body seen from above, {@code [z * sx + x]}
+     */
+    public static boolean[] body(PieceLayout.Grid g, boolean road) {
+        int sx = g.sx(), sz = g.sz();
+        int[] top = new int[sx * sz], tops = new int[g.sy()];
+        int maxTop = 0;
+        for (int z = 0; z < sz; z++)
+            for (int x = 0; x < sx; x++) {
+                int t = -1;
+                for (int y = 0; y < g.sy(); y++) if (g.id(x, y, z) > 0) t = y;
+                top[z * sx + x] = t;
+                if (t >= 0) tops[t]++;
+                maxTop = Math.max(maxTop, t);
+            }
+        int mode = 0;
+        for (int y = 1; y < tops.length; y++) if (tops[y] > tops[mode]) mode = y;
+        boolean[] out = new boolean[sx * sz];
+        for (int i = 0; i < out.length; i++) out[i] = road ? top[i] >= 0 && Math.abs(top[i] - mode) <= 1 : top[i] >= 0 && top[i] * 2 >= maxTop;
+        return out;
+    }
+
+    /**
+     * Which sides the body leaves the box through. Edge layers much sparser than the one inside them (merlons, posts)
+     * are trimmed first. A side is open when the body covers a fifth of its edge (2+ cells) and nearly all of those
+     * cells (the lowest quarter too) run at least half the box's depth inward: an arm. A face band along the side
+     * (a T's bar, a corner's outer sides) runs deep only where another arm crosses it. A nearly full block is a
+     * straight along its long side (square: unclear).
+     *
+     * @param body {@code [z * sx + x]}, as {@link #body}
+     * @return open sides (bits 1 east +x, 2 south +z, 4 west, 8 north), or -1 when unclear: no body, or a full square
+     */
+    public static int openSides(boolean[] body, int sx, int sz) {
+        int[] lo = {0, 0}, hi = {sx - 1, sz - 1};
+        for (int d = 0; d < 4; d++)
+            for (int k = 0; k < 2 && hi[0] > lo[0] && hi[1] > lo[1]; k++) {
+                int c0 = layer(body, sx, lo, hi, d, 0), c1 = layer(body, sx, lo, hi, d, 1);
+                if (c0 == 0 || c0 * 2 >= c1) break;
+                if (d == 0) hi[0]--;
+                else if (d == 1) hi[1]--;
+                else if (d == 2) lo[0]++;
+                else lo[1]++;
+            }
+        int w = hi[0] - lo[0] + 1, h = hi[1] - lo[1] + 1, cells = 0;
+        for (int z = lo[1]; z <= hi[1]; z++) for (int x = lo[0]; x <= hi[0]; x++) if (body[z * sx + x]) cells++;
+        if (cells == 0) return -1;
+        if (cells * 10 >= w * h * 9) return w == h ? -1 : w > h ? 1 | 4 : 2 | 8;
+        int mask = 0;
+        for (int d = 0; d < 4; d++) {
+            int len = d % 2 == 0 ? h : w, depth = d % 2 == 0 ? w : h;
+            List<Integer> runs = new ArrayList<>();
+            for (int i = 0; i < len; i++) {
+                // How far in the body goes from this edge cell, over gaps of up to 2 (a lamp, a well in a crossing).
+                int k = 0;
+                for (int j = 0; j < depth && j - k <= 2; j++) if (at(body, sx, lo, hi, d, i, j)) k = j + 1;
+                if (at(body, sx, lo, hi, d, i, 0)) runs.add(k);
+            }
+            if (runs.size() < 2 || runs.size() * 5 < len) continue;
+            runs.sort(null);
+            if (runs.get(runs.size() / 4) * 2 >= depth) mask |= 1 << d;
+        }
+        return mask;
+    }
+
+    // Body cell at lateral i, depth k in from side d of the box lo..hi.
+    private static boolean at(boolean[] body, int sx, int[] lo, int[] hi, int d, int i, int k) {
+        int x = d == 0 ? hi[0] - k : d == 2 ? lo[0] + k : lo[0] + i, z = d == 1 ? hi[1] - k : d == 3 ? lo[1] + k : lo[1] + i;
+        return body[z * sx + x];
+    }
+
+    private static int layer(boolean[] body, int sx, int[] lo, int[] hi, int d, int k) {
+        int n = 0, len = d % 2 == 0 ? hi[1] - lo[1] + 1 : hi[0] - lo[0] + 1;
+        for (int i = 0; i < len; i++) if (at(body, sx, lo, hi, d, i, k)) n++;
+        return n;
+    }
+
+    /** @return the role open sides make: 2 opposite = straight, 2 adjacent = corner, 3 = T, 4 = cross, 1 = end; null when unclear */
+    public static Role shapeRole(int sides) {
+        if (sides <= 0) return null;
+        return switch (Integer.bitCount(sides)) {
+            case 1 -> Role.END;
+            case 2 -> sides == 5 || sides == 10 ? Role.STRAIGHT : Role.CORNER;
+            case 3 -> Role.TEE;
+            default -> Role.CROSS;
+        };
+    }
+
+    /** @return open sides as text, "E S" or "?" (logs and the piece scan) */
+    public static String sidesName(int sides) {
+        if (sides < 0) return "?";
+        StringBuilder sb = new StringBuilder();
+        for (int d = 0; d < 4; d++) if ((sides & 1 << d) != 0) sb.append("ESWN".charAt(d));
+        return sb.isEmpty() ? "-" : sb.toString();
+    }
+
+    /**
+     * Shape only reads names that say nothing readable: a bare glyph tag ([■], [∩]) or no letters at all. Names with
+     * words keep their keyword role even when the shape disagrees: over the 22 bundled packs the shape contradicts
+     * ~50 good names (thin walls read as crosses, lamp posts as straights), so it is a hint ({@link #shapeHint}), not a
+     * correction.
+     *
+     * @param sides the piece's {@link #openSides}, or null when not known
+     * @return the role a group plays: its name's, else (an unreadable name) its shape's
+     */
+    public static Role decide(String base, Integer sides) {
+        Role named = role(base);
+        Role shaped = sides == null ? null : shapeRole(sides);
+        return shaped != null && named == Role.OTHER && unreadable(base) ? shaped : named;
+    }
+
+    /** @return the shape's role when it differs from the name's (a hint for the set-up screen and the log), else null */
+    public static Role shapeHint(String base, Integer sides) {
+        Role shaped = sides == null ? null : shapeRole(sides), used = decide(base, sides);
+        return shaped != null && shaped != used && used != Role.GATE && used != Role.TOWER && used != Role.SLOPE && !notInSet(base) ? shaped : null;
+    }
+
+    /** @return true when a name gives no role and has nothing the keyword reader can use: a bare glyph tag, or no letters */
+    static boolean unreadable(String base) {
+        String n = base.toLowerCase(Locale.ROOT);
+        if (notInSet(n) || role(n) != Role.OTHER) return false;
+        var m = TAG.matcher(n);
+        if (m.find() && !m.group(1).codePoints().anyMatch(Character::isLetterOrDigit)) return true;
+        return n.codePoints().noneMatch(Character::isLetter);
     }
 
     private static boolean has(String n, String... words) {
@@ -164,14 +367,41 @@ public final class PieceSets {
      * @return families keyed "tool:key", in path order
      */
     public static Map<String, Family> classify(List<Piece> pieces) {
+        return classify(pieces, Map.of());
+    }
+
+    /** @return families keyed "tool:key" with shapes ({@link #openSides} per piece path; missing: unknown) and no overrides */
+    public static Map<String, Family> classify(List<Piece> pieces, Map<String, Integer> shapes) {
+        return classify(pieces, shapes, Map.of());
+    }
+
+    /**
+     * @param shapes    {@link #openSides} per piece path (missing: unknown); a group's role is {@link #decide}d from its
+     *                  first piece's
+     * @param overrides the set-up keys of the pack's overrides ({@link #toolOf}, {@link #PIECE}): folders / blueprints
+     *                  turned road, wall or none; blueprints given a role, made a variant of another group, or excluded
+     * @return families keyed "tool:key", in path order
+     */
+    public static Map<String, Family> classify(List<Piece> pieces, Map<String, Integer> shapes, Map<String, String> overrides) {
+        // A variant joins its base's group: it takes that base name.
+        Map<String, Role> roleOf = new java.util.HashMap<>();
+        List<Piece> eff = new ArrayList<>();
+        for (Piece p : pieces) {
+            String v = overrides.get(PIECE + p.path());
+            if (EXCLUDED.equals(v)) continue;
+            if (v != null && v.startsWith(VARIANT) && v.length() > VARIANT.length()) p = new Piece(p.path(), v.substring(VARIANT.length()), p.number(), p.sx(), p.sy(), p.sz(), p.axis());
+            else if (v != null) for (Role r : Role.values()) if (r.name().equals(v)) roleOf.put(p.path(), r);
+            eff.add(p);
+        }
+        pieces = eff;
         // Folder per piece, and the prefixes each folder uses (a folder with several prefixes is split by them).
         Map<String, java.util.Set<String>> prefixes = new TreeMap<>();
-        for (Piece p : pieces) prefixes.computeIfAbsent(folder(p.path()), k -> new java.util.TreeSet<>()).add(prefix(p.base()));
+        for (Piece p : pieces) prefixes.computeIfAbsent(folder(p.path()), k -> new java.util.TreeSet<>()).add(style(p.base()));
         Map<String, Map<String, List<Piece>>> byFamily = new LinkedHashMap<>();
         for (Piece p : pieces) {
-            String tool = tool(p.path());
+            String tool = toolOf(p.path(), overrides);
             if (tool == null) continue;
-            String f = folder(p.path()), pre = prefix(p.base());
+            String f = folder(p.path()), pre = style(p.base());
             String key = prefixes.get(f).size() > 1 && !pre.isEmpty() ? f + "/" + pre : f;
             byFamily.computeIfAbsent(tool + ":" + key, k -> new TreeMap<>()).computeIfAbsent(p.base(), k -> new ArrayList<>()).add(p);
         }
@@ -184,8 +414,22 @@ public final class PieceSets {
                 ps.sort(Comparator.comparingInt(Piece::number));
                 boolean levels = false;
                 for (Piece p : ps) levels |= p.sx() != ps.get(0).sx() || p.sy() != ps.get(0).sy() || p.sz() != ps.get(0).sz();
-                Role r = role(g.getKey());
+                Role r = null;
+                for (Piece p : ps) if (r == null) r = roleOf.get(p.path());
+                if (r == null) r = decide(g.getKey(), shapes.get(ps.get(0).path()));
                 roles.computeIfAbsent(r, k -> new ArrayList<>()).add(new Group(g.getKey(), r, ps, levels));
+            }
+            // A wall "crossing" only its shape found that is a square block wider than the wall is a tower / bastion ([■]).
+            if (tool.equals("wall") && roles.containsKey(Role.CROSS) && roles.containsKey(Role.STRAIGHT)) {
+                int wallW = 0;
+                for (Group g : roles.get(Role.STRAIGHT)) for (Piece p : g.pieces()) wallW = Math.max(wallW, p.across());
+                for (Group g : List.copyOf(roles.get(Role.CROSS))) {
+                    Piece f = g.first();
+                    if (!unreadable(g.base()) || g.pieces().stream().anyMatch(p -> roleOf.containsKey(p.path())) || f.sx() != f.sz() || f.sx() <= wallW) continue;
+                    roles.get(Role.CROSS).remove(g);
+                    roles.computeIfAbsent(Role.TOWER, k -> new ArrayList<>()).add(new Group(g.base(), Role.TOWER, g.pieces(), g.levels()));
+                }
+                if (roles.get(Role.CROSS).isEmpty()) roles.remove(Role.CROSS);
             }
             // A family's straights all run along its longest straight's axis: a short piece may be shorter than the
             // road is wide (colonial roads: 8x5 and 4x5), so its longer side isn't its run.
@@ -215,13 +459,65 @@ public final class PieceSets {
         return out;
     }
 
+    /** Override key prefixes: "tool|folder or blueprint path" to road / wall / none; "piece|blueprint path" to a role, a variant or excluded. */
+    public static final String TOOL = "tool|", PIECE = "piece|", VARIANT = "variant:", EXCLUDED = "excluded", NONE = "none";
+
+    /**
+     * @return a blueprint's tool with the set-up overrides: the blueprint's own "tool|" key, else its nearest folder's
+     * (road / wall, or none = not a set), else {@link #tool}
+     */
+    public static String toolOf(String path, Map<String, String> overrides) {
+        for (String p = path; !p.isEmpty(); p = p.contains("/") ? p.substring(0, p.lastIndexOf('/')) : "") {
+            String v = overrides.get(TOOL + p);
+            if (NONE.equals(v)) return null;
+            if ("road".equals(v) || "wall".equals(v)) return v;
+        }
+        return tool(path);
+    }
+
+    /** @return the roles a full set of the tool has, in the order the set-up screen shows them */
+    public static List<Role> slots(String tool) {
+        return "wall".equals(tool) ? List.of(Role.STRAIGHT, Role.CORNER, Role.TEE, Role.CROSS, Role.END, Role.GATE, Role.TOWER)
+                : List.of(Role.STRAIGHT, Role.CORNER, Role.TEE, Role.CROSS, Role.END);
+    }
+
+    /**
+     * @param has whether the family has a group for a role (with the player's role picks applied)
+     * @return the tool's {@link #slots} it lacks; what the planner does without each is the lang key
+     * {@code mccitybuilder.sets.missing.<role>}
+     */
+    public static List<Role> missing(String tool, java.util.function.Predicate<Role> has) {
+        List<Role> out = new ArrayList<>();
+        for (Role r : slots(tool)) if (!has.test(r)) out.add(r);
+        return out;
+    }
+
+    /** The roles the line tools place (slopes and unused groups stay out). */
+    public static final java.util.Set<Role> TOOL_ROLES = java.util.EnumSet.of(Role.STRAIGHT, Role.CORNER, Role.INNER, Role.TEE, Role.CROSS, Role.END,
+            Role.GATE, Role.TOWER);
+
+    /**
+     * @param groups the groups a family uses for a role (the player's role picks applied; {@code Family::of} without)
+     * @return the blueprint paths the road / wall tools can place: every piece of a tool role in a family that has a
+     * straight. A road / wall folder's other blueprints (slopes, unused, excluded pieces, families without a
+     * straight) are the palette's Other tab.
+     */
+    public static java.util.Set<String> toolPieces(Map<String, Family> families, java.util.function.BiFunction<Family, Role, List<Group>> groups) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (Family f : families.values()) {
+            if (groups.apply(f, Role.STRAIGHT).isEmpty()) continue;
+            for (Role r : TOOL_ROLES) for (Group g : groups.apply(f, r)) for (Piece p : g.pieces()) out.add(p.path());
+        }
+        return out;
+    }
+
     /** Sub-folders named after a role (walls/corner, walls/gate, roads/straight...) belong to their parent's family. */
     private static final java.util.Set<String> ROLE_FOLDERS = java.util.Set.of("corner", "corners", "gate", "gates", "tower", "towers", "segment",
             "segments", "wall", "straight", "straights", "section", "sections", "long", "short", "medium", "intersection", "intersections",
             "junction", "junctions", "end", "ends", "stairs", "curve", "curves");
 
     /** @return the family folder of a piece: its folder, with trailing role-named sub-folders folded into the parent */
-    static String folder(String path) {
+    public static String folder(String path) {
         String p = path.replace('\\', '/');
         int i = p.lastIndexOf('/');
         String f = i < 0 ? "" : p.substring(0, i);
@@ -234,6 +530,14 @@ public final class PieceSets {
         int i = base.indexOf('_');
         String p = i > 0 ? base.substring(0, i) : "";
         return p.isEmpty() || role(p) != Role.OTHER || ROLE_FOLDERS.contains(p) ? "" : p;
+    }
+
+    /** @return the style a base name carries: its {@link #prefix}, else a style suffix (Byzantine's crossfourdio, straightbevel), or "" */
+    static String style(String base) {
+        String p = prefix(base);
+        if (!p.isEmpty()) return p;
+        for (String s : new String[]{"dio", "bevel"}) if (base.length() > s.length() && base.endsWith(s)) return s;
+        return "";
     }
 
     /** First line of an overrides file whose alignment shifts are relative to the joint box ({@link PieceLayout#worldShift}). */
@@ -281,13 +585,17 @@ public final class PieceSets {
      * after the player's), from {@code /mccitybuilder/alignments/<pack name>.txt} in the overrides file format
      */
     public static synchronized Map<String, String> builtIn(String pack) {
-        return BUILT_IN.computeIfAbsent(pack, p -> {
-            try (var in = PieceSets.class.getResourceAsStream("/mccitybuilder/alignments/" + p.replaceAll("[^A-Za-z0-9._-]", "_") + ".txt")) {
-                return in == null ? Map.of() : readOverrides(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
-            } catch (java.io.IOException e) {
-                return Map.of();
-            }
-        });
+        Map<String, String> done = BUILT_IN.get(pack);
+        if (done != null) return done;
+        // Only files that exist are cached: the server is asked with any pack name a client sends.
+        try (var in = PieceSets.class.getResourceAsStream("/mccitybuilder/alignments/" + pack.replaceAll("[^A-Za-z0-9._-]", "_") + ".txt")) {
+            if (in == null) return Map.of();
+            Map<String, String> m = java.util.Collections.unmodifiableMap(readOverrides(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
+            BUILT_IN.put(pack, m);
+            return m;
+        } catch (java.io.IOException e) {
+            return Map.of();
+        }
     }
 
     /** @return the drafts that may be saved: all but those that would break blocks */

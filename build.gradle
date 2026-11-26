@@ -95,6 +95,13 @@ tasks.register('wallJoints', JavaExec) {
     args = [project.findProperty('out') ?: "${buildDir}/wall-joints"]
     jvmArgs '-Djava.awt.headless=true', "-DallLevels=${project.hasProperty('allLevels')}", "-Donly=${project.findProperty('only') ?: '.*'}"
 }
+// What piece-set detection makes of other packs' jars (not part of check): ./gradlew pieceScan -Pjars=a.jar,b.jar
+tasks.register('pieceScan', JavaExec) {
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.volcanicmg.mccitybuilder.PieceScan'
+    args = (project.findProperty('jars') ?: '').toString().split(',').findAll { it }
+    jvmArgs "-Dshow=${project.findProperty('show') ?: ''}"
+}
 tasks.named('test') { failOnNoDiscoveredTests = false }
 
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {

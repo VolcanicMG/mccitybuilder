@@ -402,11 +402,17 @@ public final class InstantBuild {
      */
     static int openPieceOrders(IColony colony) {
         int n = 0;
+        BuiltRecords records = colony.getWorld() instanceof ServerLevel sl ? BuiltRecords.of(sl) : null;
         for (var wo : colony.getWorkManager().getWorkOrders().values())
             if (wo instanceof com.minecolonies.core.colony.workorders.WorkOrderDecoration && (wo.getWorkOrderType() == com.minecolonies.api.colony.workorders.WorkOrderType.REMOVE
-                    || wo.getStructurePath() != null && com.volcanicmg.mccitybuilder.planner.PieceSets.tool(wo.getStructurePath()) != null)) n++;
+                    || wo.getStructurePath() != null && (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(wo.getStructurePath()) != null
+                    // What a piece batch ordered, in any folder (a player's own set-up is client-side).
+                    || records != null && wo.getStructurePack() != null && records.isPiece(colony.getID(), wo.getStructurePack(), wo.getStructurePath(), wo.getLocation())))) n++;
         return n;
     }
+
+    // The requests a piece batch queued (weak: a dropped request doesn't stay), for its piece bookkeeping.
+    private static final java.util.Set<Request> fromBatch = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
     private static void answer(ServerPlayer p, int id, boolean ok, String reason) {
         if (p.hasDisconnected() || !p.connection.hasChannel(BatchResult.TYPE)) return;
@@ -432,8 +438,12 @@ public final class InstantBuild {
                 : running != null && running.size() + b.pieces.size() > MAX_QUEUED ? "busy"
                 // One kind at a time, so the summary at the end is about one thing.
                 : st != null && st[2] != b.mode ? "busy" : null;
+        // Any blueprint inside the pack (a player's own set-up decides what is a piece, client-side); hut anchors are
+        // refused when each piece loads, permissions and caps apply as for any request.
+        if (why == null && !StructurePacks.hasPack(b.pack)) why = "not_piece";
         if (why == null)
-            for (Piece q : b.pieces) if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(q.path) == null) why = "not_piece";
+            for (Piece q : b.pieces)
+                if (PasteRules.badPath(q.path.replace('\\', '/'), 0) != null || badPack(b.pack, q.path.replace('\\', '/')) != null) why = "not_piece";
         ServerLevel level = p.serverLevel();
         IColony colony = null;
         if (why == null) {
@@ -454,6 +464,7 @@ public final class InstantBuild {
         for (Piece pc : b.pieces)
             q.add(new Request(b.mode, pc.pos, 0, b.pack, pc.path, RotationMirror.values()[Math.floorMod(pc.rot, RotationMirror.values().length)], 0, BlockPos.ZERO,
                     RotationMirror.NONE, pc.crop, b.builder));
+        fromBatch.addAll(q);
         // A batch arriving while one runs joins its queue (one summary at the end).
         if (running != null) {
             running.addAll(q);
@@ -817,7 +828,7 @@ public final class InstantBuild {
                     return false;
                 }
             // Road / wall pieces and removals count against the colony's cap, checked again here (queued batches may overshoot).
-            if ((com.volcanicmg.mccitybuilder.planner.PieceSets.tool(path) != null || r.mode == DECO_REMOVE_ORDER) && openPieceOrders(colony) >= MAX_OPEN_ORDERS) {
+            if ((fromBatch.contains(r) || com.volcanicmg.mccitybuilder.planner.PieceSets.tool(path) != null || r.mode == DECO_REMOVE_ORDER) && openPieceOrders(colony) >= MAX_OPEN_ORDERS) {
                 reject(p, r, "too many open road / wall work orders in colony " + colony.getID());
                 return false;
             }
@@ -848,6 +859,7 @@ public final class InstantBuild {
                 Snapshots.delete(level, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()));
             } else {
                 records.add(colonyId, pack, path, r.pos, rot.ordinal(), new int[]{origin.getX(), origin.getY(), origin.getZ(), far.getX(), far.getY(), far.getZ()}, p.getUUID());
+                if (fromBatch.contains(r)) records.markPiece(colonyId, pack, path, r.pos, rot.ordinal());
                 // A builder builds it over whatever stands then: an older snapshot of this spot no longer holds.
                 Snapshots.delete(level, Snapshots.decoKey(level, colonyId, pack, path, r.pos, rot.ordinal()));
             }

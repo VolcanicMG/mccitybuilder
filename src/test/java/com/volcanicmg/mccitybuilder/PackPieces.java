@@ -66,7 +66,10 @@ final class PackPieces {
                 if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(inPack) != null) out.add(rest);
             }
         }
-        java.util.Collections.sort(out);
+        // Pieces only the 0.3 folder synonyms find (caledonia avenues, colonial streets) go last, so the others' block
+        // ids (first seen, first numbered) and the recorded layout hashes stay as they were.
+        out.sort(java.util.Comparator.comparing((String p) -> !p.contains("/walls/") && !p.contains("infrastructure/roads/") && !p.contains("/crossroads/"))
+                .thenComparing(p -> p));
         return out;
     }
 
@@ -147,7 +150,7 @@ final class PackPieces {
     }
 
     /** Structurize's getGroundAnchorOffset: minus the y of the position tagged groundlevel (relative to the anchor), else null. */
-    private static Integer groundTag(Map<String, Object> root) {
+    static Integer groundTag(Map<String, Object> root) {
         for (Object te : (List<?>) root.get("tile_entities")) {
             Object bdp = ((Map<?, ?>) te).get("blueprintDataProvider");
             if (!(bdp instanceof Map<?, ?> m)) continue;
@@ -158,7 +161,7 @@ final class PackPieces {
         return null;
     }
 
-    private static Object read(DataInputStream d, int t) throws IOException {
+    static Object read(DataInputStream d, int t) throws IOException {
         switch (t) {
             case 1: return d.readByte();
             case 2: return d.readShort();

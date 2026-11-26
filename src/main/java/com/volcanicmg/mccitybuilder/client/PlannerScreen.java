@@ -168,6 +168,7 @@ final class PlannerScreen extends Screen {
 
     private void renderImpl(GuiGraphics g, int mouseX, int mouseY) {
         hits.clear();
+        setupHits.clear();
         panels.clear();
         IColonyView colony = Planner.colony();
         if (colony == null) return;
@@ -674,7 +675,11 @@ final class PlannerScreen extends Screen {
                 run[fi].run();
             }, Component.translatable(i == 3 && !server ? "mccitybuilder.line.needs_server" : i == 4 ? "mccitybuilder.line.clear.tip." + tool : "mccitybuilder.line." + bkeys[i] + ".tip")));
         }
-        if (editorOpen && fam != null) pieceEditor(g, x - 4 - w, Math.max(4, y + h - (PAD * 2 + 46 + EDIT_ROLES.length * 18)), w, pk, fam, mx, my);
+        if (editorOpen && fam != null) {
+            // Bottom-aligned with the line panel, but never past the screen's bottom.
+            int eh = PAD * 2 + 70 + EDIT_ROLES.length * 18;
+            pieceEditor(g, x - 4 - w, Math.max(4, Math.min(y + h - eh, height - 4 - eh)), w, pk, fam, mx, my);
+        }
     }
 
     /** @return the selected segment's flat level from the layout, or MIN_VALUE */
@@ -766,7 +771,7 @@ final class PlannerScreen extends Screen {
         var fs = PieceCatalog.families(pk);
         var f = fs == null ? null : fs.get(fam);
         if (f == null) return;
-        int h = PAD * 2 + 46 + EDIT_ROLES.length * 18;
+        int h = PAD * 2 + 70 + EDIT_ROLES.length * 18;
         x = Math.max(4, x);
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
@@ -798,8 +803,19 @@ final class PlannerScreen extends Screen {
                 click();
             }, Component.translatable("mccitybuilder.line.role.tip")) - 2;
         }
-        // The joint alignment editor for this style and family.
+        // The set-up screen for this family's folder.
         iy += 4;
+        boolean overS = mx >= ix && mx < ix + iw && my >= iy && my < iy + 20;
+        VanillaUi.button(g, ix, iy, iw, 20, false, false, overS);
+        String su = Component.translatable("mccitybuilder.sets.open").getString();
+        g.drawString(font, su, ix + (iw - font.width(su)) / 2, iy + 6, VanillaUi.INK, false);
+        String setFolder = all.isEmpty() ? fam.substring(fam.indexOf(':') + 1) : com.volcanicmg.mccitybuilder.planner.PieceSets.folder(all.get(0).first().path());
+        hits.add(new Hit(ix, iy, iw, 20, () -> {
+            click();
+            minecraft.setScreen(new PieceSetScreen(pk, setFolder, fam));
+        }, Component.translatable("mccitybuilder.sets.open.tip")));
+        iy += 24;
+        // The joint alignment editor for this style and family.
         boolean overA = mx >= ix && mx < ix + iw && my >= iy && my < iy + 20;
         VanillaUi.button(g, ix, iy, iw, 20, false, false, overA);
         String al = Component.translatable("mccitybuilder.align.open").getString();
@@ -1109,6 +1125,8 @@ final class PlannerScreen extends Screen {
 
     // The palette's tab: huts, or the pack's decorations (kept for the client session).
     private static boolean decoTab;
+    // The Other tab (a decoration-like tab: road / wall folder blueprints the line tools don't place).
+    private static boolean otherTab;
 
     /**
      * @return the category picker's ids: on the Huts tab creative starts with "all" (every hut in one grid), survival
@@ -1137,7 +1155,11 @@ final class PlannerScreen extends Screen {
         List<Blueprints.Hut> all = Blueprints.decorations(pack(), folder);
         if (all == null) return List.of();
         List<Blueprints.Hut> out = new ArrayList<>();
-        for (Blueprints.Hut h : all) if (com.volcanicmg.mccitybuilder.planner.PieceSets.tool(h.path()) == null) out.add(h);
+        if (otherTab) {
+            for (Blueprints.Hut h : all) if (PieceCatalog.other(pack(), h.path())) out.add(h);
+            return out;
+        }
+        for (Blueprints.Hut h : all) if (PieceCatalog.toolOf(pack(), h.path()) == null) out.add(h);
         return out.isEmpty() ? all : out;
     }
 
@@ -1173,6 +1195,8 @@ final class PlannerScreen extends Screen {
     }
 
     private static final int DECO_ROWS = 12, DECO_ROW_H = 11;
+    // Right-click targets this frame: palette decoration rows and folder headers (the set-up screen for their folder).
+    private final List<Hit> setupHits = new ArrayList<>();
     private static int decoScroll;
     private int[] paletteRect = new int[4];
 
@@ -1251,29 +1275,34 @@ final class PlannerScreen extends Screen {
         paletteRect = new int[]{x, y, w, h};
         VanillaUi.panel(g, x, y, w, h);
         int ix = x + PAD, yy = y + PAD, iw = w - 2 * PAD;
-        // Tabs: Huts | Decorations (the chosen one drawn as an inset).
-        int tw2 = (iw - 2) / 2;
-        for (int i = 0; i < 2; i++) {
-            int bx = ix + i * (tw2 + 2);
-            boolean on = decoTab == (i == 1), over = mx >= bx && mx < bx + tw2 && my >= yy && my < yy + 16;
+        // Tabs: Huts | Decorations | Other (the chosen one drawn as an inset).
+        int tw2 = (iw - 4) / 3;
+        for (int i = 0; i < 3; i++) {
+            int bx = ix + i * (tw2 + 2), tab = i;
+            boolean on = (decoTab ? otherTab ? 2 : 1 : 0) == i, over = mx >= bx && mx < bx + tw2 && my >= yy && my < yy + 16;
             VanillaUi.button(g, bx, yy, tw2, 16, on, false, over);
-            VanillaUi.buttonLabel(g, font, Component.translatable(i == 0 ? "mccitybuilder.huts" : "mccitybuilder.decorations").getString(), bx, yy, tw2, 16, VanillaUi.ink(on, false));
-            boolean deco = i == 1;
+            VanillaUi.buttonLabel(g, font, Component.translatable(i == 0 ? "mccitybuilder.huts" : i == 1 ? "mccitybuilder.decorations.tab" : "mccitybuilder.other").getString(), bx, yy, tw2, 16,
+                    VanillaUi.ink(on, false));
+            boolean deco = i >= 1;
             hits.add(new Hit(bx, yy, tw2, 16, () -> {
-                if (decoTab == deco) return;
+                if (on) return;
                 click();
+                boolean wasDeco = decoTab;
                 decoTab = deco;
+                otherTab = tab == 2;
+                // Another decoration-like tab: its own folders.
+                if (deco && wasDeco) category = null;
                 search = "";
                 decoScroll = 0;
                 if (deco ? Planner.placing != null : Planner.deco != null) Planner.stopPlacing();
-            }, Component.translatable(deco ? "mccitybuilder.decorations.tip" : "mccitybuilder.huts.tip")));
+            }, Component.translatable(i == 2 ? "mccitybuilder.other.tip" : deco ? "mccitybuilder.decorations.tip" : "mccitybuilder.huts.tip")));
         }
         yy += 20;
         // Search field (click to type; Esc clears it).
         VanillaUi.textField(g, ix, yy, iw, 16);
         String caret = searchFocused && System.currentTimeMillis() / 400 % 2 == 0 ? "_" : "";
         boolean empty = search.isEmpty();
-        g.drawString(font, empty && !searchFocused ? Component.translatable(decoTab ? "mccitybuilder.search_deco" : "mccitybuilder.search").getString() : search + caret, ix + 4, yy + 4,
+        g.drawString(font, empty && !searchFocused ? Component.translatable(decoTab ? otherTab ? "mccitybuilder.search_other" : "mccitybuilder.search_deco" : "mccitybuilder.search").getString() : search + caret, ix + 4, yy + 4,
                 empty && !searchFocused ? 0xFF707070 : 0xFFE0E0E0, true);
         int fy = yy;
         hits.add(new Hit(ix, fy, iw, 16, () -> searchFocused = true, null));
@@ -1291,7 +1320,7 @@ final class PlannerScreen extends Screen {
         }, Component.translatable("mccitybuilder.pack"));
         String catLabel = !search.isEmpty() ? Component.translatable("mccitybuilder.search_results", decoMode ? decos.size() : huts.size()).getString()
                 : decoMode && !decoFolder().isEmpty() ? Component.translatable("mccitybuilder.category.deco", decoFolder()).getString()
-                : Component.translatable("mccitybuilder.category." + (decoMode ? "all_deco" : category())).getString();
+                : Component.translatable("mccitybuilder.category." + (decoMode ? otherTab ? "all_other" : "all_deco" : category())).getString();
         yy = picker(g, ix, yy, iw, catLabel, mx, my, d -> {
             List<String> cats = categories();
             category = cats.get(Math.floorMod(cats.indexOf(category()) + d, cats.size()));
@@ -1313,9 +1342,14 @@ final class PlannerScreen extends Screen {
                 if (drows.get(decoScroll + i) instanceof String header) {
                     g.drawString(font, font.plainSubstrByWidth(header, iw - 4), ix + 1, ry + 2, 0xFF404040, false);
                     g.fill(ix, ry + DECO_ROW_H - 1, ix + iw, ry + DECO_ROW_H, VanillaUi.SLOT);
+                    hits.add(new Hit(ix, ry, iw, DECO_ROW_H, () -> {
+                    }, Component.translatable("mccitybuilder.sets.deco.tip")));
+                    setupHits.add(new Hit(ix, ry, iw, DECO_ROW_H, () -> minecraft.setScreen(new PieceSetScreen(pack(), com.volcanicmg.mccitybuilder.planner.PieceSets.folder(header + "/x.blueprint"), null)), null));
                     continue;
                 }
                 Blueprints.Hut d = (Blueprints.Hut) drows.get(decoScroll + i);
+                String dFolder = com.volcanicmg.mccitybuilder.planner.PieceSets.folder(d.path());
+                setupHits.add(new Hit(ix, ry, iw, DECO_ROW_H, () -> minecraft.setScreen(new PieceSetScreen(pack(), dFolder, null)), null));
                 boolean sel = Planner.deco != null && Planner.deco.path().equals(d.path()), over = mx >= ix && mx < ix + iw && my >= ry && my < ry + DECO_ROW_H;
                 if (over) {
                     previewDeco = d;
@@ -1330,13 +1364,13 @@ final class PlannerScreen extends Screen {
                 }, null));
             }
         } else for (int i = 0; i < huts.size(); i++) hutSlot(g, huts.get(i), ix + i % COLS * SLOT, yy + i / COLS * SLOT, mx, my);
-        if (decoMode ? decos.isEmpty() : huts.isEmpty()) g.drawString(font, Component.translatable(decoMode ? "mccitybuilder.no_match_deco" : "mccitybuilder.no_match"), ix + 1, yy + 2, 0xFF606060, false);
+        if (decoMode ? decos.isEmpty() : huts.isEmpty()) g.drawString(font, Component.translatable(decoMode ? otherTab ? "mccitybuilder.no_match_other" : "mccitybuilder.no_match_deco" : "mccitybuilder.no_match"), ix + 1, yy + 2, 0xFF606060, false);
         yy += gridH + 6;
         String counter = decoMode && drows.size() > DECO_ROWS ? (decoScroll + 1) + "-" + Math.min(drows.size(), decoScroll + DECO_ROWS) + "/" + drows.size() : "";
         int cw = counter.isEmpty() ? 0 : font.width(counter) + 4;
         if (cw > 0) g.drawString(font, counter, ix + iw - cw + 4, yy, 0xFF606060, false);
         if (!Planner.isPlacing()) {
-            g.drawString(font, font.plainSubstrByWidth(Component.translatable(decoMode ? "mccitybuilder.pick_deco" : "mccitybuilder.pick_hut").getString(), iw - cw), ix + 1, yy, VanillaUi.LABEL, false);
+            g.drawString(font, font.plainSubstrByWidth(Component.translatable(decoMode ? otherTab ? "mccitybuilder.pick_other" : "mccitybuilder.pick_deco" : "mccitybuilder.pick_hut").getString(), iw - cw), ix + 1, yy, VanillaUi.LABEL, false);
             return;
         }
         // What is being placed, its state, and its materials.
@@ -2134,6 +2168,14 @@ final class PlannerScreen extends Screen {
 
     private boolean clickedImpl(double mx, double my, int button) {
         searchFocused = false;
+        // Right-click on a decoration (or folder) in the palette: set its folder up as a road / wall set.
+        if (button == 1)
+            for (Hit h : setupHits)
+                if (h.in(mx, my)) {
+                    click();
+                    h.action().run();
+                    return true;
+                }
         if (button == 0)
             for (Hit h : hits)
                 if (h.in(mx, my)) {

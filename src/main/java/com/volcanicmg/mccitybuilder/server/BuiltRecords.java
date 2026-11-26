@@ -28,6 +28,10 @@ public final class BuiltRecords extends SavedData {
     private final java.util.Map<String, int[]> boxes = new java.util.HashMap<>();
     // Who placed or ordered each record (records from before owners were kept have none).
     private final java.util.Map<String, java.util.UUID> owners = new java.util.HashMap<>();
+    // Records a road / wall piece batch made (survival work orders): counted against the colony's open-orders cap.
+    private final java.util.Set<String> pieces = new java.util.HashSet<>();
+    // The same as "colony|pack|path|x|y|z" (any turn) with how many records there are, for isPiece without a scan.
+    private final java.util.Map<String, Integer> pieceAt = new java.util.HashMap<>();
     private ServerLevel level;
 
     private BuiltRecords() {
@@ -47,6 +51,7 @@ public final class BuiltRecords extends SavedData {
             int[] b = c.getIntArray("box");
             if (b.length == 6 && r.keys.contains(c.getString("key"))) r.boxes.put(c.getString("key"), b);
         }
+        for (Tag t : tag.getList("pieces", Tag.TAG_STRING)) if (r.keys.contains(t.getAsString())) r.markKey(t.getAsString());
         for (Tag t : tag.getList("owners", Tag.TAG_COMPOUND)) {
             CompoundTag c = (CompoundTag) t;
             if (c.hasUUID("owner") && r.keys.contains(c.getString("key"))) r.owners.put(c.getString("key"), c.getUUID("owner"));
@@ -75,6 +80,9 @@ public final class BuiltRecords extends SavedData {
             ol.add(c);
         });
         tag.put("owners", ol);
+        ListTag pl = new ListTag();
+        for (String k : pieces) pl.add(net.minecraft.nbt.StringTag.valueOf(k));
+        tag.put("pieces", pl);
         return tag;
     }
 
@@ -97,6 +105,28 @@ public final class BuiltRecords extends SavedData {
         boxes.put(k, box.clone());
         if (owner != null) owners.putIfAbsent(k, owner);
         setDirty();
+    }
+
+    /** Marks a record as a road / wall piece a piece batch ordered (it must be recorded already). */
+    public void markPiece(int colony, String pack, String path, BlockPos pos, int rot) {
+        String k = PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot);
+        if (keys.contains(k) && markKey(k)) setDirty();
+    }
+
+    private boolean markKey(String k) {
+        PasteRules.Rec r = PasteRules.parseKey(k);
+        if (r == null || !pieces.add(k)) return false;
+        pieceAt.merge(at(r.colony(), r.pack(), r.path(), r.x(), r.y(), r.z()), 1, Integer::sum);
+        return true;
+    }
+
+    private static String at(int colony, String pack, String path, int x, int y, int z) {
+        return colony + "|" + pack + "|" + path + "|" + x + "|" + y + "|" + z;
+    }
+
+    /** @return true when a piece batch's record of this pack and path is at this anchor (any turn) */
+    public boolean isPiece(int colony, String pack, String path, BlockPos pos) {
+        return pieceAt.containsKey(at(colony, pack, path, pos.getX(), pos.getY(), pos.getZ()));
     }
 
     /** @return who placed or ordered the record, or null (unknown: recorded before owners were kept) */
@@ -132,6 +162,7 @@ public final class BuiltRecords extends SavedData {
         String k = PasteRules.recordKey(colony, pack, path, pos.getX(), pos.getY(), pos.getZ(), rot);
         boxes.remove(k);
         owners.remove(k);
+        if (pieces.remove(k)) pieceAt.computeIfPresent(at(colony, pack, path, pos.getX(), pos.getY(), pos.getZ()), (a, n) -> n > 1 ? n - 1 : null);
         if (keys.remove(k)) {
             var m = byColony.get(colony);
             if (m != null) m.remove(k);

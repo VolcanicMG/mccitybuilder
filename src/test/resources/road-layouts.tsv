@@ -1198,8 +1198,8 @@ caledonia infrastructure/roads L0|L-right-leave	infrastructure/roads/corner3.blu
 caledonia infrastructure/roads L0|L-right-tower	infrastructure/roads/corner3.blueprint|8c03ab06|[-3, -3, 3, 3]|2:4,0,0|1:4,0,0
 caledonia infrastructure/roads L0|T-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L0|T-flipped-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
-caledonia infrastructure/roads L0|T-split-butt	infrastructure/roads/long3.blueprint|84d4ab63|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
-caledonia infrastructure/roads L0|T-split-flipped-butt	infrastructure/roads/long3.blueprint|e21364a3|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
+caledonia infrastructure/roads L0|T-split	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
+caledonia infrastructure/roads L0|T-split-flipped	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L0|cross	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L0|cross-flipped	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L1|L-left	infrastructure/roads/corner1.blueprint|94b8bd89|[-3, -3, 3, 3]|2:4,0,0|3:4,0,0
@@ -1218,8 +1218,8 @@ caledonia infrastructure/roads L1|L-right-leave	infrastructure/roads/corner1.blu
 caledonia infrastructure/roads L1|L-right-tower	infrastructure/roads/corner1.blueprint|dc493b09|[-3, -3, 3, 3]|2:4,0,0|1:4,0,0
 caledonia infrastructure/roads L1|T-cross	infrastructure/roads/cross1.blueprint|c7ad7aeb|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L1|T-flipped-cross	infrastructure/roads/cross1.blueprint|c7ad7aeb|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
-caledonia infrastructure/roads L1|T-split-butt	infrastructure/roads/long1.blueprint|649db2b|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
-caledonia infrastructure/roads L1|T-split-flipped-butt	infrastructure/roads/long1.blueprint|473a306b|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
+caledonia infrastructure/roads L1|T-split	infrastructure/roads/tee1.blueprint|f9656475|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
+caledonia infrastructure/roads L1|T-split-flipped	infrastructure/roads/tee1.blueprint|f9656475|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L1|cross	infrastructure/roads/cross1.blueprint|befeba6b|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L1|cross-flipped	infrastructure/roads/cross1.blueprint|befeba6b|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L2|L-left	infrastructure/roads/corner2.blueprint|56e622dc|[-3, -3, 3, 3]|2:4,0,0|3:4,0,0
@@ -1238,8 +1238,8 @@ caledonia infrastructure/roads L2|L-right-leave	infrastructure/roads/corner2.blu
 caledonia infrastructure/roads L2|L-right-tower	infrastructure/roads/corner2.blueprint|7a05701c|[-3, -3, 3, 3]|2:4,0,0|1:4,0,0
 caledonia infrastructure/roads L2|T-cross	infrastructure/roads/cross2.blueprint|fb31c378|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L2|T-flipped-cross	infrastructure/roads/cross2.blueprint|fb31c378|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
-caledonia infrastructure/roads L2|T-split-butt	infrastructure/roads/long2.blueprint|d4cf3698|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
-caledonia infrastructure/roads L2|T-split-flipped-butt	infrastructure/roads/long2.blueprint|15bf8bd8|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
+caledonia infrastructure/roads L2|T-split	infrastructure/roads/tee2.blueprint|c39d434|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
+caledonia infrastructure/roads L2|T-split-flipped	infrastructure/roads/tee2.blueprint|c39d434|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L2|cross	infrastructure/roads/cross2.blueprint|92be78f8|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L2|cross-flipped	infrastructure/roads/cross2.blueprint|92be78f8|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L3|L-left	infrastructure/roads/corner3.blueprint|3afef606|[-3, -3, 3, 3]|2:4,0,0|3:4,0,0
@@ -1258,8 +1258,8 @@ caledonia infrastructure/roads L3|L-right-leave	infrastructure/roads/corner3.blu
 caledonia infrastructure/roads L3|L-right-tower	infrastructure/roads/corner3.blueprint|8c03ab06|[-3, -3, 3, 3]|2:4,0,0|1:4,0,0
 caledonia infrastructure/roads L3|T-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L3|T-flipped-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
-caledonia infrastructure/roads L3|T-split-butt	infrastructure/roads/long3.blueprint|84d4ab63|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
-caledonia infrastructure/roads L3|T-split-flipped-butt	infrastructure/roads/long3.blueprint|e21364a3|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
+caledonia infrastructure/roads L3|T-split	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
+caledonia infrastructure/roads L3|T-split-flipped	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L3|cross	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L3|cross-flipped	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L4|L-left	infrastructure/roads/corner3.blueprint|3afef606|[-3, -3, 3, 3]|2:4,0,0|3:4,0,0
@@ -1278,8 +1278,8 @@ caledonia infrastructure/roads L4|L-right-leave	infrastructure/roads/corner3.blu
 caledonia infrastructure/roads L4|L-right-tower	infrastructure/roads/corner3.blueprint|8c03ab06|[-3, -3, 3, 3]|2:4,0,0|1:4,0,0
 caledonia infrastructure/roads L4|T-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L4|T-flipped-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
-caledonia infrastructure/roads L4|T-split-butt	infrastructure/roads/long3.blueprint|84d4ab63|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
-caledonia infrastructure/roads L4|T-split-flipped-butt	infrastructure/roads/long3.blueprint|e21364a3|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
+caledonia infrastructure/roads L4|T-split	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
+caledonia infrastructure/roads L4|T-split-flipped	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L4|cross	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L4|cross-flipped	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L5|L-left	infrastructure/roads/corner3.blueprint|3afef606|[-3, -3, 3, 3]|2:4,0,0|3:4,0,0
@@ -1298,8 +1298,8 @@ caledonia infrastructure/roads L5|L-right-leave	infrastructure/roads/corner3.blu
 caledonia infrastructure/roads L5|L-right-tower	infrastructure/roads/corner3.blueprint|8c03ab06|[-3, -3, 3, 3]|2:4,0,0|1:4,0,0
 caledonia infrastructure/roads L5|T-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L5|T-flipped-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
-caledonia infrastructure/roads L5|T-split-butt	infrastructure/roads/long3.blueprint|84d4ab63|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
-caledonia infrastructure/roads L5|T-split-flipped-butt	infrastructure/roads/long3.blueprint|e21364a3|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
+caledonia infrastructure/roads L5|T-split	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
+caledonia infrastructure/roads L5|T-split-flipped	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L5|cross	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L5|cross-flipped	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L8|L-left	infrastructure/roads/corner3.blueprint|3afef606|[-3, -3, 3, 3]|2:4,0,0|3:4,0,0
@@ -1318,8 +1318,8 @@ caledonia infrastructure/roads L8|L-right-leave	infrastructure/roads/corner3.blu
 caledonia infrastructure/roads L8|L-right-tower	infrastructure/roads/corner3.blueprint|8c03ab06|[-3, -3, 3, 3]|2:4,0,0|1:4,0,0
 caledonia infrastructure/roads L8|T-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L8|T-flipped-cross	infrastructure/roads/cross3.blueprint|6ce0e29d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
-caledonia infrastructure/roads L8|T-split-butt	infrastructure/roads/long3.blueprint|84d4ab63|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
-caledonia infrastructure/roads L8|T-split-flipped-butt	infrastructure/roads/long3.blueprint|e21364a3|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0
+caledonia infrastructure/roads L8|T-split	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
+caledonia infrastructure/roads L8|T-split-flipped	infrastructure/roads/tee3.blueprint|129c8d4|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0
 caledonia infrastructure/roads L8|cross	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads L8|cross-flipped	infrastructure/roads/cross3.blueprint|3db3b41d|[-3, -3, 3, 3]|2:4,0,0|0:4,0,0|1:4,0,0|3:4,0,0
 caledonia infrastructure/roads/station L0|T-split-butt	infrastructure/roads/station_long3.blueprint|eab34e92|[-15, -3, 3, 3]|0:4,0,0|1:4,-6,0

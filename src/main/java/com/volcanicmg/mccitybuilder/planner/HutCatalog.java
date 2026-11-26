@@ -23,6 +23,7 @@ public final class HutCatalog {
             Map.entry("blockhutmechanic", "production"), Map.entry("blockhutconcretemixer", "production"),
             Map.entry("blockhutnetherworker", "production"), Map.entry("blockhutcomposter", "production"),
             Map.entry("blockhutplantation", "production"), Map.entry("blockhutflorist", "production"),
+            Map.entry("simplequarry", "production"), Map.entry("mediumquarry", "production"), Map.entry("largequarry", "production"),
             Map.entry("blockhutfarmer", "food"), Map.entry("blockhutfisherman", "food"), Map.entry("blockhutbaker", "food"),
             Map.entry("blockhutcook", "food"), Map.entry("blockhutkitchen", "food"), Map.entry("blockhutchickenherder", "food"),
             Map.entry("blockhutcowboy", "food"), Map.entry("blockhutshepherd", "food"), Map.entry("blockhutswineherder", "food"),
@@ -43,11 +44,14 @@ public final class HutCatalog {
         return CATEGORY.getOrDefault(registryPath, "other");
     }
 
-    /** @return true for huts the planner never offers (placed by other means: fields, barracks towers) */
+    /**
+     * @return true for huts the planner never offers: fields and barracks towers (placed by other means), and hut
+     * blocks outside the blockhut* names but the quarries (the postbox and stash have no blueprints to place)
+     */
     public static boolean hidden(String registryPath) {
         return registryPath.equals("blockhutfield") || registryPath.equals("blockhutplantationfield")
                 || registryPath.equals("blockhutbarrackstower")
-                || !registryPath.startsWith("blockhut");
+                || !registryPath.startsWith("blockhut") && !registryPath.endsWith("quarry");
     }
 
     /** @return a hut blueprint path with its level digit set ({@code baker1.blueprint} → {@code baker3.blueprint}), or null without one */

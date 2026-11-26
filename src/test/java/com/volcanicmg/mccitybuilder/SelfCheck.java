@@ -42,6 +42,7 @@ public final class SelfCheck {
         groundOffsets();
         snapshots();
         hintsAndLang();
+        pieceSetDetection();
         System.out.println("CityBuilder self-check passed");
     }
 
@@ -2441,6 +2442,25 @@ public final class SelfCheck {
         check(!file.contains("3,1") && !file.contains("align|x|0|y|0"), "drafts are never written");
         var ok = com.volcanicmg.mccitybuilder.planner.PieceSets.saveable(java.util.Map.of("a", new int[]{1, 0}, "b", new int[]{0, 2}), java.util.Set.of("b"));
         check(ok.size() == 1 && ok.containsKey("a"), "save skips drafts that would break blocks");
+        // Ranked candidates: the automatic pick first, then safe, distinct, best-first.
+        {
+            int[] ids = new int[5 * 3 * 5], sids = new int[9 * 3 * 3];
+            java.util.Arrays.fill(ids, 1);
+            java.util.Arrays.fill(sids, 1);
+            PieceLayout.Grid jt = new PieceLayout.Grid(5, 3, 5, ids, 0), st = new PieceLayout.Grid(9, 3, 3, sids, 0);
+            int[] c0 = {0, 0}, jb0 = PieceLayout.centred(c0, 5, 5);
+            var rk = PieceLayout.ranked(c0, 0, jb0, jt, st, 3, 9, 3, 50);
+            boolean sorted = true, safeAll = true, distinct = true;
+            for (int i = 0; i < rk.size(); i++) {
+                var f = rk.get(i);
+                safeAll &= !PieceLayout.destructiveAt(c0, 0, jb0, jt, st, 3, 9, f.shift(), f.depth());
+                for (int j = 0; j < i; j++) distinct &= !(rk.get(j).shift() == f.shift() && rk.get(j).depth() == f.depth());
+                if (i > 1) sorted &= rk.get(i - 1).match() >= f.match() - 1e-9;
+            }
+            var au = PieceLayout.fitNow(c0, 0, jb0, jt, st, 3, 9, 3);
+            boolean autoFirst = PieceLayout.destructiveAt(c0, 0, jb0, jt, st, 3, 9, au.shift(), au.depth()) || !rk.isEmpty() && rk.get(0).equals(au);
+            check(autoFirst && sorted && safeAll && distinct, "ranked candidates: auto first when safe, all safe, distinct, best first (" + rk.size() + ")");
+        }
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
         PieceLayout.Grid tw = PackPieces.grid("medievaloak/walls/tower/tower5.blueprint"), sg0 = PackPieces.grid("medievaloak/walls/segment/segment5.blueprint");
         int d = 0;
@@ -2771,6 +2791,153 @@ public final class SelfCheck {
 
     private static boolean near(double[] a, double[] b) {
         return near(a, b[0], b[1], b[2]);
+    }
+
+    /** Piece sets of packs outside MineColonies' folder / name conventions: folders, keywords, shapes; bundled packs unchanged. */
+    private static void pieceSetDetection() {
+        // Folders: synonyms under infrastructure/, wall words anywhere; non-pieces out; MineColonies' folders as before.
+        String[][] tools = {{"infrastructure/road/straight.blueprint", "road"}, {"infrastructure/avenue_early/turn.blueprint", "road"},
+                {"infrastructure/avenueodd/short.blueprint", "road"}, {"infrastructure/boulevard/end.blueprint", "road"},
+                {"infrastructure/道路/x.blueprint", "road"}, {"infrastructure/retainingwall/wall/long/x.blueprint", "wall"},
+                {"fortifications/x.blueprint", "wall"}, {"decorations/wall/x.blueprint", "wall"}, {"infrastructure/hangarbay/wall/x.blueprint", null},
+                {"infrastructure/bridge/road/x.blueprint", null}, {"infrastructure/road/Streetlight【1】.blueprint", null},
+                {"infrastructure/road/Aqueduct【1】.blueprint", null}, {"decorations/harbor/paths/x.blueprint", null},
+                {"infrastructure/roads/fancy/fancylamppost.blueprint", "road"}};
+        for (String[] t : tools) check(java.util.Objects.equals(PieceSets.tool(t[0]), t[1]), "tool of " + t[0] + ": " + PieceSets.tool(t[0]));
+        String[][] roles = {{"crossthree", "TEE"}, {"crossthreedio", "TEE"}, {"crossfour", "CROSS"}, {"turn", "CORNER"}, {"bend_short", "CORNER"},
+                {"turnwide", "CORNER"}, {"diag_short", "OTHER"}, {"offset", "OTHER"}, {"shim", "OTHER"}, {"ess_rfour", "OTHER"}, {"straightoneup", "SLOPE"},
+                {"halfincline", "SLOPE"}, {"upone", "SLOPE"}, {"endwalker", "END"}, {"cornerin", "INNER"}, {"insideturn", "INNER"}, {"outsideturn", "CORNER"},
+                {"3-lane road【long】", "STRAIGHT"}, {"3-lane road【short】", "STRAIGHT"}, {"3-lane road【curve】", "CORNER"},
+                {"3-lane road【↑↑】", "SLOPE"}, {"3 or 5-lane wide intersection【1】", "CROSS"}, {"5-lane road【grade separation】", "OTHER"},
+                {"city wall[━]", "STRAIGHT"}, {"city wall[━━━]", "STRAIGHT"}, {"city wall[╲]", "OTHER"}, {"city wall[gate]", "GATE"},
+                {"city wall[■]", "OTHER"}, {"Cliff spiral staircase【Bottom】", "SLOPE"}, {"guardtower3", "TOWER"}, {"rampart", "OTHER"}};
+        for (String[] r : roles) check(PieceSets.role(r[0]).name().equals(r[1]), "role of " + r[0] + ": " + PieceSets.role(r[0]));
+        check(PieceSets.notInSet("diag2") && PieceSets.notInSet("city wall[━╲]") && !PieceSets.notInSet("straight"), "not-in-set names");
+        // Shapes, top-down ('#' body): straight, corner (outer sides are face bands), T (the bar is a face), cross, end; a
+        // full oblong is a straight along its long side, a full square is unclear; merlon rows are trimmed.
+        String[][] shapes = {
+                {"..........", "##########", "##########", "##########", ".........."},
+                {"#####", "#####", "##...", "##...", "##..."},
+                {"#######", "#######", "..###..", "..###..", "..###.."},
+                {"..###..", "..###..", "#######", "#######", "#######", "..###..", "..###.."},
+                {".......", "######.", "######.", "######.", "......."},
+                {"########", "########", "########"},
+                {"####", "####", "####", "####"},
+                {".#..#..#.", "#########", "#########", "#########", ".#..#..#."}};
+        int[] want = {1 | 4, 1 | 2, 1 | 2 | 4, 15, 4, 1 | 4, -1, 1 | 4};
+        String[] roleOf = {"STRAIGHT", "CORNER", "TEE", "CROSS", "END", "STRAIGHT", null, "STRAIGHT"};
+        for (int i = 0; i < shapes.length; i++) {
+            String[] rows = shapes[i];
+            int sx = rows[0].length(), sz = rows.length;
+            boolean[] b = new boolean[sx * sz];
+            for (int z = 0; z < sz; z++) for (int x = 0; x < sx; x++) b[z * sx + x] = rows[z].charAt(x) == '#';
+            int got = PieceSets.openSides(b, sx, sz);
+            check(got == want[i], "shape " + i + ": " + PieceSets.sidesName(got));
+            var r = PieceSets.shapeRole(got);
+            check(java.util.Objects.equals(r == null ? null : r.name(), roleOf[i]), "shape role " + i + ": " + r);
+        }
+        // Shape decides only names the keywords can't read; it never overrides a worded name (it would on bundled packs).
+        check(PieceSets.decide("city wall[■]", 15) == PieceSets.Role.CROSS && PieceSets.decide("straight", 15) == PieceSets.Role.STRAIGHT
+                && PieceSets.decide("fancylamppost", 5) == PieceSets.Role.OTHER && PieceSets.decide("diag", 5) == PieceSets.Role.OTHER
+                && PieceSets.shapeHint("Coastal road【1】", 7) == PieceSets.Role.TEE, "shape only for unreadable names");
+        // Sword and Kingdom walls: named straights lead over shape-only arches; a shape-only square crossing wider than the wall is a tower.
+        var sk = PieceSets.classify(List.of(new PieceSets.Piece("walls/city wall[━].blueprint", "city wall[━]", 0, 9, 22, 6),
+                new PieceSets.Piece("walls/city wall[∩∩∩].blueprint", "city wall[∩∩∩]", 0, 27, 22, 6),
+                new PieceSets.Piece("walls/city wall[■].blueprint", "city wall[■]", 0, 9, 21, 9)),
+                Map.of("walls/city wall[∩∩∩].blueprint", 5, "walls/city wall[■].blueprint", 15)).get("wall:walls");
+        check(sk != null && sk.straights().get(0).base().equals("city wall[━]") && sk.of(PieceSets.Role.TOWER).size() == 1 && sk.of(PieceSets.Role.CROSS).isEmpty(),
+                "S&K walls: plain straight first, [■] a tower: " + (sk == null ? null : sk.roles()));
+        // Joint fixing mode: arm states, Left / Right per arm, auto-fix over turns and ranked fits.
+        check(com.volcanicmg.mccitybuilder.planner.JointHelp.armState(true, 2, 0.9) == com.volcanicmg.mccitybuilder.planner.JointHelp.BREAKS
+                && com.volcanicmg.mccitybuilder.planner.JointHelp.armState(false, -1, 0) == com.volcanicmg.mccitybuilder.planner.JointHelp.GAP
+                && com.volcanicmg.mccitybuilder.planner.JointHelp.armState(false, 1, 0.2) == com.volcanicmg.mccitybuilder.planner.JointHelp.GAP
+                && com.volcanicmg.mccitybuilder.planner.JointHelp.armState(false, 0, 0.8) == com.volcanicmg.mccitybuilder.planner.JointHelp.TOUCHING
+                && com.volcanicmg.mccitybuilder.planner.JointHelp.jointState(new int[]{0, 1, 0}) == 1, "arm states");
+        // Seen from an arm's far end looking at the joint: the west arm's right is south (+z), the north arm's is west (-x).
+        check(com.volcanicmg.mccitybuilder.planner.JointHelp.rightShift(2) == 1 && com.volcanicmg.mccitybuilder.planner.JointHelp.rightShift(0) == -1
+                && com.volcanicmg.mccitybuilder.planner.JointHelp.rightShift(3) == -1 && com.volcanicmg.mccitybuilder.planner.JointHelp.rightShift(1) == 1, "arm left / right");
+        var gapF = new PieceLayout.Fit(0, 0, 0, -1);
+        var okF = new PieceLayout.Fit(0, 1, 0.8, 0);
+        var okG = new PieceLayout.Fit(0, -1, 0.95, 1);
+        // Turn 0: one arm never touches; turn 1: both touch (second candidate for arm 0); turn 2: both, better match.
+        List<List<List<PieceLayout.Fit>>> turns = new java.util.ArrayList<>(List.of(List.of(List.of(gapF), List.of(okF)), List.of(List.of(gapF, okF), List.of(okF)),
+                List.of(List.of(okG), List.of(okG))));
+        turns.add(null);
+        int[] fx = com.volcanicmg.mccitybuilder.planner.JointHelp.autoFix(turns);
+        check(fx != null && fx[0] == 2 && fx[1] == 0 && fx[2] == 0, "auto-fix: the turn where every arm touches best: " + java.util.Arrays.toString(fx));
+        check(com.volcanicmg.mccitybuilder.planner.JointHelp.autoFix(List.of(List.of(List.of(gapF), List.of(okF)))) == null, "auto-fix: nothing joins, says so");
+        // The palette's Other tab: road / wall folder pieces the tools don't place (slopes, unused, families without a straight).
+        var other = PieceSets.classify(List.of(new PieceSets.Piece("walls/a/straight.blueprint", "straight", 0, 9, 6, 5),
+                new PieceSets.Piece("walls/a/diag.blueprint", "diag", 0, 9, 6, 9), new PieceSets.Piece("walls/a/stair.blueprint", "stair", 0, 9, 6, 5),
+                new PieceSets.Piece("walls/a/gate.blueprint", "gate", 0, 9, 6, 5), new PieceSets.Piece("walls/b/incline.blueprint", "incline", 0, 9, 6, 5),
+                new PieceSets.Piece("walls/b/corner.blueprint", "corner", 0, 5, 6, 5)));
+        check(PieceSets.toolPieces(other, PieceSets.Family::of).equals(java.util.Set.of("walls/a/straight.blueprint", "walls/a/gate.blueprint")),
+                "tool pieces (the rest is Other): " + PieceSets.toolPieces(other, PieceSets.Family::of));
+        check(!HutCatalog.hidden("simplequarry") && !HutCatalog.hidden("largequarry") && HutCatalog.category("mediumquarry").equals("production")
+                && HutCatalog.hidden("blockpostbox") && HutCatalog.hidden("blockstash"), "quarries on the Huts tab; postbox / stash hidden");
+        // A turn chosen in the joint editor is stored relative to the configuration key's rotation and read back as given.
+        {
+            int[] outs = {2, 1};
+            String[] sps = {"walls/s.blueprint", "walls/s.blueprint"};
+            int[] sts = {0, 1};
+            var jk = PieceLayout.jointKey("walls/t.blueprint", outs, sps, sts, null);
+            for (int t = 0; t < 4; t++) {
+                String v = PieceLayout.jointValue(t, jk.rot());
+                var fx2 = PieceLayout.jointFix(k -> k.equals(jk.key()) ? v : null, k -> false, "walls/t.blueprint", outs, sps, sts, null);
+                check(fx2 != null && fx2.turn() == t, "joint turn round trip " + t + ": " + (fx2 == null ? null : fx2.turn()));
+            }
+            // A saved turn wins over alignments the player has under other turns (saved turn 2, alignments at 1 and 2).
+            String v2 = PieceLayout.jointValue(2, jk.rot());
+            java.util.Set<String> aligned = java.util.Set.of(PieceLayout.alignKey("walls/t.blueprint", 1, sps[0], sts[0], outs[0]),
+                    PieceLayout.alignKey("walls/t.blueprint", 2, sps[0], sts[0], outs[0]));
+            var fx3 = PieceLayout.jointFix(k -> k.equals(jk.key()) ? v2 : null, aligned::contains, "walls/t.blueprint", outs, sps, sts, null);
+            check(fx3 != null && fx3.turn() == 2, "a saved joint turn beats alignments under other turns: " + (fx3 == null ? null : fx3.turn()));
+            // L-left and L-right share the first arm's keys: clearing one case spares what the other uses at its turn.
+            String shared = PieceLayout.alignKey("walls/t.blueprint", 1, sps[0], sts[0], 2), own = PieceLayout.alignKey("walls/t.blueprint", 3, sps[0], sts[0], 2);
+            check(com.volcanicmg.mccitybuilder.planner.JointHelp.clearable(List.of(shared, own), java.util.Set.of(shared)).equals(List.of(own)), "mirrored case keys are spared");
+        }
+        // Style suffixes split a folder like prefixes do (Byzantine's ...dio).
+        var dio = PieceSets.classify(List.of(new PieceSets.Piece("infrastructure/road/straight.blueprint", "straight", 0, 9, 3, 5),
+                new PieceSets.Piece("infrastructure/road/straightdio.blueprint", "straightdio", 0, 9, 3, 5)));
+        check(dio.containsKey("road:infrastructure/road") && dio.containsKey("road:infrastructure/road/dio"), "style suffix families: " + dio.keySet());
+        // Set-up overrides: a folder / blueprint's tool (nearest key wins), a blueprint's role, variant or exclusion.
+        Map<String, String> ov = new java.util.HashMap<>(Map.of("tool|infrastructure/forum", "road", "tool|infrastructure/forum/plaza_end/x.blueprint", "none",
+                "tool|walls/moat", "none", "tool|walls/moat/deep", "wall", "tool|infrastructure/forum/odd", "bogus"));
+        check("road".equals(PieceSets.toolOf("infrastructure/forum/plaza_mid/a.blueprint", ov)) && PieceSets.toolOf("infrastructure/forum/plaza_end/x.blueprint", ov) == null
+                && PieceSets.toolOf("walls/moat/a.blueprint", ov) == null && "wall".equals(PieceSets.toolOf("walls/moat/deep/a.blueprint", ov))
+                && "road".equals(PieceSets.toolOf("infrastructure/forum/odd/a.blueprint", ov)) && "wall".equals(PieceSets.toolOf("walls/a.blueprint", ov)), "tool overrides");
+        List<PieceSets.Piece> set = List.of(new PieceSets.Piece("infrastructure/forum/a.blueprint", "a", 0, 9, 3, 5),
+                new PieceSets.Piece("infrastructure/forum/b.blueprint", "b", 0, 9, 3, 5), new PieceSets.Piece("infrastructure/forum/c.blueprint", "c", 0, 5, 3, 5),
+                new PieceSets.Piece("infrastructure/forum/lamp.blueprint", "lamp", 0, 1, 4, 1));
+        var forum = PieceSets.classify(set, Map.of(), Map.of("tool|infrastructure/forum", "road", "piece|infrastructure/forum/a.blueprint", "STRAIGHT",
+                "piece|infrastructure/forum/b.blueprint", "variant:a", "piece|infrastructure/forum/c.blueprint", "CORNER",
+                "piece|infrastructure/forum/lamp.blueprint", "excluded")).get("road:infrastructure/forum");
+        check(forum != null && forum.straights().size() == 1 && forum.straights().get(0).pieces().size() == 2 && forum.of(PieceSets.Role.CORNER).size() == 1
+                && forum.roles().values().stream().flatMap(List::stream).noneMatch(g -> g.base().equals("lamp")), "role / variant / excluded overrides: " + forum);
+        check(PieceSets.classify(set).isEmpty(), "an unknown folder is no set without its override");
+        // Completeness: the slots a tool's set has, and which a family lacks.
+        check(PieceSets.missing("road", r -> r == PieceSets.Role.STRAIGHT || r == PieceSets.Role.CORNER)
+                .equals(List.of(PieceSets.Role.TEE, PieceSets.Role.CROSS, PieceSets.Role.END))
+                && PieceSets.missing("wall", r -> r != PieceSets.Role.GATE).equals(List.of(PieceSets.Role.GATE)), "missing slots");
+        try {
+            String lang = Files.readString(Path.of("src/main/resources/assets/mccitybuilder/lang/en_us.json"));
+            for (PieceSets.Role r : PieceSets.Role.values())
+                for (String k : List.of("mccitybuilder.sets.missing.", "mccitybuilder.sets.role."))
+                    if (k.endsWith("role.") || PieceSets.slots("wall").contains(r))
+                        check(lang.contains("\"" + k + r.name().toLowerCase(java.util.Locale.ROOT) + "\":"), "lang key: " + k + r);
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
+        // Every bundled MineColonies pack classifies exactly as recorded (bundled-piecesets.txt; PieceScan rewrites it).
+        try {
+            List<String> golden = Files.readAllLines(Path.of("src/test/resources/bundled-piecesets.txt")), now = PieceScan.bundled();
+            List<String> gone = new java.util.ArrayList<>(golden), added = new java.util.ArrayList<>(now);
+            gone.removeAll(now);
+            added.removeAll(golden);
+            check(gone.isEmpty() && added.isEmpty(), "bundled packs classify as recorded; lost " + gone.stream().limit(5).toList() + " new " + added.stream().limit(5).toList());
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
     }
 
     private static boolean near2(double[] v, double x, double z) {

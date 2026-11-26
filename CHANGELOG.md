@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.3.0
+
+- Road / wall sets from style packs that don't follow MineColonies' folders and names. Folders: a road under
+  `infrastructure/` named road(s), street(s), avenue* (avenue_early, avenueodd...), boulevard(s), highway(s), path(s)
+  (also 道路); a wall folder named walls, rampart(s), fortification(s), palisade(s), retainingwall(s) (also 城墙), or a
+  bare `wall` outside `infrastructure/`. Bridges, tunnels, aqueducts, railings, streetlights, lamps, sewers and piers
+  in those folders stay decorations. Names: crossthree / three-way = T, crossfour / four-way = crossing, bend = corner,
+  the word tee = T, cornerin / insideturn = inner corner, diag* / offset* / ess / shim = not used, up / upone... /
+  *oneup / ramp = slope,
+  bracket tags (【long】, 【curve】, [━], [╲], [gate], 【↑】; and the Chinese words) read as roles; style suffixes
+  (Byzantine's ...dio, ...bevel) split a folder into families like style prefixes do. Bundled packs: new
+  families from the folders the synonyms now find (caledonia `infrastructure/avenues`, `avenues/down`,
+  `avenues/trans`; colonial `infrastructure/streets`), and the `tee` pieces of caledonia (roads, walls, avenues) and
+  pagoda (big walls) are now T-junctions (caledonia's T joints used a butt joint before); everything else as before.
+  An auto T now takes the tower stand-in only when it also leaves no more of the runs uncovered.
+- Shape detection (`PieceSets.body / openSides`): which sides a piece's road surface or wall mass leaves its box
+  through. It names pieces whose name has nothing readable (Sword and Kingdom's `city wall[∩]`); for named pieces it
+  is only a hint (it disagrees with ~50 good names in the bundled packs).
+- Set up pieces screen: every blueprint of a folder with the part it plays and a 3D view of the hovered one (one click for the next
+  part), the set's parts with ✓ or what happens without one, "Looks good: save", then a Check joints suggestion. More...
+  makes a piece a variant of another or changes what the folder is used for. Open it from the road / wall panel's
+  piece editor ("Set up pieces...") or right-click a decoration or folder on the palette's Decorations tab. Saved in
+  the pack's `mccitybuilder/piecesets/<pack>.txt` as `tool|<folder or blueprint>` (road / wall / none) and
+  `piece|<blueprint>` (a role, `variant:<base>` or `excluded`); the mod's built-in files use the same keys. The server
+  takes a piece batch's blueprints from anywhere in the pack (hut anchors still refused, permissions and caps as
+  before; it was `walls/` / `infrastructure/roads/` only), and counts what a batch ordered against the colony's open
+  road / wall order cap. A decoration standing on its own in a folder that is now a set stays a decoration.
+- Joint check: lists every joint case of a style's wall / road family (corner, T, cross, tower, end cap) laid out as
+  the planner does, with a tick or the problem (overlap, no fit, off-centre) and a Fix button into the joint editor.
+- Joint editor: case list with verdicts and Prev / Next, Auto-align (drop saved alignments, rerun the search), Try next
+  best (the search's next-ranked candidate), arrow keys nudge shift / depth, R turns the joint piece, Copy to mirrored
+  case for L corners.
+- Joint fixing mode (the editor's default; the controls above sit behind More...): the joint in plain words, a big 3D
+  close-up with the wall being adjusted outlined (click a wall in 3D or on the map to pick it), Fits / Gap / Breaks
+  blocks for the joint and each wall, Auto-fix (every joint turn and the search's ranked fits per wall; when nothing
+  makes them all touch it says the pieces weren't made to join and keeps the safe automatic layout), ← Left / Right →,
+  Closer / Further (arrow keys too), Turn joint piece (R), Save / Cancel. The joint check reads in plain words too
+  ("Tower where walls meet: The walls don't reach the joint piece (gap)", "Fits") and names the set by its folder.
+  Saving keeps a joint turn chosen there (Auto-fix, Turn joint piece) as the joint's setting, so the planner uses it.
+- Caledonia's road T-junctions now use its tee piece, so T-junctions in plans drawn with 0.2.x lay out differently.
+- Palette tab Other (Huts | Decor | Other): the blueprints of road / wall folders that the road / wall tools don't
+  place (slopes, diagonals, offsets, shims, excluded pieces, sets without a straight), by folder, placed one at a
+  time like decorations. A set-up change moves pieces between Other and the tools at once; right-click an entry to
+  set its folder up.
+- Quarries (MineColonies' simple / medium / large quarry blocks, not named blockhut*) are on the Huts tab under
+  Production and placed like any hut; the postbox and stash stay hidden (no blueprints).
+- Known issue: in the joint editor's 3D view, Sword and Kingdom's `city wall[■]` tower doesn't draw (the walls do).
+  It is preview only: the planner's ghosts and the built walls include the tower.
+
 ## 0.2.0
 
 - Creative build mode ("Build: Instant / Builders (free) / Builders", < >) in the hut placing panel, the selected

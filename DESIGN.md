@@ -411,6 +411,53 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   numbered groups are levels when their footprints differ (medieval `segment1..5`) and variants when equal
   (fortress `wall1..4`, nordic `loooong1..3`). A family needs a straight to be offered. Packs without road / wall
   folders show "this style has no roads / walls".
+- Other packs (0.3, checked against Byzantine 51.1's four packs and Sword and Kingdom 1.6: `./gradlew pieceScan
+  -Pjars=a.jar,b.jar [-Pshow=regex]` prints folder → family → role per piece). Folders: road synonyms as a whole
+  segment under `infrastructure/` (road(s), street(s), avenue*, boulevard(s), highway(s), path(s), 道路), wall
+  synonyms anywhere (walls, rampart(s), fortification(s), palisade(s), retainingwall(s), 城墙; bare `wall` only outside
+  `infrastructure/`, where it is a building's: Rebel Base's hangar), not when the path names a non-piece (bridge,
+  tunnel, aqueduct, railing, streetlight, lamp, sewer, pier). The old rule is checked first, so bundled pieces keep
+  their tool. Names: a bracketed tag decides first (【long】 straight, 【curve】 corner, 【↑】 slope, [╲] / grade
+  separation not used; a bare glyph like [■] is unreadable); crossthree before cross; diag* / offset* / ess* / shim are
+  never set pieces. `dio` / `bevel` suffixes split folders like style prefixes.
+- Shape (`PieceSets.body`, `openSides`, `shapeRole`; pure, SelfCheck cases): body = road columns topped within 1 of
+  the most common top height, wall columns topped at least half as high as the highest; sparse edge layers
+  (merlons) are trimmed; a side is open when the body covers a fifth of its edge and its lowest-quarter run inward is
+  at least half the depth (a face band along a side, like a T's bar or a corner's outer sides, runs deep only where
+  another arm crosses it); a nearly full oblong is a straight, a full square is unclear. Shape names a piece only when
+  its name is unreadable (`decide`); it never overrides a worded name: on the bundled packs it contradicted ~50 good
+  ones (thin walls read as crosses, lamp posts as straights), so it is only a hint (`shapeHint`, the set-up screen's
+  tooltip and a debug log line). `src/test/resources/bundled-piecesets.txt` records every bundled piece's family /
+  role / group / axis; SelfCheck fails on any change (rewrite it with `pieceScan -Pjars=golden,<file>` when a change is
+  meant). Shape-only straights (S&K's arches) sort after named ones in `straights()`, so the main straight is a plain
+  wall; a shape-only wall crossing that is a square wider than the wall is a tower ([■] bastions). Hut blueprints
+  (anchor on a hut block, S&K's guardtower1-5) are no decorations (`Blueprints.decorations`), so never pieces; the
+  scan skips them too. `tee` is a whole-word keyword (not "street"), which made caledonia's and pagoda's tees T pieces in 0.3.
+- Set-up (`client/PieceSetScreen`, keys in the per-pack overrides file next to the role picks and alignments; the
+  mod's `alignments/<pack>.txt` built-ins use the same keys, the player's win): `tool|<folder or blueprint>` = road /
+  wall / none (the nearest key up the path wins, `PieceSets.toolOf`), `piece|<blueprint>` = a role, `variant:<base>`
+  (joins that group) or `excluded`. `PieceCatalog.setup` merges them; `families`, the Decorations tab filter and the
+  planner's piece checks go through `toolOf`. The screen previews `classify` with unsaved changes, writes only keys
+  that differ from detection, and after saving offers the joint check (JointEditorScreen). The server doesn't know the
+  player's set-up (protocol stays 11), so its piece check (`InstantBuild`, not_piece) takes any safe path in a known
+  pack (hut anchors are refused per piece); the open-orders cap counts orders a batch made (`BuiltRecords.markPiece`,
+  saved) besides MineColonies' road / wall folders. `Crops.straightsOf` classifies with the built-in set-up and the
+  pieces' shapes, so a straight only the player's set-up names can't be cropped (Fill gaps). Client side a piece is
+  `Planner.linePiece`: MineColonies' folders (the 0.2 rule), or this player's built line pieces in a set folder; a
+  standalone decoration there keeps its decoration ground offset and removal path.
+- Completeness (`PieceSets.slots / missing`): roads straight / corner / T / crossing / end cap, walls also gate and
+  tower; each missing one has a plain-words line (`mccitybuilder.sets.missing.<role>`: butt joint, no cap, no gate).
+- Palette tab Other (`PlannerScreen` `otherTab`, `PieceCatalog.other`, pure `PieceSets.toolPieces`): a road / wall
+  folder blueprint (set-up applied) that no family with a straight uses in a tool role (straight, corner, inner, T,
+  cross, end, gate, tower; the player's role picks applied). Cached per families + set-up instance, so a set-up save
+  moves pieces at once. Placed like a decoration (single request; height by `mineColoniesTool`). The Decorations tab is
+  unchanged (a folder of only pieces still shows them all).
+- Hut blocks: the quarries (`simplequarry`, `mediumquarry`, `largequarry`; production) are offered like huts
+  (MineColonies places them through the same hut path; their dig area below isn't in the planner's footprint). Still
+  hidden: fields and plantation fields (placed through their hut), barracks towers (placed by the barracks), the
+  postbox and stash (no pack has blueprints for them), and level-0 hut blueprints (Byzantine's `*0` sub-buildings,
+  e.g. `subalchemist0`: placed by their parent building, not on their own). Quarry shafts are not hut-anchored: they
+  stay on the Decorations tab with the mineshafts.
 - Layout (`PieceCatalog.layout`, math in `PieceLayout`): per segment, joints where 2+ lines of the same family meet
   (two in a straight line: none; else corner / T / cross by count, or a tower when the line asks) are placed once,
   centred on the joint cell, turned to the quarter turn whose faces toward the lines best match a straight's end
@@ -555,6 +602,19 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   in-memory overlay read before the saved overrides and never written to the file (`PieceSets.alignLookup`); it is
   cleared whenever the editor screen goes (`removed()`: Esc, death, another screen), when the planner exits or hides.
   Save skips drafts that would break blocks and says how many (`PieceSets.saveable`); Reset returns a run to auto.
+- Joint check and editor helpers (`JointEditorScreen.openCheck(pack, family)`; package-private, called by the set-up
+  screen's "Check joints" and by the editor's own button): lays out every joint case the family has (corner and inner
+  corner in both hands, T, cross, tower, end cap) against its main straight with `layout(role, case, flipped, turn)`
+  (the same code as the editor, so saved and drafted alignments count) and lists each as OK or with its problems:
+  overlap (`PieceLayout.destructiveAt` on the laid-out fit), no fit (no contact or a Jaccard match under 0.3),
+  off-centre (a run's lateral centre more than a cell from the joint box's). Fix opens the editor on that case with the
+  first no-fit run selected. The editor's case list shows the same verdicts with Prev / Next. Auto-align removes the
+  saved alignments of the case's runs and its `joint|` setting (a built-in one still applies; the note says so). Try
+  next best steps the selected run through `PieceLayout.ranked` (the automatic pick, then every safe {shift, contact
+  layer} by match, depth, |shift|; an unsaved draft). Arrow keys nudge shift (left / right) and depth (up shallower /
+  down deeper), R turns the joint piece. Copy to mirrored case (L-left <-> L-right of a corner / inner corner) saves
+  each run's alignment with its gaps to the joint box swapped to the other side (a reflection swaps left and right),
+  depth carried over, skipping a copy that would break blocks.
 - Built-in joint settings (`src/main/resources/mccitybuilder/alignments/<pack name>.txt`, `PieceSets.builtIn`, the
   overrides file format; the pack name as the game knows it, `[^A-Za-z0-9._-]` -> `_`): hand-checked fixes for
   joints the search lays out badly. One line per configuration, `joint|<joint path>|<out:straight path:straight

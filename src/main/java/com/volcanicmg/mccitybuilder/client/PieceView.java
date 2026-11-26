@@ -68,6 +68,14 @@ final class PieceView {
     private static Map<RenderType, VertexBuffer> bake(Blueprint bp) {
         BlockState[] connected = connected(bp);
         int sx = bp.getSizeX(), sz = bp.getSizeZ();
+        bakeInfo = "";
+        if (DEBUG) {
+            int subst = 0, air = 0;
+            for (BlockState st : connected)
+                if (st == null || st.isAir()) air++;
+                else if (net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(st.getBlock()).getPath().contains("substitution")) subst++;
+            bakeInfo = "states " + connected.length + " air " + air + " substitution " + subst;
+        }
         return bake(sx, bp.getSizeY(), sz, (x, y, z) -> connected[(y * sz + z) * sx + x], MAX_BLOCKS, (x, y, z) -> {
             try {
                 var be = bp.getBlockEntity(new BlockPos(x, y, z));
@@ -176,6 +184,18 @@ final class PieceView {
      * of the box (ambient occlusion, the level's face shading, faces hidden by neighbours culled as in the world,
      * biome tints where the player is), full light, each model render type into its own buffer.
      */
+    // What the last bake saw and made (for the once-per-key diagnostic log).
+    private static String bakeInfo = "";
+    private static final java.util.Set<String> described = new java.util.HashSet<>();
+    // -Dmccitybuilder.debugPreview=true: log what each preview bake saw and made (and the joint editor's scene).
+    static final boolean DEBUG = Boolean.getBoolean("mccitybuilder.debugPreview");
+
+    /** Logs once per key what baking it saw and made (state kinds, blocks baked, vertices per render type). */
+    private static void describe(String key, Map<RenderType, VertexBuffer> mesh) {
+        if (!DEBUG || !described.add(key)) return;
+        CityBuilder.LOGGER.info("City Builder: baked {}: {}; types {}", key, bakeInfo, mesh.keySet());
+    }
+
     private static Map<RenderType, VertexBuffer> bake(int sx, int sy, int sz, Blocks blocks, int max, Data data) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return Map.of();
@@ -187,14 +207,18 @@ final class PieceView {
         Map<RenderType, BufferBuilder> builders = new LinkedHashMap<>();
         PoseStack pose = new PoseStack();
         RandomSource rand = RandomSource.create();
-        int n = 0;
+        int n = 0, seen = 0, notModel = 0, failed = 0;
         try {
             for (int y = 0; y < sy && n < max; y++)
                 for (int z = 0; z < sz; z++)
                     for (int x = 0; x < sx; x++) {
                         BlockPos p = new BlockPos(x, y, z);
                         BlockState st = level.getBlockState(p);
-                        if (st.isAir() || st.getRenderShape() != RenderShape.MODEL) continue;
+                        if (!st.isAir()) seen++;
+                        if (st.isAir() || st.getRenderShape() != RenderShape.MODEL) {
+                            if (!st.isAir()) notModel++;
+                            continue;
+                        }
                         pose.pushPose();
                         try {
                             ModelData md = data == null ? ModelData.EMPTY : data.at(x, y, z);
@@ -215,6 +239,7 @@ final class PieceView {
                             }
                         } catch (RuntimeException e) {
                             // A modded block that asks more of the fake level than it has: left out alone, not the piece.
+                            failed++;
                             continue;
                         } finally {
                             pose.popPose();
@@ -226,10 +251,12 @@ final class PieceView {
             throw e;
         }
         Map<RenderType, VertexBuffer> out = new LinkedHashMap<>();
+        StringBuilder verts = new StringBuilder();
         try {
             for (var en : builders.entrySet()) {
                 MeshData mesh = en.getValue().build();
                 if (mesh == null) continue;
+                if (DEBUG) verts.append(' ').append(en.getKey()).append('=').append(mesh.drawState().vertexCount());
                 VertexBuffer vb = new VertexBuffer(VertexBuffer.Usage.STATIC);
                 out.put(en.getKey(), vb);
                 vb.bind();
@@ -242,6 +269,7 @@ final class PieceView {
         } finally {
             memory.values().forEach(ByteBufferBuilder::close);
         }
+        if (DEBUG) bakeInfo += " | fake level: non-air " + seen + " not a model " + notModel + " failed " + failed + " baked " + n + " vertices" + verts;
         return out;
     }
 
@@ -277,6 +305,7 @@ final class PieceView {
                 CityBuilder.LOGGER.warn("City Builder: can't bake the preview of {}", key, e);
                 mesh = Map.of();
             }
+            describe(key, mesh);
             baked.put(key, mesh);
         }
         int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
@@ -367,6 +396,9 @@ final class PieceView {
                     CityBuilder.LOGGER.warn("City Builder: can't bake the preview of {}", p.key(), e);
                     mesh = Map.of();
                 }
+                // A piece that bakes to nothing draws nowhere (once per key, to find out why).
+                describe(p.key(), mesh);
+                if (mesh.isEmpty()) CityBuilder.LOGGER.warn("City Builder: the preview of {} baked no blocks ({}x{}x{})", p.key(), p.bp().getSizeX(), p.bp().getSizeY(), p.bp().getSizeZ());
                 baked.put(p.key(), mesh);
             }
             pose.pushPose();

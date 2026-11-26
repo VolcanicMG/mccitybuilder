@@ -125,11 +125,33 @@ public final class Planner {
         }
 
         boolean piece() {
-            return com.volcanicmg.mccitybuilder.planner.PieceSets.tool(com.volcanicmg.mccitybuilder.planner.PieceLayout.cropBase(path)) != null;
+            return linePiece(pack, path, pos);
         }
     }
 
     static Deco selectedDeco, hoveredDeco, movingDeco;
+
+    // "path|x|y|z" of this player's built line pieces, for builtVersion.
+    private static java.util.Set<String> linePieces = java.util.Set.of();
+    private static int linePiecesFor = -1;
+
+    /**
+     * @return true for a road / wall piece: one in MineColonies' road / wall folders (as before 0.3), or a piece of
+     * this player's built lines in a folder detection or the set-up made a set. A decoration standing on its own in
+     * such a folder stays a decoration (removed, moved and lifted as one).
+     */
+    static boolean linePiece(String pack, String path, BlockPos pos) {
+        String base = com.volcanicmg.mccitybuilder.planner.PieceLayout.cropBase(path);
+        if (com.volcanicmg.mccitybuilder.planner.PieceSets.mineColoniesTool(base) != null) return true;
+        if (PieceCatalog.toolOf(pack, base) == null) return false;
+        if (linePiecesFor != PlanView.builtVersion * 31 + PieceCatalog.setupVersion) {
+            java.util.Set<String> s = new java.util.HashSet<>();
+            for (var ps : PlanView.builtPieces.values()) for (var b : ps) s.add(b.path() + "|" + b.ax() + "|" + b.ay() + "|" + b.az());
+            linePieces = s;
+            linePiecesFor = PlanView.builtVersion * 31 + PieceCatalog.setupVersion;
+        }
+        return linePieces.contains(path + "|" + pos.getX() + "|" + pos.getY() + "|" + pos.getZ());
+    }
     // The server's records per "dimension|colony id" (kept across planner sessions; a reopen's query may be rate limited).
     private static final java.util.Map<String, java.util.List<Deco>> syncedDecos = new java.util.HashMap<>();
     // Bumped per received page: what is derived from the records below is worked out again only then.
@@ -443,7 +465,8 @@ public final class Planner {
         // Worked out again only for new pages, another colony, or a change in this player's built segments.
         var built = PlanView.builtPieces;
         Minecraft mc = Minecraft.getInstance();
-        java.util.List<Object> now = java.util.List.of(decosVersion, colony.getID(), String.valueOf(mc.level == null ? null : mc.level.dimension()), PlanView.builtVersion);
+        java.util.List<Object> now = java.util.List.of(decosVersion, colony.getID(), String.valueOf(mc.level == null ? null : mc.level.dimension()), PlanView.builtVersion,
+                PieceCatalog.setupVersion);
         if (now.equals(othersFor)) return others;
         java.util.Set<String> mine = new java.util.HashSet<>();
         for (var ps : built.values()) for (var b : ps) mine.add(b.path() + "|" + b.ax() + "|" + b.ay() + "|" + b.az());
@@ -493,7 +516,7 @@ public final class Planner {
                 if (be instanceof com.minecolonies.core.tileentities.TileEntityDecorationController d && d.getPackName() != null && !d.getPackName().isEmpty()
                         && d.getBlueprintPath() != null && d.getRotationMirror() != null) {
                     String path = com.volcanicmg.mccitybuilder.planner.PasteRules.cleanPath(d.getBlueprintPath());
-                    if (path.endsWith(".blueprint") && com.volcanicmg.mccitybuilder.planner.PieceSets.tool(path) == null)
+                    if (path.endsWith(".blueprint") && !linePiece(d.getPackName(), path, be.getBlockPos()))
                         out.add(new Deco(d.getPackName(), path, be.getBlockPos().immutable(), d.getRotationMirror().ordinal()));
                 }
         }
@@ -504,7 +527,7 @@ public final class Planner {
     /** @return the colony's known decorations, one per anchor (a server record wins over a controller) */
     static java.util.Collection<Deco> decos() {
         java.util.List<Deco> os = otherPieces();
-        java.util.List<Object> now = java.util.Arrays.asList(System.identityHashCode(os), System.identityHashCode(controllerDecos), decosVersion);
+        java.util.List<Object> now = java.util.Arrays.asList(System.identityHashCode(os), System.identityHashCode(controllerDecos), decosVersion, PieceCatalog.setupVersion);
         if (now.equals(decosFor)) return allDecos;
         java.util.Map<BlockPos, Deco> by = new java.util.LinkedHashMap<>();
         for (Deco d : controllerDecos) by.put(d.pos(), d);
@@ -849,7 +872,8 @@ public final class Planner {
      */
     static int anchorRise(Blueprints.Hut h) {
         int tag = BlueprintTagUtils.getGroundAnchorOffset(h.blueprint(), 1);
-        if (deco == null || com.volcanicmg.mccitybuilder.planner.PieceSets.tool(h.path()) == null) return tag;
+        // A decoration placed on its own keeps the 0.2 rule: only MineColonies' road / wall folders sit like pieces.
+        if (deco == null || com.volcanicmg.mccitybuilder.planner.PieceSets.mineColoniesTool(h.path()) == null) return tag;
         Integer o = PieceCatalog.groundOffset(h.pack(), h.path());
         return (o != null ? o : tag) - 1;
     }

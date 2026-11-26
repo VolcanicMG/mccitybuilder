@@ -191,7 +191,8 @@ public final class Crops {
 
     /**
      * Off the server thread: the straights of the road / wall folder a piece is in, sorted into families the way the
-     * planner does (built-in roles; a player's own role overrides aren't known here). Cached per server run.
+     * planner does: the mod's built-in set-ups and the pieces' shapes (a player's own set-up isn't known here, so a
+     * straight only it names can't be cropped). Cached per server run.
      *
      * @return their paths (empty when the folder can't be read)
      */
@@ -202,6 +203,8 @@ public final class Crops {
             StructurePackMeta m = StructurePacks.getStructurePack(pack);
             if (m == null) return out;
             List<com.volcanicmg.mccitybuilder.planner.PieceSets.Piece> pieces = new ArrayList<>();
+            java.util.Map<String, Integer> shapes = new java.util.HashMap<>();
+            var setup = com.volcanicmg.mccitybuilder.planner.PieceSets.builtIn(pack);
             try (var files = Files.list(m.getPath().resolve(folder))) {
                 for (Path f : files.toList()) {
                     String name = f.getFileName().toString();
@@ -211,15 +214,31 @@ public final class Crops {
                     if (bp == null) continue;
                     String[] sn = com.volcanicmg.mccitybuilder.planner.PieceSets.split(name);
                     pieces.add(new com.volcanicmg.mccitybuilder.planner.PieceSets.Piece(sub, sn[0], Integer.parseInt(sn[1]), bp.getSizeX(), bp.getSizeY(), bp.getSizeZ()));
+                    shapes.put(sub, shape(bp, "road".equals(com.volcanicmg.mccitybuilder.planner.PieceSets.toolOf(sub, setup))));
                 }
             } catch (IOException | RuntimeException e) {
                 return out;
             }
-            for (var fam : com.volcanicmg.mccitybuilder.planner.PieceSets.classify(pieces).values())
+            for (var fam : com.volcanicmg.mccitybuilder.planner.PieceSets.classify(pieces, shapes, setup).values())
                 for (var g : fam.roles().getOrDefault(com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT, List.of()))
                     for (var p : g.pieces()) out.add(p.path());
             return out;
         });
+    }
+
+    /** @return a blueprint's open sides ({@link com.volcanicmg.mccitybuilder.planner.PieceSets#openSides}; only air / substitution / block matter) */
+    private static int shape(Blueprint bp, boolean road) {
+        int sx = bp.getSizeX(), sy = bp.getSizeY(), sz = bp.getSizeZ();
+        int[] ids = new int[sx * sy * sz];
+        for (int y = 0; y < sy; y++)
+            for (int z = 0; z < sz; z++)
+                for (int x = 0; x < sx; x++) {
+                    var st = bp.getBlockState(new net.minecraft.core.BlockPos(x, y, z));
+                    ids[(y * sz + z) * sx + x] = st.isAir() ? com.volcanicmg.mccitybuilder.planner.PieceLayout.Grid.AIR
+                            : st.getBlock() == com.ldtteam.structurize.blocks.ModBlocks.blockSubstitution.get() ? 0 : 1;
+                }
+        var g = new com.volcanicmg.mccitybuilder.planner.PieceLayout.Grid(sx, sy, sz, ids, 0);
+        return com.volcanicmg.mccitybuilder.planner.PieceSets.openSides(com.volcanicmg.mccitybuilder.planner.PieceSets.body(g, road), sx, sz);
     }
 
     /** @return the first 8 hex digits of the bytes' SHA-256 */

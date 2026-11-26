@@ -485,9 +485,14 @@ public final class PieceLayout {
      * and bridges (whose top full layer is a deck above the road) move with their set instead.
      */
     public static boolean ownGround(String path) {
+        return ownGround(path, PieceSets.tool(path));
+    }
+
+    /** @param tool the piece's tool with its pack's set-up applied ({@link PieceSets#toolOf}) */
+    public static boolean ownGround(String path, String tool) {
         String base = PieceSets.split(path.substring(path.lastIndexOf('/') + 1))[0];
         PieceSets.Role r = PieceSets.role(base);
-        return "road".equals(PieceSets.tool(path)) && r != PieceSets.Role.SLOPE && r != PieceSets.Role.OTHER && !base.toLowerCase(java.util.Locale.ROOT).contains("bridge");
+        return "road".equals(tool) && r != PieceSets.Role.SLOPE && r != PieceSets.Role.OTHER && !base.toLowerCase(java.util.Locale.ROOT).contains("bridge");
     }
 
     /**
@@ -764,6 +769,14 @@ public final class PieceLayout {
         JointKey k = jointKey(jointPath, outs, straightPaths, straightTurns, symmetric);
         String v = lookup.apply(k.key());
         if (v == null) return null;
+        // A turn alone (what the joint editor saves): that turn, the player's alignments for it apply.
+        String[] only = v.trim().split("\\s+");
+        if (only.length == 1)
+            try {
+                return new JointFix(Math.floorMod(Integer.parseInt(only[0]) + k.rot(), 4), new int[outs.length][]);
+            } catch (NumberFormatException e) {
+                return null;
+            }
         for (int t = 0; t < 4; t++)
             for (int q = 0; q < outs.length; q++)
                 if (playerAligned.test(alignKey(jointPath, t, straightPaths[q], straightTurns[q], outs[q]))) return new JointFix(t, new int[outs.length][]);
@@ -778,6 +791,11 @@ public final class PieceLayout {
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /** @return a joint setting's value for a turn chosen by hand: the turn in the key's rotation ({@link #jointFix} reads it back) */
+    public static String jointValue(int turn, int keyRot) {
+        return String.valueOf(Math.floorMod(turn - keyRot, 4));
     }
 
     /**
@@ -832,6 +850,30 @@ public final class PieceLayout {
         }
         if (best != null && best.depth() < 0) best = new Fit(edge, noContactShift(d, ja, sa, joint, straight, width, best.shift()), 0, -1);
         return best;
+    }
+
+    /**
+     * The search's candidates for one run, best first: the automatic pick ({@link #fitNow}, when safe), then every other safe
+     * (non-destructive) {shift within ±maxShift, contact layer} that meets the joint, by match, then the shallowest
+     * contact, then the smallest shift. The joint editor's "try next best" steps through it.
+     *
+     * @param limit the most candidates to return
+     */
+    public static List<Fit> ranked(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int maxShift, int limit) {
+        List<Fit> all = new ArrayList<>();
+        Fit auto = fitNow(c, d, jb, joint, straight, width, run, maxShift);
+        int layers = d % 2 == 0 ? joint.sx() : joint.sz();
+        for (int s = -maxShift; s <= maxShift; s++)
+            for (int i = 0; i < layers; i++) {
+                Fit f = fitAt(c, d, jb, joint, straight, width, run, s, i);
+                if (f.match() > 0 && !destructiveAt(c, d, jb, joint, straight, width, run, s, i)) all.add(f);
+            }
+        all.sort(java.util.Comparator.comparingDouble((Fit f) -> -f.match()).thenComparingInt(Fit::depth).thenComparingInt(f -> Math.abs(f.shift())).thenComparingInt(Fit::shift));
+        List<Fit> out = new ArrayList<>();
+        // The automatic pick leads unless it would break blocks (fitNow doesn't check every no-contact shift).
+        if (!destructiveAt(c, d, jb, joint, straight, width, run, auto.shift(), auto.depth())) out.add(auto);
+        for (Fit f : all) if (out.size() < limit && !(f.shift() == auto.shift() && f.depth() == auto.depth())) out.add(f);
+        return out;
     }
 
     /**
@@ -1250,7 +1292,7 @@ public final class PieceLayout {
     /**
      * @param fits      per candidate joint piece: {whole straights the meeting runs keep, cells they leave uncovered}
      * @param primaries how many candidates (first in the list) the joint's type asks for; the rest are fallbacks
-     *                  (a tower for an auto joint), taken only when they keep strictly more straights
+     *                  (a tower for an auto joint), taken only when they keep strictly more straights and leave no more cells
      * @return the candidate to use: the primary leaving the fewest cells uncovered (then more straights, then order)
      */
     public static int pickJoint(List<int[]> fits, int primaries) {
@@ -1261,7 +1303,7 @@ public final class PieceLayout {
         }
         int fb = -1;
         for (int q = primaries; q < fits.size(); q++)
-            if (fits.get(q)[0] > fits.get(best)[0] && (fb < 0 || fits.get(q)[0] > fits.get(fb)[0] || fits.get(q)[0] == fits.get(fb)[0] && fits.get(q)[1] < fits.get(fb)[1])) fb = q;
+            if (fits.get(q)[0] > fits.get(best)[0] && fits.get(q)[1] <= fits.get(best)[1] && (fb < 0 || fits.get(q)[0] > fits.get(fb)[0] || fits.get(q)[0] == fits.get(fb)[0] && fits.get(q)[1] < fits.get(fb)[1])) fb = q;
         return fb >= 0 ? fb : best;
     }
 
