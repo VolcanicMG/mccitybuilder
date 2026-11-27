@@ -1,7 +1,7 @@
 P	infrastructure/道路/3或5格宽十字路口【1】.blueprint	9	8	9	0
 P	infrastructure/道路/3或5格宽十字路口【2】.blueprint	9	8	9	0
 P	infrastructure/道路/3格道路【↑↑↑】.blueprint	3	6	6	5
-P	infrastructure/道路/3格道路【↑↑】.blueprint	13	4	3	11
+P	infrastructure/道路/3格道路【↑↑】.blueprint	13	4	3	16
 P	infrastructure/道路/3格道路【↑】.blueprint	3	3	19	10
 P	infrastructure/道路/3格道路【弯道】.blueprint	12	2	12	12
 P	infrastructure/道路/3格道路【短】.blueprint	3	2	12	10
@@ -30,7 +30,7 @@ P	城墙/城墙[■].blueprint	9	21	9	15
 P	城墙/城墙[□].blueprint	9	21	9	15
 P	城墙/城墙[▲].blueprint	8	25	6	5
 P	城墙/城墙[▲▲].blueprint	5	26	6	10
-P	城墙/城墙[城门].blueprint	21	21	9	15
+P	城墙/城墙[城门].blueprint	21	21	9	16
 C	-	road:infrastructure/道路	CORNER	3格道路【弯道】	false	infrastructure/道路/3格道路【弯道】.blueprint	-1
 C	-	road:infrastructure/道路	CROSS	3或5格宽十字路口【1】	false	infrastructure/道路/3或5格宽十字路口【1】.blueprint	-1
 C	-	road:infrastructure/道路	CROSS	3或5格宽十字路口【2】	false	infrastructure/道路/3或5格宽十字路口【2】.blueprint	-1

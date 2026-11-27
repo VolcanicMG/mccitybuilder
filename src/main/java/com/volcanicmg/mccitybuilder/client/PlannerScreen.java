@@ -927,7 +927,7 @@ final class PlannerScreen extends Screen {
             iy = picker(g, ix + hh + 2, iy, iw - hh - 2, Component.translatable(LineView.selectedJoint != null ? LineView.selectedIsEnd() ? "mccitybuilder.line.joint.this_end" : "mccitybuilder.line.joint.this"
                     : "mccitybuilder.line.joint.new", jText).getString(), mx, my, stepJ, Component.translatable("mccitybuilder.line.joint.tip"));
         }
-        boolean canFill = !LineView.fillTargets().isEmpty(), flipOn = sel != null ? sel.flip() : LineView.flip;
+        boolean canFill = !LineView.fillTargets().isEmpty(), flipOn = LineView.flipShown();
         int hw = (iw - 2) / 2;
         for (int i = 0; i < 2; i++) {
             int bx = ix + i * (hw + 2), bwid = i == 1 ? iw - hw - 2 : hw;

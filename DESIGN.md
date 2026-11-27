@@ -419,7 +419,14 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   tunnel, aqueduct, railing, streetlight, lamp, sewer, pier). The old rule is checked first, so bundled pieces keep
   their tool. Names: a bracketed tag decides first (【long】 straight, 【curve】 corner, 【↑】 slope, [╲] / grade
   separation not used; a bare glyph like [■] is unreadable); crossthree before cross; diag* / offset* / ess* / shim are
-  never set pieces. `dio` / `bevel` suffixes split folders like style prefixes.
+  never set pieces. A corner / inner corner by name whose shape is an S-jog (`openSides` = `THROUGH`, `PieceSets.through`:
+  the body crosses two opposite sides in bands within a cell of each other's width, each narrower than that side,
+  touches the other two sides with fewer cells than either band, and the bands are offset sideways or the body bulges
+  out of both other sides; never in place of a straight's E+W / N+S reading or a full block, so no shape straight is
+  lost) is OTHER (`decide`): Shogun's and Nile's `bend` / `bend_short` and Shogun's dark `curve`,
+  where an L got one and its far run met it 3 off. Shapes only; a curved L (turnwide) has bands on adjacent sides.
+  Over the fixtures only those corners change role; offsets, diagonals, inclines and some gates now read `jog` as
+  shapes (`P` lines 16), their named roles unchanged; no bundled piece changes role. `dio` / `bevel` suffixes split folders like style prefixes.
 - Shape (`PieceSets.body`, `openSides`, `shapeRole`; pure, SelfCheck cases): body = road columns topped within 1 of
   the most common top height, wall columns topped at least half as high as the highest; sparse edge layers
   (merlons) are trimmed; a side is open when the body covers a fifth of its edge and its lowest-quarter run inward is
@@ -448,6 +455,13 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   straights by the piece's axis like the planner (`sturn`), not by their longer side: jungle's square walks and
   caledonia / colonial streets lay out as the game does (road-layouts.tsv, no-contact.tsv rewritten; jungle's corners
   now turn both ways).
+  Walls whose straights' shapes all run across their longer side (`PieceSets.shapeAxis`: every straight's `openSides`
+  is E+W or N+S, the same for all, and no square straight gives the width) run along the shape's axis: Minecolonies
+  Original's / Nordic Spruce's palisade (`palisade_wall` / `palisade_platform`, a 6-long log wall on a 7-deep berm)
+  were laid 90° off, so each straight stood across the line and no corner turn met both runs (16 runs touching nothing
+  per family, now 1). Over every bundled pack it changes only those two families (their gates follow); roads keep the
+  size rule (their shapes disagree with good axes: nordic's 8x3 long straights read N+S). The harness
+  (`JointCases.classify`) and the golden now classify with every piece's `openSides`, as the game does.
 - Third-party pack fixtures (`src/test/resources/packs/<pack>.txt`, checked by SelfCheck): we can't ship other mods'
   blueprints, so each file holds only what `PieceSets.classify` reads: a `P` line per road / wall piece (path, size,
   `openSides` of its top-down body; the body itself is not stored, `openSides`/`body` have their own cases) followed by
@@ -461,7 +475,8 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   client through `~/mcdev/tools/splaunch.sh`, then per pack (Byzantine_for_1.20, Sword and Kingdom, Colonial) switches
   the palette tabs, opens the road / wall tools, role panel, Set up pieces, joint editor + Mirror (M twice) +
   Auto-fix (Cancel each), draws a crossing, mirrors then turns its joint piece (joint menu), clears it, searches Huts
-  for "quarr", and finally scans `logs/latest.log` for `CityBuilder failed`, `baked no blocks` and exceptions
+  for "quarr"; then draws Minecolonies Original's palisade as a ring clockwise and counter-clockwise (every wall
+  flipped / none, screenshots `smoke-palisade-ring-cw` / `-ccw`), and finally scans `logs/latest.log` for `CityBuilder failed`, `baked no blocks` and exceptions
   mentioning mccitybuilder. PASS / FAIL per step; non-zero exit on any. Bridge commands it uses (DevBridge): `tab`,
   `search`, `palette`, `tool`, `rolepanel`, `open setup|joint`, `close`, `autofix`, `editorturn`, `jointorient
   turn|mirror|show x z`, `clearlines`.
@@ -558,10 +573,35 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   it, the blueprint stays as it is (a "fill foundations" option could come later).
 - Flip (R, per segment): straights and gates turned 180° (a wall's other side out); joints re-score their turn
   against the flipped straights.
+- Walls face out on their own (`Plan.outwardFlip`, pure; `LineView.faceOut` = `Plan.faceChain` after every drop and
+  when the chain ends, in the drop's undo step; `flipFor` gives the live segment the same side). `faceChain` first
+  finds the chain again in the plan: a split (a lasso ending on its own wall, a self-crossing), a moved end, a refit or
+  a new height made new records, and each stale one is replaced by the plan's segments lying along it. A chain the planner faces is decided as a
+  whole (`Plan.autoFlip`: its current flips don't count), so a decision that changes mid-chain (an open chain closing
+  into a ring that encloses away from the town hall) turns every segment, never leaves it mixed. A loop closed through
+  other walls or onto the chain's own earlier segment (`Plan.loopFlips`: the connected walls, tails pruned, one simple
+  cycle) faces out of what it encloses, turning the chain and the walls of earlier chains that still have the side
+  the planner gave them. That is a per-line flag, `Plan.Line.faced` (set by the tool's auto side, `Line.faced(f)`;
+  cleared by any player flip, `withFlip`; carried by split, moved ends, refits and heights through `between` / `with*`;
+  saved as `A x0 z0 x1 z1` rows beside `F`; lines without one, older or shared over the network, count as the
+  player's, so nothing already planned turns). Undo restores it with the lines. A wall's outside is the right of its
+  drawing direction (`PieceLayout.outside`; flip: the left), checked on the bundled pieces (Original basic: walkway
+  left of travel, low ground right; the palisade's ladder side left). The chain's flip, first rule that applies: closed
+  on its own start, the shoelace sum's sign (out of the enclosed area, drawn either way); started on another wall,
+  that wall's outside carried on (flowing on from a wall's end: its flip; leaving its start: the other; a T on a body
+  or split: the half arriving at the joint), else ended on one the same way; else away from the town hall (the
+  shoelace sum around it, `IColonyView`'s town hall position, else the colony centre); none: the default stays. A
+  chain whose segments have different flips is left alone. The player's side wins: with the panel's Flip on nothing
+  is changed, and R (no selection) while drawing turns the chain so far and its next segments to the other side and
+  stops it for that chain (`chainFlip`, kept in the undo snapshot; a chain started with Flip on sets it too, and the
+  Flip button shows it); flips set in edit mode are never revisited.
+  Saved plans aren't touched; roads never change.
 - Joint types (per joint cell, saved as `J x z type` rows; `Plan.J_*`): auto, tower, corner, inner corner, T, cross,
-  none (butt joint). Auto: an L gets a corner, inner when the turn bends toward the walls' outside
-  (`PieceLayout.innerTurn`: unflipped walls face out to the left of the first segment's travel; flip swaps), outer
-  otherwise; three lines a T, four a cross; two in a straight line nothing. A tower is used when chosen, for old
+  none (butt joint). Auto: an L gets a corner, inner when both walls face out into the L's own quadrant
+  (`PieceLayout.concave`, from each line's direction and flip; walls facing inconsistent ways: outer), outer
+  otherwise; never where a built wall meets (it may have been built before the rule without a frozen record; frozen
+  built joints are fixed pieces anyway) nor at an auto joint carrying a Turn / Mirror (set before the rule, for the
+  corner; turning an auto L now pins its type to the piece it shows); three lines a T, four a cross; two in a straight line nothing. A tower is used when chosen, for old
   segments drawn with Towers, or as auto's fallback when it keeps strictly more whole straights than auto's piece
   (`PieceLayout.pickJoint`; among a role's variants the one leaving the fewest uncovered cells wins). The panel's
   joint picker sets the default for new joints (applied to a dropped segment's ends) or, in edit mode, the selected
@@ -716,17 +756,18 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   `J` row with a plain type reads as before; 0.3.1 skips rows of 8 and up, so such a joint opens there as auto; a type
   picked in the menu clears it), which `PieceCatalog.joint` uses over the search and over the style's setting (whose run
   alignments then step aside). End caps take neither (they follow their run).
-  Why not an automatic "outside" rule: Ethan's palisade-style complaint ("posts on the outside, not inward") was
-  checked against Minecolonies Original walls/palisade, the family the earlier repro named: with its main straight
-  (`palisade_platform`) no orientation of `palisade_corner`, mirrored or not, meets both runs (one arm always "Gap";
-  4 of 8 orientations tie on the arm that touches), so the pick there is a tie broken by order, and the straight's two
-  long sides score nearly alike (a side-profile "outside" score gave the same numbers flipped or not), so it can't
-  tell outside from inside. A rule that can't see the outside would change ties arbitrarily; the turn / mirror
-  settings let the player decide instead. Straights get no mirror: Flip already puts a wall's other side out, and a
+  The palisade complaint ("posts on the outside, not inward"; no orientation of `palisade_corner` met both runs, one
+  arm always "Gap") was the straights' run axis, not the turn: they were laid across the line (see Run axis). Along
+  it, the search turns the corner's log L onto both runs (match 0.97 each) for a ring drawn either way, with no
+  setting. The outside itself comes from the walls' flips, now set automatically (Walls face out on their own); the
+  automatic search still tries plain turns only (a mirror of a corner keeps its inside inside, so it can't move a
+  walkway across the bend). Straights get no mirror: Flip already puts a wall's other side out, and a
   lengthwise mirror only moves end details along a tiled run (87 of 116 bundled wall straights differ end to end).
-- Auto is from the topology only (`PieceLayout.autoRole`): every L gets the plain corner, turned to fit either way
-  round (Ethan: a left turn giving a tower-like outer corner and a right turn a plain inner corner read as
-  inconsistent), three = T, four = cross; the inner corner and the tower only when chosen per joint. Stand-ins
+- Auto is from the topology and the walls' outside (`PieceLayout.autoRole`): an L gets the outer corner, the inner
+  corner when the walls face out into its bend (`concave`; a ring's reflex corner, whichever way it was drawn, since
+  the flips now follow the ring), three = T, four = cross; the tower only when chosen per joint. (Before automatic
+  flips every L got the plain corner: a left turn and a right turn drawn the same way differed only by drawing
+  direction, which Ethan read as inconsistent.) Stand-ins
   (`PieceLayout.jointRoles`, used by the layout, the reach estimates and the joint menu): a missing corner takes the
   inner corner and the other way round, a missing T or cross takes the tower, else it is a butt joint (the old code
   put the corner at a T, which faces two of three walls). Roles come from the piece's file name

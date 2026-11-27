@@ -843,9 +843,9 @@ nordic	wall:walls/fancy	STRAIGHT	fancy_segment_small	false	walls/fancy/fancy_seg
 nordic	wall:walls/fancy	TOWER	fancy_round_tower	false	walls/fancy/fancy_round_tower.blueprint	-1
 nordic	wall:walls/fancy	TOWER	fancy_square_tower	false	walls/fancy/fancy_square_tower.blueprint	-1
 nordic	wall:walls/palisade	CORNER	palisade_corner	false	walls/palisade/palisade_corner.blueprint	-1
-nordic	wall:walls/palisade	GATE	palisade_gate	false	walls/palisade/palisade_gate.blueprint	1
-nordic	wall:walls/palisade	STRAIGHT	palisade_platform	false	walls/palisade/palisade_platform.blueprint	1
-nordic	wall:walls/palisade	STRAIGHT	palisade_wall	false	walls/palisade/palisade_wall.blueprint	1
+nordic	wall:walls/palisade	GATE	palisade_gate	false	walls/palisade/palisade_gate.blueprint	0
+nordic	wall:walls/palisade	STRAIGHT	palisade_platform	false	walls/palisade/palisade_platform.blueprint	0
+nordic	wall:walls/palisade	STRAIGHT	palisade_wall	false	walls/palisade/palisade_wall.blueprint	0
 original	road:infrastructure/roads/fancy	CORNER	fancycornerodd	false	infrastructure/roads/fancy/fancycornerodd.blueprint	-1
 original	road:infrastructure/roads/fancy	CROSS	fancyintersectionodd	false	infrastructure/roads/fancy/fancyintersectionodd.blueprint	-1
 original	road:infrastructure/roads/fancy	STRAIGHT	fancypathodd	false	infrastructure/roads/fancy/fancypathodd.blueprint	1
@@ -943,9 +943,9 @@ original	wall:walls/original	STRAIGHT	medium	false	walls/original/medium2.bluepr
 original	wall:walls/original	STRAIGHT	short	false	walls/original/short1.blueprint	1
 original	wall:walls/original	STRAIGHT	short	false	walls/original/short2.blueprint	1
 original	wall:walls/palisade	CORNER	palisade_corner	false	walls/palisade/palisade_corner.blueprint	-1
-original	wall:walls/palisade	GATE	palisade_gate	false	walls/palisade/palisade_gate.blueprint	1
-original	wall:walls/palisade	STRAIGHT	palisade_platform	false	walls/palisade/palisade_platform.blueprint	1
-original	wall:walls/palisade	STRAIGHT	palisade_wall	false	walls/palisade/palisade_wall.blueprint	1
+original	wall:walls/palisade	GATE	palisade_gate	false	walls/palisade/palisade_gate.blueprint	0
+original	wall:walls/palisade	STRAIGHT	palisade_platform	false	walls/palisade/palisade_platform.blueprint	0
+original	wall:walls/palisade	STRAIGHT	palisade_wall	false	walls/palisade/palisade_wall.blueprint	0
 pagoda	wall:walls	CORNER	corner	false	walls/corners/corner1.blueprint	-1
 pagoda	wall:walls	CORNER	corner	false	walls/corners/corner2.blueprint	-1
 pagoda	wall:walls	GATE	gatehouse	false	walls/gates/gatehouse1.blueprint	-1

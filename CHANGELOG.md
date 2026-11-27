@@ -26,6 +26,28 @@
   to fix it), a larger 3D preview with < > stepping through the pieces, and a footer of More..., Cancel and a green
   "Looks good: save". Everything it did before is kept.
 - A short screen shrinks the preview first (down to a minimum), then drops it, instead of running off the screen.
+- Walls face out on their own. A chain closed on itself faces out of what it encloses whichever way it was drawn
+  (as before, now also checked on every click); an open chain faces away from the colony's town hall; a chain started
+  (or ended) on another wall carries that wall's outside on through the joint (a T branch continues the half it
+  leaves). Before, a wall's outside was the right of its drawing direction until you pressed Flip. Flip (or R) while
+  drawing turns the chain so far to the other side and keeps it there; Flip on before drawing, or a flip in edit mode
+  afterwards, is never changed. Saved plans keep their flips. Roads are unchanged. A ring of several chains, or a
+  chain closed onto its own earlier wall (a lasso, a chain crossing itself), faces out of what it encloses too; walls
+  you flipped, built ones and walls planned before this version stay as they are (plans save which walls the planner
+  faced, as `A` rows).
+- An L of walls gets the inner corner where the walls' outside is inside the bend (an L-shaped colony's reflex
+  corner), the outer corner otherwise; families without an inner corner use the corner as before. A joint type you
+  picked still wins. Old plans' L's whose walls face into the bend now get the inner corner, except where a built
+  wall meets or the joint was turned / mirrored by hand.
+- Minecolonies Original's (and Nordic Spruce's) palisade walls were laid 90° off: their straights are a 6-long log
+  wall on a 7-deep berm, and the run was taken from the longer side, so each piece stood across the line and no
+  corner turn could meet both runs (the "posts inward" corner). A wall set whose straights' shapes all run across
+  their longer side now runs that way (the palisade's gate follows); every other bundled set is unchanged. Palisade
+  runs touching nothing at a joint: 16 per family -> 1. Palisade plans already drawn lay out differently: re-draw them.
+- S-jogs are no corners: a piece named like a corner whose shape runs in one side and out the opposite one, moved
+  sideways (Shogun's and Nile's road `bend` / `bend_short`, Shogun's dark `curve`), was taken for a corner, so an L
+  could get one and its far run met it 3 cells off. They go to the Other tab now; a curved L stays a corner, whatever
+  its name.
 
 ## 0.3.2
 

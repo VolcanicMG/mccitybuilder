@@ -252,9 +252,16 @@ public final class PieceSets {
      * straight along its long side (square: unclear).
      *
      * @param body {@code [z * sx + x]}, as {@link #body}
-     * @return open sides (bits 1 east +x, 2 south +z, 4 west, 8 north), or -1 when unclear: no body, or a full square
+     * @return open sides (bits 1 east +x, 2 south +z, 4 west, 8 north), or -1 when unclear: no body, or a full square;
+     * {@link #THROUGH} for an S-jog that reads as neither a straight nor a full block
      */
     public static int openSides(boolean[] body, int sx, int sz) {
+        int m = sides(body, sx, sz);
+        // A straight (or a full block) stays one: the jog test only tells corners and odd shapes apart.
+        return m == 5 || m == 10 || m < 0 || !through(body, sx, sz) ? m : THROUGH;
+    }
+
+    private static int sides(boolean[] body, int sx, int sz) {
         int[] lo = {0, 0}, hi = {sx - 1, sz - 1};
         for (int d = 0; d < 4; d++)
             for (int k = 0; k < 2 && hi[0] > lo[0] && hi[1] > lo[1]; k++) {
@@ -286,6 +293,47 @@ public final class PieceSets {
         return mask;
     }
 
+    /** {@link #openSides} of a body that enters one side and leaves the opposite one, moved sideways or not: an S-jog. */
+    public static final int THROUGH = 16;
+
+    /**
+     * An S-jog (Shogun's and Nile's bend, bend_short and curve: the far run meets it 3 off as a corner): the body
+     * crosses two opposite sides of the box with bands about as wide as each other (within 1), each narrower than that
+     * side, touches the other two sides with fewer cells than either band (an L's arm is a band there too), and the
+     * bands are offset sideways or the body bulges out of both other sides.
+     */
+    static boolean through(boolean[] body, int sx, int sz) {
+        for (int ax = 0; ax < 2; ax++) {
+            // ax 0: in through west, out through east; 1: north to south.
+            int a = edge(body, sx, sz, ax == 0 ? 2 : 3), b = edge(body, sx, sz, ax == 0 ? 0 : 1);
+            int c = edge(body, sx, sz, ax == 0 ? 1 : 0), d = edge(body, sx, sz, ax == 0 ? 3 : 2), side = ax == 0 ? sz : sx;
+            if (a < 2 || b < 2 || Math.abs(a - b) > 1 || a >= side || b >= side || c >= Math.min(a, b) || d >= Math.min(a, b)) continue;
+            // Moved sideways, or bulging out of both other sides (a short jog): a plain straight does neither.
+            if (first(body, sx, sz, ax == 0 ? 2 : 3) != first(body, sx, sz, ax == 0 ? 0 : 1) || c > 0 && d > 0) return true;
+        }
+        return false;
+    }
+
+    // The first body cell along side d's edge (-1: none).
+    private static int first(boolean[] body, int sx, int sz, int d) {
+        int len = d % 2 == 0 ? sz : sx;
+        for (int i = 0; i < len; i++) {
+            int x = d == 0 ? sx - 1 : d == 2 ? 0 : i, z = d == 1 ? sz - 1 : d == 3 ? 0 : i;
+            if (body[z * sx + x]) return i;
+        }
+        return -1;
+    }
+
+    // Body cells on the outer edge of side d (0 east, 1 south, 2 west, 3 north).
+    private static int edge(boolean[] body, int sx, int sz, int d) {
+        int n = 0, len = d % 2 == 0 ? sz : sx;
+        for (int i = 0; i < len; i++) {
+            int x = d == 0 ? sx - 1 : d == 2 ? 0 : i, z = d == 1 ? sz - 1 : d == 3 ? 0 : i;
+            if (body[z * sx + x]) n++;
+        }
+        return n;
+    }
+
     // Body cell at lateral i, depth k in from side d of the box lo..hi.
     private static boolean at(boolean[] body, int sx, int[] lo, int[] hi, int d, int i, int k) {
         int x = d == 0 ? hi[0] - k : d == 2 ? lo[0] + k : lo[0] + i, z = d == 1 ? hi[1] - k : d == 3 ? lo[1] + k : lo[1] + i;
@@ -301,6 +349,7 @@ public final class PieceSets {
     /** @return the role open sides make: 2 opposite = straight, 2 adjacent = corner, 3 = T, 4 = cross, 1 = end; null when unclear */
     public static Role shapeRole(int sides) {
         if (sides <= 0) return null;
+        if (sides == THROUGH) return Role.OTHER;
         return switch (Integer.bitCount(sides)) {
             case 1 -> Role.END;
             case 2 -> sides == 5 || sides == 10 ? Role.STRAIGHT : Role.CORNER;
@@ -312,6 +361,7 @@ public final class PieceSets {
     /** @return open sides as text, "E S" or "?" (logs and the piece scan) */
     public static String sidesName(int sides) {
         if (sides < 0) return "?";
+        if (sides == THROUGH) return "jog";
         StringBuilder sb = new StringBuilder();
         for (int d = 0; d < 4; d++) if ((sides & 1 << d) != 0) sb.append("ESWN".charAt(d));
         return sb.isEmpty() ? "-" : sb.toString();
@@ -329,11 +379,15 @@ public final class PieceSets {
     public static Role decide(String base, Integer sides) {
         Role named = role(base);
         Role shaped = sides == null ? null : shapeRole(sides);
+        // A "corner" that runs through and out the opposite side moves the run sideways: no corner (Other tab).
+        if (sides != null && sides == THROUGH && (named == Role.CORNER || named == Role.INNER)) return Role.OTHER;
         return shaped != null && named == Role.OTHER && unreadable(base) ? shaped : named;
     }
 
     /** @return the shape's role when it differs from the name's (a hint for the set-up screen and the log), else null */
     public static Role shapeHint(String base, Integer sides) {
+        // A jog reading only says something when the name doesn't (a straight stair or a gate can read as one).
+        if (sides != null && sides == THROUGH && !unreadable(base)) return null;
         Role shaped = sides == null ? null : shapeRole(sides), used = decide(base, sides);
         return shaped != null && shaped != used && used != Role.GATE && used != Role.TOWER && used != Role.SLOPE && !notInSet(base) ? shaped : null;
     }
@@ -451,6 +505,10 @@ public final class PieceSets {
                 // The road's width is the one size every straight has (Byzantine avenues: 12x12 and a 6x12 short): the
                 // run is the other side, even when it is the shorter one. Else the longest straight's longer side.
                 int ax = w > 0 && longest.sx() != longest.sz() ? (longest.sz() == w ? 0 : 1) : longest.sx() >= longest.sz() ? 0 : 1;
+                // Walls whose straights' bodies all run across their longer side run that way (palisade: a 6-long log
+                // wall on a 7-deep berm, laid crosswise before).
+                Integer sa = w > 0 || !tool.equals("wall") ? null : shapeAxis(sts, shapes);
+                if (sa != null) ax = sa;
                 int wide = ax == 0 ? longest.sz() : longest.sx();
                 for (Role r : List.of(Role.STRAIGHT, Role.GATE, Role.END)) {
                     if (!roles.containsKey(r)) continue;
@@ -489,6 +547,19 @@ public final class PieceSets {
                 else common.retainAll(s);
             }
         return square && common.size() == 1 ? common.iterator().next() : 0;
+    }
+
+    /** @return the axis every straight's {@link #openSides} runs along (0 x, 1 z), or null when one isn't a clear straight or they differ */
+    static Integer shapeAxis(List<Group> straights, Map<String, Integer> shapes) {
+        Integer ax = null;
+        for (Group g : straights)
+            for (Piece p : g.pieces()) {
+                Integer s = shapes.get(p.path());
+                int a = s == null ? -1 : s == 5 ? 0 : s == 10 ? 1 : -1;
+                if (a < 0 || ax != null && ax != a) return null;
+                ax = a;
+            }
+        return ax;
     }
 
     /** @return true when a corner, T or cross piece of the family is a square at least w wide (original cobble walls: a 10x10 corner on 9-wide walls) */

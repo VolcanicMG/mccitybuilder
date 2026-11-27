@@ -31,6 +31,8 @@ final class LineView {
     // One variant by default; mixed (-1) is an option in the selector.
     static int level = 1, variant = 0;
     static boolean towers, gate, flip;
+    // The side the player picked for this chain (R while drawing, or Flip on when it started; null: it faces out on its own).
+    private static Boolean chainFlip;
     // Height for the next segments: mode (Plan.FOLLOW..SMOOTH), blocks added, and the chain's shared level (CHAIN).
     static int heightMode = Plan.FOLLOW, dy, chainBase = Plan.NO_BASE;
     // The planned segment under the cursor (Del / right-click remove it).
@@ -40,7 +42,8 @@ final class LineView {
     // Undo: the plan's lines, joint types, built pieces, chain and selection before each user change (newest first);
     // entries only from a plan clear (null otherwise: hut / decoration edits aren't undone).
     private record Snap(List<Plan.Line> lines, java.util.Map<Long, Integer> joints, java.util.Map<String, List<Plan.BuiltPiece>> built, List<Plan.Line> chain,
-                        int[] start, int[] prevDir, int chainBase, Plan.Line selected, int[] selectedJoint, List<Plan.Entry> entries, int builtMark) {
+                        int[] start, int[] prevDir, int chainBase, Plan.Line selected, int[] selectedJoint, List<Plan.Entry> entries, int builtMark,
+                        Boolean chainFlip) {
     }
 
     private static final java.util.ArrayDeque<Snap> undos = new java.util.ArrayDeque<>();
@@ -130,6 +133,7 @@ final class LineView {
         }
         startSplit = null;
         faceOut();
+        chainFlip = null;
         start = prevDir = end = connect = connectTo = connectHint = null;
         lastDir = -1;
         elbowAlt = false;
@@ -139,27 +143,49 @@ final class LineView {
         clearLive();
     }
 
-    /** A chain of walls closed on its own start: every wall turned to face out of the loop (one undo step with the drop). */
+    /**
+     * After every drop and when the chain ends (in that drop's undo step): the chain found again in the plan after
+     * splits and moves, and its walls faced out as one ({@link Plan#faceChain}: out of a closed loop, also one closed
+     * through other walls or onto the chain's own earlier wall, on from a wall they join, else away from the town hall).
+     * Not when the player chose the side (Flip on, or R while drawing).
+     */
     private static void faceOut() {
-        Boolean f = Plan.faceOutFlip(chain);
-        // Only a loop drawn the default way turns; one flipped on purpose (a courtyard facing in) stays.
-        if (!Boolean.TRUE.equals(f) || chain.get(0).flip()) return;
-        List<Plan.Line> ls = new ArrayList<>(PlanView.lines), now = new ArrayList<>();
-        for (Plan.Line l : chain) {
-            int i = ls.indexOf(l);
-            // Refits can swap the object; the same span still is this segment (a split one is not).
-            for (int j = 0; i < 0 && j < ls.size(); j++) {
-                Plan.Line o = ls.get(j);
-                if (o.tool().equals(l.tool()) && o.x0() == l.x0() && o.z0() == l.z0() && o.x1() == l.x1() && o.z1() == l.z1()) i = j;
-            }
-            if (i < 0 || PlanView.locked(ls.get(i))) return;
-            Plan.Line n = ls.get(i).withFlip(true);
-            ls.set(i, n);
-            now.add(n);
-        }
+        if (chain.isEmpty()) return;
+        Plan.Faced r = Plan.faceChain(PlanView.lines, chain, centre(), PlanView::locked, autoSide());
         chain.clear();
-        chain.addAll(now);
-        PlanView.setLines(ls);
+        chain.addAll(r.chain());
+        if (!r.lines().equals(PlanView.lines)) PlanView.setLines(r.lines());
+    }
+
+    /** @return true while the planner faces the chain being drawn: walls, Flip off, no side picked with R */
+    private static boolean autoSide() {
+        return wall() && !flip && chainFlip == null;
+    }
+
+    /** @return the flip a new segment a -> b of the chain gets: the player's, else the chain's side with it added */
+    private static boolean flipFor(int[] a, int[] b) {
+        if (chainFlip != null) return chainFlip;
+        if (flip || !wall()) return flip;
+        boolean now = !chain.isEmpty() && chain.get(0).flip();
+        List<Plan.Line> c = new ArrayList<>(chain);
+        c.add(new Plan.Line(tool, a[0], a[1], b[0], b[1], "", "", 0, 0, false, false));
+        Boolean f = Plan.autoFlip(c, PlanView.lines, centre());
+        return f != null ? f : now;
+    }
+
+    /** @return whether the Flip option shows on: the selected segment's, else the side the player set for this chain, else the next segments' */
+    static boolean flipShown() {
+        Plan.Line s = PlanView.selectedLine();
+        return s != null ? s.flip() : chainFlip != null ? chainFlip : flip;
+    }
+
+    /** @return {x, z} of the colony's town hall (else its centre), or null: what open walls face away from */
+    private static int[] centre() {
+        com.minecolonies.api.colony.IColonyView c = Planner.colony();
+        if (c == null) return null;
+        com.minecolonies.api.colony.buildings.views.IBuildingView th = c.getClientBuildingManager().getTownHall();
+        net.minecraft.core.BlockPos p = th != null ? th.getPosition() : c.getCenter();
+        return p == null || th == null && p.equals(net.minecraft.core.BlockPos.ZERO) ? null : new int[]{p.getX(), p.getZ()};
     }
 
     /** Drops the live pieces and their ghosts (they come back on the next aim while the tool is on). */
@@ -260,7 +286,7 @@ final class LineView {
             }
         }
         int[] key = {a[0], a[1], b[0], b[1], start == null ? 0 : 1, PlanView.layoutVersion,
-                Objects.hash(tool, fam, PlannerScreen.pack(), level, variant, towers, gate, flip, heightMode, dy, chainBase, java.util.Arrays.hashCode(connect)),
+                Objects.hash(tool, fam, PlannerScreen.pack(), level, variant, towers, gate, flip, chainFlip, heightMode, dy, chainBase, java.util.Arrays.hashCode(connect)),
                 liveIncomplete ? PieceCatalog.loadVersion * 31 + (int) (System.currentTimeMillis() / 500) : 0};
         if (!LineSnap.relayout(liveKey, key)) return;
         liveKey = key;
@@ -698,7 +724,10 @@ final class LineView {
         checkpoint();
         PlanView.jointTypes.clear();
         PlanView.jointTypes.putAll(tr.types());
-        PlanView.setLines(tr.lines());
+        // The walls at the joint keep the sides this fit was chosen with: the player's now, so a loop closed later can't turn them.
+        List<Plan.Line> ls = new ArrayList<>(tr.lines());
+        for (int i : linesAt(selectedJoint)) if (i < ls.size() && !PlanView.locked(ls.get(i))) ls.set(i, ls.get(i).withFlip(ls.get(i).flip()));
+        PlanView.setLines(ls);
         return true;
     }
 
@@ -735,6 +764,10 @@ final class LineView {
         if (p == null) return "mccitybuilder.edit.joint_orient_none";
         int o = com.volcanicmg.mccitybuilder.planner.PieceLayout.normOrient(p.turns());
         checkpoint();
+        // An auto L keeps the piece it shows now (the turn belongs to that blueprint; auto would read it as the outer corner).
+        long cell = Plan.cell(selectedJoint[0], selectedJoint[1]);
+        if (Plan.jointType(PlanView.jointTypes.get(cell)) == Plan.J_AUTO && (p.role() == PieceSets.Role.CORNER || p.role() == PieceSets.Role.INNER))
+            PlanView.jointTypes.put(cell, p.role() == PieceSets.Role.INNER ? Plan.J_INNER : Plan.J_CORNER);
         PlanView.setJointOrient(selectedJoint[0], selectedJoint[1], mirror ? o ^ com.volcanicmg.mccitybuilder.planner.PieceLayout.MIRROR : com.volcanicmg.mccitybuilder.planner.PieceLayout.orient(o, 1));
         return null;
     }
@@ -769,10 +802,21 @@ final class LineView {
         int degree = at.size();
         boolean collinear = degree == 2 && Plan.collinearAt(PlanView.lines, at.get(0), at.get(1));
         List<Integer> types = Plan.menuTypes(degree, collinear);
+        // Auto's piece for an L follows the walls' outside (inner corner when they face out into the bend).
+        List<Plan.Line> ls = new ArrayList<>();
+        List<Integer> outs = new ArrayList<>();
+        for (int i : at) {
+            Plan.Line a = PlanView.lines.get(i);
+            int d = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{a.x0(), a.z0()}, new int[]{a.x1(), a.z1()});
+            ls.add(a);
+            outs.add(a.x0() == selectedJoint[0] && a.z0() == selectedJoint[1] ? d : (d + 2) % 4);
+        }
+        boolean concave = ls.stream().noneMatch(Plan.Line::built) && Plan.jointOrient(PlanView.jointTypes.get(Plan.cell(selectedJoint[0], selectedJoint[1]))) < 0
+                && com.volcanicmg.mccitybuilder.planner.PieceLayout.concave(ls, outs);
         List<JointOption> out = new ArrayList<>();
         for (int t : types) {
             PieceSets.Piece piece = null;
-            for (PieceSets.Role r : com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(t, degree, collinear, l.towers())) {
+            for (PieceSets.Role r : com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(t, degree, collinear, l.towers(), concave)) {
                 var gs = f == null ? List.<PieceSets.Group>of() : PieceCatalog.groups(l.pack(), f, r);
                 if (!gs.isEmpty()) {
                     piece = gs.get(0).pickAs(PieceCatalog.primary(l, 0), l.level(), 0);
@@ -925,7 +969,12 @@ final class LineView {
                 // The other segment's end moves: refused when that would leave it without a straight.
                 int[] o = a.ends()[1 - bestK];
                 int cells = Math.max(Math.abs(j[2] - o[0]), Math.abs(j[3] - o[1])) + 1, other = bestI < PlanView.lineOffs.size() ? PlanView.lineOffs.get(bestI)[1 - bestK] : 0;
-                if (!LineSnap.joinKeeps(cells, other, PieceCatalog.expectedReach(a, jointDefault), PieceCatalog.runLengths(a))) j = null;
+                // The live segment arrives at the moved end with the chain's side: inner or outer corner there.
+                Plan.Line live = next(start, new int[]{j[0], j[1]});
+                int ad = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{a.x0(), a.z0()}, new int[]{a.x1(), a.z1()}),
+                        ld = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(start, new int[]{j[0], j[1]});
+                boolean concave = !a.built() && com.volcanicmg.mccitybuilder.planner.PieceLayout.concave(List.of(a, live), List.of(bestK == 0 ? ad : (ad + 2) % 4, (ld + 2) % 4));
+                if (!LineSnap.joinKeeps(cells, other, PieceCatalog.expectedReach(a, jointDefault, concave), PieceCatalog.runLengths(a))) j = null;
             }
             if (j != null) {
                 if (j[2] != e[0] || j[3] != e[1]) adjust = new int[]{bestI, bestK, j[2], j[3]};
@@ -1091,7 +1140,9 @@ final class LineView {
         if (ldir == pdir || ldir == (pdir + 2) % 4) return null;
         Integer jv = PlanView.jointTypes.get(Plan.cell(start[0], start[1]));
         int type = jv == null ? jointDefault : Plan.jointType(jv);
-        List<PieceSets.Role> roles = com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(type, 2, false, prev.towers());
+        // The next segment carries the chain's flip: it bends into the walls' outside when it turns toward it.
+        boolean concave = prev.isWall() && com.volcanicmg.mccitybuilder.planner.PieceLayout.outside(pdir, prev.flip()) == ldir;
+        List<PieceSets.Role> roles = com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(type, 2, false, prev.towers(), concave);
         PieceSets.Role role = roles.isEmpty() ? null : roles.get(0);
         int[] lens = PieceCatalog.runLengths(prev);
         int reach = PieceCatalog.reachOf(prev, role), max = reach;
@@ -1247,6 +1298,8 @@ final class LineView {
             PlanView.replaceLine(prev, l);
             chain.set(chain.size() - 1, l);
         } else {
+            // Drawn with Flip on: the player chose this chain's side.
+            if (chain.isEmpty() && flip && wall()) chainFlip = true;
             PlanView.addLine(l);
             chain.add(l);
         }
@@ -1271,8 +1324,8 @@ final class LineView {
         for (int[] c : made)
             if (jointDefault != Plan.J_AUTO && !PlanView.jointTypes.containsKey(Plan.cell(c[0], c[1]))) PlanView.setJointType(c[0], c[1], jointDefault);
         refitAround(new int[][]{start, end}, l);
-        // Back on the chain's own start: the loop faces out now (preview and Build alike), in this drop's undo step.
-        if (!chain.isEmpty() && end[0] == chain.get(0).x0() && end[1] == chain.get(0).z0()) faceOut();
+        // The chain faces out as drawn so far (a closed loop: out of it), in this drop's undo step.
+        faceOut();
         prevDir = new int[]{end[0] - start[0], end[1] - start[1]};
         start = end;
         end = null;
@@ -1410,12 +1463,13 @@ final class LineView {
     private static Snap snap(boolean entries) {
         return new Snap(new ArrayList<>(PlanView.lines), new java.util.HashMap<>(PlanView.jointTypes), new java.util.HashMap<>(PlanView.builtPieces), new ArrayList<>(chain),
                 start == null ? null : start.clone(), prevDir == null ? null : prevDir.clone(), chainBase, PlanView.selectedLine(),
-                selectedJoint == null ? null : selectedJoint.clone(), entries ? new ArrayList<>(PlanView.entries) : null, PlanView.builtMark());
+                selectedJoint == null ? null : selectedJoint.clone(), entries ? new ArrayList<>(PlanView.entries) : null, PlanView.builtMark(), chainFlip);
     }
 
     private static boolean same(Snap a, Snap b) {
         return a.lines().equals(b.lines()) && a.joints().equals(b.joints()) && a.chain().equals(b.chain()) && java.util.Arrays.equals(a.start(), b.start())
-                && java.util.Arrays.equals(a.prevDir(), b.prevDir()) && a.chainBase() == b.chainBase() && java.util.Objects.equals(a.entries(), b.entries());
+                && java.util.Arrays.equals(a.prevDir(), b.prevDir()) && a.chainBase() == b.chainBase() && java.util.Objects.equals(a.entries(), b.entries())
+                && java.util.Objects.equals(a.chainFlip(), b.chainFlip());
     }
 
     /** Remembers the plan's lines before a user change, for Undo (a state equal to the last one isn't kept twice). */
@@ -1470,7 +1524,7 @@ final class LineView {
                 es.removeIf(e -> PlanView.builtSince(e, s.builtMark()));
                 for (Plan.Entry e : PlanView.entries) if (!es.contains(e)) es.add(e);
             }
-            Snap to = new Snap(ls, s.joints(), s.built(), ch, s.start(), s.prevDir(), s.chainBase(), s.selected(), s.selectedJoint(), es, s.builtMark());
+            Snap to = new Snap(ls, s.joints(), s.built(), ch, s.start(), s.prevDir(), s.chainBase(), s.selected(), s.selectedJoint(), es, s.builtMark(), s.chainFlip());
             if (same(to, now)) continue;
             closeJointMenu(false);
             PlanView.jointTypes.clear();
@@ -1488,6 +1542,7 @@ final class LineView {
             start = s.start();
             prevDir = s.prevDir();
             chainBase = s.chainBase();
+            chainFlip = s.chainFlip();
             end = null;
             int at = s.selected() == null ? -1 : ls.indexOf(s.selected());
             select(at >= 0 ? List.of(at) : List.of(), false);
@@ -1500,8 +1555,10 @@ final class LineView {
     }
 
     static Plan.Line next(int[] a, int[] b) {
-        return new Plan.Line(tool, a[0], a[1], b[0], b[1], PlannerScreen.pack(), family(), level, variant, towers, wall() && gate, flip, heightMode, dy,
+        Plan.Line l = new Plan.Line(tool, a[0], a[1], b[0], b[1], PlannerScreen.pack(), family(), level, variant, towers, wall() && gate, flipFor(a, b), heightMode, dy,
                 heightMode == Plan.CHAIN ? chainBase : Plan.NO_BASE, false);
+        // The planner's side: a loop closed later may still turn it.
+        return autoSide() ? l.faced(l.flip()) : l;
     }
 
     // ---- options: the selected planned segment if any, else the next segments ----
@@ -1542,7 +1599,20 @@ final class LineView {
         }
         Plan.Line s = PlanView.selectedLine();
         if (s != null) setSelected(s.withFlip(!s.flip()));
-        else flip = !flip;
+        else if (!chain.isEmpty() && wall()) {
+            // Drawing: the chain so far and its next segments turn to the other side, and stay as the player set them.
+            boolean f = !chain.get(chain.size() - 1).flip();
+            List<Plan.Line> ls = new ArrayList<>(PlanView.lines);
+            for (int k = 0; k < chain.size(); k++) {
+                int i = ls.indexOf(chain.get(k));
+                if (i < 0 || PlanView.locked(ls.get(i))) continue;
+                ls.set(i, ls.get(i).withFlip(f));
+                chain.set(k, ls.get(i));
+            }
+            checkpoint();
+            PlanView.setLines(ls);
+            chainFlip = f;
+        } else flip = !flip;
     }
 
     /** An option change on the selected segment (undoable; none when it changes nothing). */

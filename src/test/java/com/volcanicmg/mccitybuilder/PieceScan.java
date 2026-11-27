@@ -24,14 +24,7 @@ final class PieceScan {
     /** @return one line per classified piece of the bundled packs: pack, family, role, group, levels, path, axis */
     static List<String> bundled() throws Exception {
         List<String> out = new ArrayList<>();
-        for (var en : new TreeMap<>(JointCases.packs()).entrySet()) {
-            Map<String, Integer> shapes = new HashMap<>();
-            for (var p : en.getValue()) {
-                PieceLayout.Grid g = PackPieces.grid(en.getKey() + "/" + p.path());
-                shapes.put(p.path(), PieceSets.openSides(PieceSets.body(g, "road".equals(PieceSets.tool(p.path()))), g.sx(), g.sz()));
-            }
-            out.addAll(lines(en.getKey(), PieceSets.classify(en.getValue(), shapes)));
-        }
+        for (String pack : new TreeMap<>(JointCases.packs()).keySet()) out.addAll(lines(pack, JointCases.classify(pack)));
         return out;
     }
 

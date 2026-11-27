@@ -6,7 +6,7 @@ P	infrastructure/avenue/short.blueprint	6	5	12	10
 P	infrastructure/avenue/straight.blueprint	12	5	12	-1
 P	infrastructure/avenue/straightnotubs.blueprint	12	5	12	-1
 P	infrastructure/avenue/straightoneup.blueprint	12	6	12	-1
-P	infrastructure/avenue/straightthreeup.blueprint	12	8	12	15
+P	infrastructure/avenue/straightthreeup.blueprint	12	8	12	16
 P	infrastructure/avenue/straighttwoup.blueprint	12	7	12	15
 P	infrastructure/avenue/straightwalker.blueprint	12	5	12	-1
 P	infrastructure/avenue/turn.blueprint	12	5	12	-1
@@ -31,7 +31,7 @@ P	infrastructure/avenueodd/short.blueprint	11	5	6	5
 P	infrastructure/avenueodd/straight.blueprint	11	5	12	10
 P	infrastructure/avenueodd/straightnotub.blueprint	11	5	12	10
 P	infrastructure/avenueodd/straightoneup.blueprint	11	6	12	10
-P	infrastructure/avenueodd/straightthreeup.blueprint	11	8	12	15
+P	infrastructure/avenueodd/straightthreeup.blueprint	11	8	12	16
 P	infrastructure/avenueodd/straighttwoup.blueprint	11	7	12	15
 P	infrastructure/avenueodd/straightwalker.blueprint	11	5	12	10
 P	infrastructure/avenueodd/turn.blueprint	11	5	11	-1
@@ -85,8 +85,8 @@ P	infrastructure/retainingwall/wall/cornerin_rfour.blueprint	5	4	5	0
 P	infrastructure/retainingwall/wall/cornerout.blueprint	4	7	4	-1
 P	infrastructure/retainingwall/wall/cornerout_reight.blueprint	4	8	4	0
 P	infrastructure/retainingwall/wall/cornerout_rfour.blueprint	4	4	4	0
-P	infrastructure/retainingwall/wall/diag_reight.blueprint	5	8	6	0
-P	infrastructure/retainingwall/wall/diag_rfour.blueprint	5	4	6	0
+P	infrastructure/retainingwall/wall/diag_reight.blueprint	5	8	6	16
+P	infrastructure/retainingwall/wall/diag_rfour.blueprint	5	4	6	16
 P	infrastructure/retainingwall/wall/diagonal.blueprint	5	7	6	12
 P	infrastructure/retainingwall/wall/long.blueprint	12	7	2	5
 P	infrastructure/retainingwall/wall/long_reight.blueprint	12	8	2	10
@@ -126,8 +126,8 @@ P	infrastructure/road/straightdio.blueprint	12	1	4	5
 P	infrastructure/road/turn.blueprint	4	1	4	-1
 P	infrastructure/road/turndio.blueprint	4	1	4	-1
 P	walls/field_structures/lookout.blueprint	6	9	6	15
-P	walls/palisades/diag.blueprint	17	6	21	0
-P	walls/palisades/incline.blueprint	8	8	5	13
+P	walls/palisades/diag.blueprint	17	6	21	16
+P	walls/palisades/incline.blueprint	8	8	5	16
 P	walls/palisades/insideturn.blueprint	12	6	12	2
 P	walls/palisades/long.blueprint	25	6	5	5
 P	walls/palisades/outsideturn.blueprint	13	6	13	2
@@ -184,7 +184,7 @@ P	walls/wall_small/stair3.blueprint	12	13	8	15
 P	walls/wall_small/twoup1.blueprint	12	14	5	5
 P	walls/wall_small/twoup2.blueprint	12	14	5	5
 P	walls/wall_small/twoup3.blueprint	12	14	5	5
-P	walls/wall_small/walladapter1.blueprint	12	18	7	15
+P	walls/wall_small/walladapter1.blueprint	12	18	7	16
 P	walls/wall_small/walladapter2.blueprint	12	18	7	15
 P	walls/wall_small/walladapter3.blueprint	12	18	7	15
 P	walls/wall_small/wallsmall1.blueprint	12	12	5	5

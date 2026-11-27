@@ -368,6 +368,40 @@ for pack in "${PACKS[@]}"; do
   B search "" >/dev/null
 done
 
+# Walls face out on their own: Minecolonies Original's palisade drawn as a ring clockwise (every wall flips) and
+# counter-clockwise (none does), each closed on its start; screenshots smoke-palisade-ring-cw / -ccw.
+echo "== Minecolonies Original: walls face out"
+recover "palisade: start on the planner"
+ans=$(B pack "Minecolonies Original"); sleep 2
+B tool off >/dev/null; B tool wall >/dev/null; sleep 1
+fam=""
+for _ in $(seq 12); do fam=$(B rolepanel off); [[ "$fam" == *walls/palisade* ]] && break; B key key.keyboard.equal >/dev/null; sleep 0.5; done
+pos=$(B state | sed -n 's/.*player=\(-\?[0-9]*\), \(-\?[0-9]*\), \(-\?[0-9]*\).*/\1 \2 \3/p')
+if [[ "$fam" != *walls/palisade* ]] || [ -z "$pos" ]; then step "palisade ring" fail "pack '$ans', family '$fam', player '$pos'"
+else
+  before=$(B plan | sed -n 's/.*lines=\([0-9]*\).*/\1/p')
+  for way in cw ccw; do
+    # East, south, west, north (clockwise seen from above, north up), or the other way round.
+    if [ $way = cw ]; then chain $pos -10 -10 10 -10 10 10 -10 10 -10 -10; else chain $pos -10 -10 -10 10 10 10 10 -10 -10 -10; fi
+    sleep 3
+    # Only the ring's segments (the plan's earlier lines come first).
+    lt=$(B lineturns | tr ' ' '\n' | awk -F: -v b="$before" '$1 >= b' | tr '\n' ' '); want=$([ $way = cw ] && echo true || echo false)
+    n=$(grep -o "flip=" <<< "$lt" | wc -l); m=$(grep -o "flip=$want" <<< "$lt" | wc -l)
+    B screenshot "smoke-palisade-ring-$way" >/dev/null
+    [ "$n" -ge 4 ] && [ "$m" -eq "$n" ] && step "palisade ring $way faces out (flip=$want x$m)" ok || step "palisade ring $way faces out" fail "${lt:-no segments}"
+    B clearlines >/dev/null; sleep 1
+  done
+  # A lasso: the chain ends on its own first wall (split there into a T); the ring and its tail face one way, out of the ring (clockwise: flipped).
+  chain $pos -10 -10 10 -10 10 10 0 10 0 -10
+  sleep 3
+  lt=$(B lineturns | tr ' ' '\n' | awk -F: -v b="$before" '$1 >= b' | tr '\n' ' ')
+  n=$(grep -o "flip=" <<< "$lt" | wc -l); m=$(grep -o "flip=true" <<< "$lt" | wc -l)
+  B screenshot "smoke-palisade-lasso" >/dev/null
+  [ "$n" -ge 5 ] && [ "$m" -eq "$n" ] && step "palisade lasso faces out of its ring (flip=true x$m)" ok || step "palisade lasso faces out" fail "${lt:-no segments}"
+  B clearlines >/dev/null; sleep 1
+fi
+B tool off >/dev/null
+
 # The game log: failures the mod reports itself, exceptions out of the mod, and baked pieces with no blocks.
 echo "== log $LOG"
 if [ -f "$LOG" ]; then
