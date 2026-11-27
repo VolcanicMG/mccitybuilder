@@ -30,6 +30,7 @@ public final class PlannerClient {
     public static void init(IEventBus modBus, ModContainer container) {
         com.volcanicmg.mccitybuilder.server.BatchResults.handler(PlanView::onBatchResult);
         com.volcanicmg.mccitybuilder.server.DecoSync.handler(Planner::onDecos);
+        com.volcanicmg.mccitybuilder.server.WarehouseStock.handler(MaterialsView::onStock);
         com.volcanicmg.mccitybuilder.server.PlanShare.handlers(Others::onGhost, Others::onShared);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(RegisterKeyMappingsEvent.class, e -> e.register(TOGGLE));

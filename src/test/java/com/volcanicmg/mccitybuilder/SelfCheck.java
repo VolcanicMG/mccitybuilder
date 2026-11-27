@@ -3,6 +3,7 @@ package com.volcanicmg.mccitybuilder;
 import com.volcanicmg.mccitybuilder.planner.CameraMath;
 import com.volcanicmg.mccitybuilder.planner.ColonyGeometry;
 import com.volcanicmg.mccitybuilder.planner.Costs;
+import com.volcanicmg.mccitybuilder.planner.Materials;
 import com.volcanicmg.mccitybuilder.planner.QueueIcons;
 import com.volcanicmg.mccitybuilder.planner.DroneCamera;
 import com.volcanicmg.mccitybuilder.planner.PlacementState;
@@ -35,6 +36,7 @@ public final class SelfCheck {
         queue();
         colonyGeometry();
         costs();
+        materials();
         catalog();
         overlays();
         plans();
@@ -45,6 +47,28 @@ public final class SelfCheck {
         hintsAndLang();
         pieceSetDetection();
         System.out.println("CityBuilder self-check passed");
+    }
+
+    private static void materials() {
+        Map<String, Integer> roads = Costs.newMap(), huts = Costs.newMap();
+        Costs.add(roads, "minecraft:stone_bricks", 100);
+        Costs.add(roads, "minecraft:stone_bricks", 40);
+        Costs.add(roads, "minecraft:gravel", 10);
+        Costs.add(huts, "minecraft:stone_bricks", 60);
+        Costs.add(huts, "minecraft:oak_planks", 30);
+        Costs.add(huts, "minecraft:dirt", 0);
+        Map<String, Integer> have = Map.of("minecraft:stone_bricks", 150, "minecraft:oak_planks", 40);
+        // Built pieces never reach the maps (the caller skips built lines), so "built excluded" is by construction.
+        check(Materials.merge(roads, huts).get("minecraft:stone_bricks") == 200 && !Materials.merge(roads, huts).containsKey("minecraft:dirt"), "materials: merge sums items");
+        Materials.View all = Materials.view(roads, huts, Materials.Tab.ALL, have);
+        check(all.need() == 240 && all.missing() == 50 + 10, "materials: all tab totals and shortfall " + all.need() + "/" + all.missing());
+        check(all.rows().get(0).item().equals("minecraft:stone_bricks") && all.rows().get(0).missing() == 50, "materials: most missing first");
+        check(all.rows().get(all.rows().size() - 1).missing() == 0, "materials: extra stock is no negative shortfall");
+        Materials.View r = Materials.view(roads, huts, Materials.Tab.ROADS, have), h = Materials.view(roads, huts, Materials.Tab.HUTS, have);
+        check(r.need() == 150 && r.missing() == 10 && r.rows().size() == 2, "materials: roads tab has road pieces only");
+        check(h.need() == 90 && h.missing() == 0 && h.rows().size() == 2, "materials: huts tab has huts only, covered by stock");
+        check(Materials.view(Map.of(), Map.of(), Materials.Tab.ALL, have).rows().isEmpty(), "materials: nothing planned, no rows");
+        check(Materials.allowed(null, 0, 2000) && !Materials.allowed(1000L, 2500, 2000) && Materials.allowed(1000L, 3000, 2000), "materials: one request per 2 s");
     }
 
     private static void camera() {

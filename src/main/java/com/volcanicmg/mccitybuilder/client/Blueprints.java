@@ -268,14 +268,34 @@ final class Blueprints {
      * @return item id → count, or null while loading
      */
     static Map<String, Integer> cost(Hut hut) {
-        String key = hut.pack() + "|" + hut.path();
+        return cost(hut.pack(), hut.path());
+    }
+
+    /** @return {@code pack|path}'s material list when worked out already, else null */
+    static Map<String, Integer> costDone(String pack, String path) {
+        return costs.get(pack + "|" + path);
+    }
+
+    /**
+     * Any blueprint's material list (a hut's, a decoration's, a road / wall piece's; a cropped straight is cropped first).
+     *
+     * @return item id → count, or null while loading
+     */
+    static Map<String, Integer> cost(String pack, String path) {
+        String key = pack + "|" + path;
         Map<String, Integer> done = costs.get(key);
         if (done != null) return done;
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) return null;
-        CompletableFuture<Blueprint> f = costLoads.computeIfAbsent(key, k -> StructurePacks.getBlueprintFuture(hut.pack(), hut.path(), mc.level.registryAccess()));
-        if (!f.isDone()) return null;
-        Blueprint bp = f.isCompletedExceptionally() ? null : f.getNow(null);
+        Blueprint bp;
+        if (com.volcanicmg.mccitybuilder.planner.PieceLayout.cropOf(path) != null) {
+            bp = PieceCatalog.rotated(pack, path, 0);
+            if (bp == null && !PieceCatalog.failed(pack, path)) return null;
+        } else {
+            CompletableFuture<Blueprint> f = costLoads.computeIfAbsent(key, k -> StructurePacks.getBlueprintFuture(pack, path, mc.level.registryAccess()));
+            if (!f.isDone()) return null;
+            bp = f.isCompletedExceptionally() ? null : f.getNow(null);
+        }
         Map<String, Integer> need = Costs.newMap();
         if (bp != null) {
             BlockPos pos = new BlockPos(mc.player.getBlockX(), mc.level.getMaxBuildHeight() - bp.getSizeY() - 2, mc.player.getBlockZ());

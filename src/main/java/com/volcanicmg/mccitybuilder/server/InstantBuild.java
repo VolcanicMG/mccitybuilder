@@ -140,9 +140,9 @@ public final class InstantBuild {
      * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
      * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners; 9: shared
      * ghosts and plans ({@link PlanShare}); 10: survival orders carry the chosen builder hut; 11: creative free-material
-     * marks ({@link FreeMaterials}) and the planner-open state ({@link PlannerRange}).
+     * marks ({@link FreeMaterials}) and the planner-open state ({@link PlannerRange}); 12: warehouse stock for the Materials panel ({@link WarehouseStock}).
      */
-    public static final String PROTOCOL = "11";
+    public static final String PROTOCOL = "12";
 
     /** Registers the payload as optional, so clients and servers without the mod (or another protocol) still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {
@@ -154,7 +154,9 @@ public final class InstantBuild {
                 .playBidirectional(PlanShare.Ghost.TYPE, PlanShare.Ghost.CODEC, PlanShare::handleGhost)
                 .playBidirectional(PlanShare.Shared.TYPE, PlanShare.Shared.CODEC, PlanShare::handleShared)
                 .playToServer(FreeMaterials.Fund.TYPE, FreeMaterials.Fund.CODEC, FreeMaterials::handle)
-                .playToServer(PlannerRange.Open.TYPE, PlannerRange.Open.CODEC, PlannerRange::handle);
+                .playToServer(PlannerRange.Open.TYPE, PlannerRange.Open.CODEC, PlannerRange::handle)
+                .playToServer(WarehouseStock.Query.TYPE, WarehouseStock.Query.CODEC, WarehouseStock::handle)
+                .playToClient(WarehouseStock.Stock.TYPE, WarehouseStock.Stock.CODEC, (s, ctx) -> WarehouseStock.accept(s));
     }
 
     /** Prunes per-player state on logout. */
@@ -169,11 +171,13 @@ public final class InstantBuild {
             PlanShare.clear();
             FreeMaterials.clear();
             PlannerRange.clear();
+            WarehouseStock.clear();
         });
         // Another dimension: its colonies are other ones; the planner asks again when it opens there.
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerChangedDimensionEvent.class, e -> {
             DecoSync.forget(e.getEntity().getUUID());
             PlannerRange.forget(e.getEntity().getUUID());
+            WarehouseStock.forget(e.getEntity().getUUID());
             if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, false);
         });
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> {
@@ -187,6 +191,7 @@ public final class InstantBuild {
             refused.remove(e.getEntity().getUUID());
             FreeMaterials.forget(e.getEntity().getUUID());
             PlannerRange.forget(e.getEntity().getUUID());
+            WarehouseStock.forget(e.getEntity().getUUID());
             DecoSync.forget(e.getEntity().getUUID());
             if (e.getEntity() instanceof ServerPlayer p) PlanShare.forget(p, true);
         });

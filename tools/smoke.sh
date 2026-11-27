@@ -140,6 +140,76 @@ setup_fit 1280 720 2 640 360
 setup_fit 1920 1080 4 480 270
 B tool off >/dev/null; setwin 1600 900 2
 
+# Materials check: the line panel's "Needs" row and the Materials panel. Hidden in creative Instant; a road's needs > 0;
+# items in the player's inventory and in a warehouse's racks raise "have" (the server answers the stock request); a hut entry shows under Huts.
+# mfield <name>: a number out of the first line of `materials`.
+echo "== materials"
+mfield() { B materials | head -1 | sed 's/^/ /' | sed -n "s/.* $1=\([^ ]*\).*/\1/p"; }
+# mrow <item> <field>: that item's need= / have= / missing= in the current tab.
+mrow() { B materials | grep "^$1 " | sed -n "s/.* $2=\([0-9]*\).*/\1/p"; }
+recover "materials: start on the planner"
+B pack "Colonial" >/dev/null; sleep 2
+B cmd "gamemode creative" >/dev/null; B tool off >/dev/null; B tool road >/dev/null; sleep 1
+B materials "mode INSTANT" >/dev/null; sleep 1
+[ "$(mfield shown)" = false ] && [ "$(B anchor materials)" = none ] && step "materials: hidden in creative Instant" ok || step "materials: hidden in creative Instant" fail "shown=$(mfield shown) row=$(B anchor materials)"
+B materials "mode BUILDERS_FREE" >/dev/null; sleep 1
+[ "$(mfield shown)" = false ] && step "materials: hidden in creative Builders (free)" ok || step "materials: hidden in creative Builders (free)" fail "shown=$(mfield shown)"
+pos=$(B state | sed -n 's/.*player=\(-\?[0-9]*\), \(-\?[0-9]*\), \(-\?[0-9]*\).*/\1 \2 \3/p')
+if [ -z "$pos" ]; then step "materials: checks" fail "no player position"
+else
+  set -- $pos; mx=$1; my=$2; mz=$3
+  # A warehouse for the stock (placed instantly in creative Instant; the colony registers it a moment later).
+  B materials "mode INSTANT" >/dev/null; B ghost "minecolonies:blockhutwarehouse $((mx - 9)) $my $((mz - 11))" >/dev/null; sleep 3; B key key.keyboard.enter >/dev/null
+  wh=""; for _ in $(seq 30); do wh=$(B buildings | grep "minecolonies:warehouse" | head -1 | sed -n 's/^\(-\?[0-9]*\), \(-\?[0-9]*\), \(-\?[0-9]*\) .*/\1 \2 \3/p'); [ -n "$wh" ] && break; sleep 2; done
+  B ghost off >/dev/null
+  B materials "mode BUILDERS" >/dev/null; sleep 1
+  [ "$(mfield shown)" = true ] && [ "$(B anchor materials)" != none ] && step "materials: shown in creative Builders" ok || step "materials: shown in creative Builders" fail "shown=$(mfield shown) row=$(B anchor materials)"
+  B tool off >/dev/null; B tool road >/dev/null; sleep 1
+  chain $mx $my $mz -8 0 8 0
+  need=0; for _ in $(seq 30); do need=$(mfield need); [ "${need:-0}" -gt 0 ] && [ "$(mfield loading)" = false ] && break; sleep 1; done
+  [ "${need:-0}" -gt 0 ] && [ "$(mfield roads)" = "$need" ] && [ "$(mfield huts)" = 0 ] && step "materials: a planned road needs items ($(mfield need), roads only)" ok || step "materials: a planned road needs items" fail "$(B materials | head -1)"
+  item=$(B materials | sed -n '2p' | cut -d' ' -f1)
+  need0=$(mrow "$item" need); miss0=$(mfield missing)
+  # The open panel: tabs, rows, screenshots.
+  aclick materials; sleep 1
+  [ "$(mfield open)" = true ] && [ "$(B anchor materials_tab_huts)" != none ] && step "materials: the row opens the panel" ok || step "materials: the row opens the panel" fail "open=$(mfield open)"
+  B screenshot "materials-panel" >/dev/null
+  aclick materials_tab_huts; sleep 1
+  [ "$(B materials | sed -n 2p)" = "" ] && step "materials: Huts tab empty without huts planned" ok || step "materials: Huts tab empty without huts planned" fail "$(B materials | sed -n 2p)"
+  aclick materials_tab_roads; sleep 1
+  [ -n "$(B materials | sed -n 2p)" ] && step "materials: Roads & walls tab lists the road's items" ok || step "materials: Roads & walls tab lists the road's items" fail "empty"
+  aclick materials_tab_all; sleep 1
+  # Inventory raises have.
+  B cmd "give @s $item $need0" >/dev/null; sleep 2
+  [ "$(mrow "$item" have)" -ge "$need0" ] 2>/dev/null && [ "$(mfield missing)" -lt "$miss0" ] && step "materials: items in the inventory raise have ($item $need0)" ok || step "materials: items in the inventory raise have" fail "$(B materials | head -3 | tr '\n' '|')"
+  # Warehouse racks raise have, after the refresh button asks the server (at most one request per 2 s).
+  if [ -z "$wh" ]; then step "materials: warehouse stock (no warehouse registered: skipped)" fail "warehouse not found"
+  else
+    item2=$(B materials | sed -n '3p' | cut -d' ' -f1); h0=$(mrow "$item2" have)
+    B stock "$wh $item2 7" >/dev/null; sleep 2.5
+    aclick materials_refresh; sleep 3
+    h1=$(mrow "$item2" have)
+    [ "$(mfield stockKnown)" = true ] && [ "${h1:-0}" -eq $((h0 + 7)) ] && step "materials: warehouse racks raise have after refresh ($item2 $h0 -> $h1)" ok || step "materials: warehouse racks raise have after refresh" fail "$item2 $h0 -> $h1; $(B materials | head -1)"
+  fi
+  # A planned hut shows under Huts, and the totals add up.
+  B planentry "minecolonies:blockhutbuilder Colonial fundamentals/builder1.blueprint 1 $((mx + 20)) $my $((mz + 20))" >/dev/null
+  hn=0; for _ in $(seq 30); do hn=$(mfield huts); [ "${hn:-0}" -gt 0 ] && [ "$(mfield loading)" = false ] && break; sleep 1; done
+  [ "${hn:-0}" -gt 0 ] && [ "$(mfield need)" -ge "$hn" ] && step "materials: a planned hut adds to Huts ($hn)" ok || step "materials: a planned hut adds to Huts" fail "$(B materials | head -1)"
+  B screenshot "materials-huts" >/dev/null
+  # Fit: the panel stays on screen in a small window.
+  setwin 852 480 2
+  c=$(B anchor materials_close); set -- $c
+  [ "$c" != none ] && [ "$2" -ge 0 ] && [ $(($2 + $4)) -le 240 ] && step "materials: panel on screen at 426x240 ($c)" ok || step "materials: panel on screen at 426x240" fail "close at $c"
+  setwin 1600 900 2
+  aclick materials_close; sleep 1
+  [ "$(mfield open)" = false ] && step "materials: close button closes the panel" ok || step "materials: close button closes the panel" fail "open=$(mfield open)"
+  B planentry clear >/dev/null; B clearlines >/dev/null
+  need=1; for _ in $(seq 10); do need=$(mfield need); [ "$need" = 0 ] && break; sleep 1; done
+  [ "$need" = 0 ] && step "materials: Clear empties the needs" ok || step "materials: Clear empties the needs" fail "need=$need"
+fi
+B materials "mode BUILDERS_FREE" >/dev/null; B tool off >/dev/null
+[ -n "${SMOKE_ONLY:-}" ] && { echo "== $passes passed, $fails failed"; [ "$fails" -gt 0 ] && printf 'FAILED: %s\n' "${failed[@]}"; exit $((fails > 0)); }
+
 for pack in "${PACKS[@]}"; do
   echo "== $pack"
   recover "$pack: start on the planner"

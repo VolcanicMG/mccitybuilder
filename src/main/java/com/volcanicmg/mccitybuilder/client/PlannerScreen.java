@@ -18,6 +18,7 @@ import com.volcanicmg.mccitybuilder.planner.ActionIcons;
 import com.volcanicmg.mccitybuilder.planner.Hints;
 import com.volcanicmg.mccitybuilder.planner.JointCount;
 import com.volcanicmg.mccitybuilder.planner.LineHelp;
+import com.volcanicmg.mccitybuilder.planner.Materials;
 import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import com.volcanicmg.mccitybuilder.planner.Plan;
 import com.volcanicmg.mccitybuilder.planner.HutCatalog;
@@ -535,6 +536,8 @@ final class PlannerScreen extends Screen {
 
 
     private static boolean editorOpen;
+    // The line panel's "Needs" row (height with its gap), and the Materials panel's height without its item rows.
+    private static final int MAT_ROW = 16, MAT_FIXED = PAD * 2 + 22 + 12 + 18 + 12 + 4 + 22, MAT_RH = 18;
     // The Pieces panel's height without its role rows.
     private static final int PIECES_FIXED = PAD * 2 + 20 + 2 + 12 + 6 + 12 + 20;
     private static final PieceSets.Role[] EDIT_ROLES = {PieceSets.Role.STRAIGHT, PieceSets.Role.CORNER, PieceSets.Role.TEE,
@@ -664,7 +667,7 @@ final class PlannerScreen extends Screen {
     private static int baseH(int t, boolean picks, boolean lvl, boolean wall, boolean pickMode, boolean pickBuilder) {
         int gb = t < 2 ? 4 : 2, row = 16 + gb, bt = 20 + gb, cap = t == 0 ? 12 : 4, info = t == 0 ? 16 : t < 3 ? 12 : 0;
         return 2 * PAD + 2 * bt + (picks && t < 4 ? bt : 0) + cap + row + (lvl && t < 4 ? row : 0) + 22 + gb + (wall && t < 4 ? bt : 0) + cap + (t < 3 ? 2 * row : row) + bt + info + cap
-                + (t >= 3 && pickMode && pickBuilder ? row : (pickMode ? row : 0) + (pickBuilder ? row : 0)) + 20;
+                + (t >= 3 && pickMode && pickBuilder ? row : (pickMode ? row : 0) + (pickBuilder ? row : 0)) + (MaterialsView.shown() ? MAT_ROW : 0) + 20;
     }
 
     /**
@@ -734,15 +737,18 @@ final class PlannerScreen extends Screen {
         tip3d = null;
         tip3dText = "";
         piecesBox = null;
+        matListBox = null;
         bigDrawnPrev = bigDrawn;
         bigDrawn = null;
         lineBlock = bigBlock = null;
         anchors.clear();
         if (!LineView.active() && PlanView.selectedLine() == null) {
             editorOpen = false;
+            MaterialsView.open = false;
             bigPreview = false;
             return;
         }
+        MaterialsView.poll();
         Plan.Line sel = PlanView.selectedLine();
         String tool = sel != null ? sel.tool() : LineView.tool, pk = sel != null ? sel.pack() : pack();
         String status = sel != null ? null : LineView.status();
@@ -769,7 +775,11 @@ final class PlannerScreen extends Screen {
         linePanelBox = new int[]{x, y, w, h};
         lineBlock = new Hit(x, y, w, h, BLOCK, null);
         int rs = Math.max(18, Math.min(22, (height - 8 - PIECES_FIXED) / EDIT_ROLES.length)), eh = PIECES_FIXED + EDIT_ROLES.length * rs;
-        if (editorOpen && fam != null && status == null) piecesBox = new int[]{Math.max(4, x - 4 - w), Math.max(4, Math.min(y + h - eh, height - 4 - eh)), w, eh};
+        // One side panel at a time: Materials, else Pieces.
+        boolean matOn = MaterialsView.open && MaterialsView.shown() && status == null;
+        int mrows = Math.max(2, Math.min(9, (height - 8 - MAT_FIXED) / MAT_RH)), mh = MAT_FIXED + MAT_RH * Math.max(3, Math.min(mrows, MaterialsView.view(MaterialsView.tab).rows().size()));
+        if (matOn) piecesBox = new int[]{Math.max(4, x - 4 - w), Math.max(4, Math.min(y + h - mh, height - 4 - mh)), w, mh};
+        else if (editorOpen && fam != null && status == null) piecesBox = new int[]{Math.max(4, x - 4 - w), Math.max(4, Math.min(y + h - eh, height - 4 - eh)), w, eh};
         VanillaUi.panel(g, x, y, w, h);
         int ix = x + PAD, iw = w - 2 * PAD, hy = y + PAD;
         PanelIcons.draw(g, "tool_" + tool, ix, hy + 2, 1, false);
@@ -805,6 +815,7 @@ final class PlannerScreen extends Screen {
         hits.add(new Hit(px, hy, pw, 20, () -> {
             click();
             editorOpen = !editorOpen;
+            if (editorOpen) MaterialsView.open = false;
         }, Component.translatable("mccitybuilder.line.pieces.tip")));
         // Edit mode: a full-width button, green while on.
         int iy = hy + 20 + gb;
@@ -989,6 +1000,7 @@ final class PlannerScreen extends Screen {
             if (pickMode) iy = buildModePicker(g, ix, iy, iw, mx, my, Component.translatable("mccitybuilder.line.mode_label").getString());
             if (pickBuilder) iy = builderPicker(g, ix, iy, iw, mx, my, true, Component.translatable("mccitybuilder.line.builder_label").getString());
         }
+        if (MaterialsView.shown()) iy = materialsRow(g, ix, iy, iw, mx, my);
         boolean server = Planner.serverInstant();
         String[] bkeys = {"undo", "remove", "clear", "done", "build"};
         boolean canRemove = LineView.hoverLine >= 0 || sel != null || !LineView.sel.isEmpty();
@@ -1016,8 +1028,137 @@ final class PlannerScreen extends Screen {
             }, Component.translatable(i == 4 && !server ? "mccitybuilder.line.needs_server" : i == 2 ? "mccitybuilder.line.clear.tip." + tool : "mccitybuilder.line." + bkeys[i] + ".tip")));
             bx += bw + 2;
         }
-        if (piecesBox != null) piecesPanel(g, piecesBox[0], piecesBox[1], w, eh, pk, fam, tool, mx, my, jc);
+        if (piecesBox != null && matOn) materialsPanel(g, piecesBox[0], piecesBox[1], w, mh, mx, my);
+        else if (piecesBox != null) piecesPanel(g, piecesBox[0], piecesBox[1], w, eh, pk, fam, tool, mx, my, jc);
     }
+
+    private static String num(int n) {
+        return String.format(java.util.Locale.ROOT, "%,d", n);
+    }
+
+    /** The amber / green ink of a shortfall line: bright on the dark row slot, dark on the panel grey. */
+    private static int shortInk(int missing, boolean dark) {
+        return missing > 0 ? dark ? 0xFFFFB030 : 0xFFB36B00 : dark ? 0xFF55DD55 : 0xFF2E7D32;
+    }
+
+    /** The line panel's "Needs 2,140 items · short 340" row above the footer: amber when short, green when covered; a click opens the Materials panel. @return the y below it */
+    private int materialsRow(GuiGraphics g, int x, int y, int w, int mx, int my) {
+        Materials.View v = MaterialsView.view(Materials.Tab.ALL);
+        String t = v.need() == 0 ? Component.translatable(MaterialsView.loading() ? "mccitybuilder.materials.loading" : "mccitybuilder.materials.row_none").getString()
+                : Component.translatable(v.missing() > 0 ? "mccitybuilder.materials.row_short" : "mccitybuilder.materials.row_ok", num(v.need()), num(v.missing())).getString()
+                + (MaterialsView.loading() ? " …" : "");
+        boolean over = mx >= x && mx < x + w && my >= y && my < y + 14;
+        VanillaUi.slot(g, x, y, w, 14);
+        if (over || MaterialsView.open) g.fill(x + 1, y + 1, x + w - 1, y + 13, over ? 0x40FFFFFF : 0x20FFFFFF);
+        g.drawString(font, font.plainSubstrByWidth(t, w - 16), x + 4, y + 3, v.need() == 0 ? 0xFFB0B0B0 : shortInk(v.missing(), true), false);
+        g.drawString(font, MaterialsView.open ? "<" : ">", x + w - 10, y + 3, 0xFF555555, false);
+        anchor("materials", x, y, w, 14);
+        hits.add(new Hit(x, y, w, 14, () -> {
+            click();
+            MaterialsView.open = !MaterialsView.open;
+            if (MaterialsView.open) editorOpen = false;
+        }, Component.translatable("mccitybuilder.materials.row.tip")));
+        return y + MAT_ROW;
+    }
+
+    /**
+     * The Materials panel (beside the line panel, where the Pieces panel opens): tabs All / Roads and walls / Huts, a
+     * row per item with its icon, need, have and short (red), scrolling with the wheel, and a refresh button. Its hits go
+     * to the front of {@code hits} (it is drawn over the line panel) behind a blocker over the whole panel.
+     */
+    private void materialsPanel(GuiGraphics g, int x, int y, int w, int h, int mx, int my) {
+        int before = hits.size();
+        panels.add(new int[]{x, y, w, h});
+        VanillaUi.panel(g, x, y, w, h);
+        int ix = x + PAD, iw = w - 2 * PAD, hy = y + PAD;
+        PanelIcons.draw(g, "hammer", ix, hy + 2, 1, false);
+        g.drawString(font, Component.translatable("mccitybuilder.materials.title"), ix + 20, hy + 6, VanillaUi.LABEL, false);
+        int cx = ix + iw - 20, rx = cx - 22;
+        VanillaUi.button(g, cx, hy, 20, 20, false, false, mx >= cx && mx < cx + 20 && my >= hy && my < hy + 20);
+        g.drawString(font, "x", cx + 7, hy + 6, 0xFFFFFFFF, true);
+        anchor("materials_close", cx, hy, 20, 20);
+        hits.add(new Hit(cx, hy, 20, 20, () -> {
+            click();
+            MaterialsView.open = false;
+        }, Component.translatable("mccitybuilder.materials.close.tip")));
+        boolean canAsk = MaterialsView.serverKnows();
+        VanillaUi.button(g, rx, hy, 20, 20, false, !canAsk, canAsk && mx >= rx && mx < rx + 20 && my >= hy && my < hy + 20);
+        g.drawString(font, "R", rx + 7, hy + 6, canAsk ? 0xFFFFFFFF : VanillaUi.INK_DISABLED, canAsk);
+        anchor("materials_refresh", rx, hy, 20, 20);
+        hits.add(new Hit(rx, hy, 20, 20, () -> {
+            if (!canAsk) return;
+            click();
+            MaterialsView.forceRefresh();
+        }, Component.translatable("mccitybuilder.materials.refresh.tip")));
+        Materials.View v = MaterialsView.view(MaterialsView.tab);
+        int iy = hy + 22;
+        String sum = v.need() == 0 ? Component.translatable(MaterialsView.loading() ? "mccitybuilder.materials.loading" : "mccitybuilder.materials.row_none").getString()
+                : Component.translatable(v.missing() > 0 ? "mccitybuilder.materials.row_short" : "mccitybuilder.materials.row_ok", num(v.need()), num(v.missing())).getString();
+        g.drawString(font, font.plainSubstrByWidth(sum, iw - 2), ix + 1, iy + 1, v.need() == 0 ? 0xFF6A6A6A : shortInk(v.missing(), false), false);
+        iy += 12;
+        // Tabs: All, Roads & walls, Huts (the chosen one an inset).
+        Materials.Tab[] tabs = Materials.Tab.values();
+        int[] tw = {44, iw - 44 - 52 - 4, 52};
+        int tx = ix;
+        for (int i = 0; i < tabs.length; i++) {
+            Materials.Tab t = tabs[i];
+            boolean on = MaterialsView.tab == t;
+            VanillaUi.button(g, tx, iy, tw[i], 16, on, false, mx >= tx && mx < tx + tw[i] && my >= iy && my < iy + 16);
+            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.materials.tab." + t.name().toLowerCase(java.util.Locale.ROOT)).getString(), tx, iy, tw[i], 16,
+                    VanillaUi.ink(on, false));
+            anchor("materials_tab_" + t.name().toLowerCase(java.util.Locale.ROOT), tx, iy, tw[i], 16);
+            hits.add(new Hit(tx, iy, tw[i], 16, () -> {
+                click();
+                MaterialsView.tab = t;
+                MaterialsView.scroll = 0;
+            }, null));
+            tx += tw[i] + 2;
+        }
+        iy += 18;
+        // Columns: right edges of Short, Have, Need (a scroll bar takes the last 6 units).
+        int colW = 38, shortR = ix + iw - 8, haveR = shortR - colW, needR = haveR - colW, nameX = ix + 22;
+        String[] heads = {"item", "need", "have", "short"};
+        int[] hr = {nameX + font.width(Component.translatable("mccitybuilder.materials.col.item")), needR, haveR, shortR};
+        for (int i = 0; i < heads.length; i++) {
+            String t = Component.translatable("mccitybuilder.materials.col." + heads[i]).getString();
+            g.drawString(font, t, hr[i] - font.width(t), iy, 0xFF6A6A6A, false);
+        }
+        g.fill(ix, iy + 10, ix + iw, iy + 11, 0xFF8B8B8B);
+        iy += 12;
+        int vis = (y + h - 4 - 22 - iy) / MAT_RH;
+        List<Materials.Row> rows = v.rows();
+        MaterialsView.scroll = Math.max(0, Math.min(MaterialsView.scroll, rows.size() - vis));
+        matListBox = new int[]{ix, iy, iw, vis * MAT_RH};
+        if (rows.isEmpty()) g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.materials.empty").getString(), iw - 2), ix + 1, iy + 4, 0xFF6A6A6A, false);
+        for (int i = 0; i < vis && i + MaterialsView.scroll < rows.size(); i++) {
+            Materials.Row r = rows.get(i + MaterialsView.scroll);
+            int ry = iy + i * MAT_RH;
+            ItemStack st = new ItemStack(BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(r.item())));
+            g.renderItem(st, ix + 1, ry + 1);
+            if (my >= ry && my < ry + MAT_RH && mx >= ix && mx < ix + iw) g.fill(ix, ry, ix + iw - 7, ry + MAT_RH, 0x30FFFFFF);
+            g.drawString(font, font.plainSubstrByWidth(st.getHoverName().getString(), needR - font.width(num(r.need())) - nameX - 4), nameX, ry + 5, VanillaUi.LABEL, false);
+            int[] vals = {r.need(), r.have(), r.missing()}, rights = {needR, haveR, shortR};
+            for (int k = 0; k < 3; k++) {
+                String t = k == 2 && vals[k] == 0 ? "-" : num(vals[k]);
+                g.drawString(font, t, rights[k] - font.width(t), ry + 5, k == 2 ? vals[k] > 0 ? 0xFFB02020 : 0xFF6A6A6A : k == 1 && vals[k] < r.need() ? 0xFF555555 : 0xFF404040, false);
+            }
+        }
+        if (rows.size() > vis && vis > 0) {
+            int th = Math.max(8, vis * MAT_RH * vis / rows.size()), ty = iy + (vis * MAT_RH - th) * MaterialsView.scroll / (rows.size() - vis);
+            VanillaUi.scroller(g, ix + iw - 6, iy, vis * MAT_RH, ty, th);
+        }
+        // Hint: what "have" counts (and what it doesn't).
+        int hint = y + h - PAD - 20;
+        g.drawString(font, font.plainSubstrByWidth(Component.translatable(MaterialsView.serverKnows() ? "mccitybuilder.materials.hint" : "mccitybuilder.materials.hint_nostock").getString(), iw), ix + 1, hint, 0xFF555555, false);
+        g.drawString(font, font.plainSubstrByWidth(Component.translatable("mccitybuilder.materials.hint2").getString(), iw), ix + 1, hint + 10, 0xFF555555, false);
+        List<Hit> mine = new ArrayList<>(hits.subList(before, hits.size()));
+        hits.subList(before, hits.size()).clear();
+        hits.add(0, new Hit(x, y, w, h, BLOCK, null));
+        hits.addAll(0, mine);
+    }
+
+    // The Materials panel's item list box this frame (the wheel scrolls there), or null.
+    private int[] matListBox;
 
     /** @return the selected segment's flat level from the layout, or MIN_VALUE */
     private static int selectedFlatY() {
@@ -1990,7 +2131,7 @@ final class PlannerScreen extends Screen {
     }
 
     /** @return item id → count in the player's inventory */
-    private static Map<String, Integer> inventory() {
+    static Map<String, Integer> inventory() {
         Map<String, Integer> out = new java.util.HashMap<>();
         var inv = Minecraft.getInstance().player.getInventory();
         for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -2879,6 +3020,10 @@ final class PlannerScreen extends Screen {
 
     private boolean scrolledImpl(double mx, double my, double sy) {
         // A panel over the preview (the Pieces panel, the joint menu, a tip) takes the wheel.
+        if (matListBox != null && mx >= matListBox[0] && mx < matListBox[0] + matListBox[2] && my >= matListBox[1] && my < matListBox[1] + matListBox[3]) {
+            MaterialsView.scroll = Math.max(0, MaterialsView.scroll - (int) Math.signum(sy));
+            return true;
+        }
         Hit blocker = blockerAt(mx, my);
         if (blocker != null && blocker != lineBlock && blocker != bigBlock) return true;
         if (cardBox != null && mx >= cardBox[0] && mx < cardBox[0] + cardBox[2] && my >= cardBox[1] && my < cardBox[1] + cardBox[3]) {
