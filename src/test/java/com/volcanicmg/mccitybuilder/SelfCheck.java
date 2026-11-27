@@ -1054,20 +1054,172 @@ public final class SelfCheck {
         return a.sx() == b.sx() && a.sy() == b.sy() && a.sz() == b.sz() && java.util.Arrays.equals(a.ids(), b.ids());
     }
 
-    /** A closed loop of walls faces out: counter-clockwise (north up) as drawn, clockwise flipped; open chains untouched. */
+    /**
+     * Walls face out on their own ({@link Plan#outwardFlip}): a loop out of what it encloses whichever way it was drawn,
+     * an open chain away from the town hall (on both sides of it), a branch on from the wall it joins; a chain the
+     * player flipped in part is left alone.
+     */
     private static void faceOut() {
-        java.util.function.Function<int[][], List<Plan.Line>> loop = pts -> {
+        java.util.function.Function<int[][], List<Plan.Line>> chain = pts -> {
             List<Plan.Line> out = new java.util.ArrayList<>();
-            for (int k = 0; k < pts.length; k++) out.add(new Plan.Line("wall", pts[k][0], pts[k][1], pts[(k + 1) % pts.length][0], pts[(k + 1) % pts.length][1], "p", "f", 1, 0, false, false));
+            for (int k = 0; k + 1 < pts.length; k++) out.add(new Plan.Line("wall", pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1], "p", "f", 1, 0, false, false));
             return out;
         };
-        int[][] ccw = {{20, 0}, {0, 0}, {0, 10}, {20, 10}}, cw = {{0, 0}, {20, 0}, {20, 10}, {0, 10}};
-        check(Boolean.FALSE.equals(Plan.faceOutFlip(loop.apply(ccw))), "a loop drawn counter-clockwise already faces out");
-        check(Boolean.TRUE.equals(Plan.faceOutFlip(loop.apply(cw))), "a loop drawn clockwise flips to face out");
-        check(Plan.faceOutFlip(loop.apply(cw).subList(0, 3)) == null, "an open chain keeps its facing");
-        List<Plan.Line> mixed = new java.util.ArrayList<>(loop.apply(cw));
+        int[][] ccw = {{20, 0}, {0, 0}, {0, 10}, {20, 10}, {20, 0}}, cw = {{0, 0}, {20, 0}, {20, 10}, {0, 10}, {0, 0}};
+        List<Plan.Line> none = List.of();
+        // A loop: the town hall doesn't matter (inside, outside or unknown).
+        for (int[] th : new int[][]{null, {10, 5}, {100, 100}}) {
+            check(Boolean.FALSE.equals(Plan.outwardFlip(chain.apply(ccw), none, th)), "a loop drawn counter-clockwise already faces out");
+            check(Boolean.TRUE.equals(Plan.outwardFlip(chain.apply(cw), none, th)), "a loop drawn clockwise flips to face out");
+        }
+        // An L-shaped loop (a concave corner): still out of what it encloses.
+        int[][] ell = {{0, 0}, {20, 0}, {20, 10}, {10, 10}, {10, 20}, {0, 20}, {0, 0}};
+        check(Boolean.TRUE.equals(Plan.outwardFlip(chain.apply(ell), none, null)), "an L-shaped loop drawn clockwise flips");
+        // Open: away from the town hall, on either side; none known: the default stays.
+        int[][] open = {{0, 0}, {20, 0}, {20, 10}};
+        check(Boolean.TRUE.equals(Plan.outwardFlip(chain.apply(open), none, new int[]{10, 5})), "an open chain around the town hall on its right flips");
+        check(Boolean.FALSE.equals(Plan.outwardFlip(chain.apply(open), none, new int[]{30, -10})), "an open chain with the town hall on its left already faces out");
+        check(Boolean.FALSE.equals(Plan.outwardFlip(chain.apply(new int[][]{{0, 0}, {20, 0}}), none, new int[]{10, -6})), "a straight wall south of the town hall faces south");
+        check(Boolean.TRUE.equals(Plan.outwardFlip(chain.apply(new int[][]{{0, 0}, {20, 0}}), none, new int[]{10, 6})), "a straight wall north of the town hall faces north");
+        check(Plan.outwardFlip(chain.apply(open), none, null) == null && Plan.outwardFlip(chain.apply(new int[][]{{0, 0}, {20, 0}}), none, new int[]{30, 0}) == null,
+                "no town hall, or the town hall on the wall's line: the default stays");
+        // Joining another wall: its outside carries on through the joint, whatever the town hall says.
+        Plan.Line wall = new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, 0, false, false);
+        for (boolean f : new boolean[]{false, true}) {
+            Plan.Line w = wall.withFlip(f);
+            check(Boolean.valueOf(f).equals(Plan.outwardFlip(chain.apply(new int[][]{{20, 0}, {20, 10}}), List.of(w), new int[]{25, 5})), "on from a wall's end: its flip");
+            check(Boolean.valueOf(!f).equals(Plan.outwardFlip(chain.apply(new int[][]{{0, 0}, {0, 10}}), List.of(w), new int[]{5, 5})), "off a wall's start: the other flip");
+            check(Boolean.valueOf(f).equals(Plan.outwardFlip(chain.apply(new int[][]{{0, 10}, {0, 0}}), List.of(w), new int[]{5, 5})), "into a wall's start: its flip");
+            // A T branch (the wall split at the branch, or not yet): continues the half arriving at the joint.
+            List<Plan.Line> split = List.of(w.between(0, 0, 10, 0), w.between(10, 0, 20, 0));
+            for (List<Plan.Line> ls : List.of(split, List.of(w)))
+                for (int[][] br : new int[][][]{{{10, 0}, {10, 10}}, {{10, 0}, {10, -10}}, {{10, 10}, {10, 0}}})
+                    check(Boolean.valueOf(f).equals(Plan.outwardFlip(chain.apply(br), ls, new int[]{3, 3})), "a T branch follows the wall it joins");
+        }
+        // The player's flip: a chain flipped in part is left alone.
+        List<Plan.Line> mixed = new java.util.ArrayList<>(chain.apply(cw));
         mixed.set(1, mixed.get(1).withFlip(true));
-        check(Plan.faceOutFlip(mixed) == null, "a loop the player flipped in part is left alone");
+        check(Plan.outwardFlip(mixed, none, null) == null, "a loop the player flipped in part is left alone");
+        check(Plan.outwardFlip(List.of(new Plan.Line("road", 0, 0, 20, 0, "p", "f", 1, 0, false, false)), none, new int[]{10, 6}) == null, "roads have no outside");
+    }
+
+    /**
+     * One click of the wall tool as LineView.drop makes it, with the plan's own calls: the segment's side
+     * (LineView.flipFor: {@link Plan#autoFlip} with it added), a free end joined from across moved (LineView.moveEnd =
+     * {@link Plan.Line#between}), an end on a wall's body split there ({@link Plan#split}, PlanView.splitAt), the
+     * segment added, the walls it passes split ({@link Plan#splitThrough}), then {@link Plan#faceChain} (LineView.faceOut).
+     * Left out (they don't change which walls a chain holds or how they face): the drop's straight-on merge and corner
+     * grow, the T-cell split of a passed free end, the crossing code's own swap of the new segment's parts (faceChain
+     * finds them again anyway), refitAround's length refits; and the side is picked before the free-end move and end
+     * split, which the drop does after building the segment (neither moves a wall of the chain).
+     *
+     * @param adjust {line index, end, x, z} of a free end joined from across, or null
+     */
+    private static Plan.Faced click(List<Plan.Line> lines, List<Plan.Line> chain, int[] hall, int[] a, int[] b, int[] adjust) {
+        List<Plan.Line> ls = new java.util.ArrayList<>(lines), ch = new java.util.ArrayList<>(chain);
+        Plan.Line l = new Plan.Line("wall", a[0], a[1], b[0], b[1], "p", "f", 1, 0, false, false);
+        List<Plan.Line> with = new java.util.ArrayList<>(ch);
+        with.add(l);
+        Boolean f = Plan.autoFlip(with, ls, hall);
+        l = l.faced(f != null ? f : !ch.isEmpty() && ch.get(0).flip());
+        if (adjust != null) {
+            Plan.Line o = ls.get(adjust[0]);
+            ls.set(adjust[0], adjust[1] == 0 ? o.between(adjust[2], adjust[3], o.x1(), o.z1()) : o.between(o.x0(), o.z0(), adjust[2], adjust[3]));
+        }
+        Plan.split(ls, b, x -> false);
+        ls.add(l);
+        ch.add(l);
+        Plan.splitThrough(ls, l, x -> false);
+        return Plan.faceChain(ls, ch, hall, x -> false, true);
+    }
+
+    /** @return the plan after drawing one chain through {@code pts} on {@code lines} */
+    private static List<Plan.Line> drawChain(List<Plan.Line> lines, int[] hall, int[]... pts) {
+        Plan.Faced r = new Plan.Faced(lines, List.of());
+        for (int k = 0; k + 1 < pts.length; k++) r = click(r.lines(), r.chain(), hall, pts[k], pts[k + 1], null);
+        return r.lines();
+    }
+
+    /** @return true when the single loop through segment i faces out of what it encloses (every wall as {@link Plan#loopFlips} wants) */
+    private static boolean loopOut(List<Plan.Line> lines, int i) {
+        var m = Plan.loopFlips(lines, i);
+        return m != null && m.entrySet().stream().allMatch(e -> lines.get(e.getKey()).flip() == e.getValue());
+    }
+
+    /**
+     * Walls drawn click by click (the line tool's real split / move / face calls) face out as one chain, never mixed;
+     * loops (a lasso, a self-crossing chain, rings of two chains closed by a T or by joining a free end from across)
+     * face out of what they enclose; a wall the player flipped stays; Undo then redrawing gives the same plan.
+     */
+    private static void autoChains() {
+        java.util.function.Function<List<Plan.Line>, java.util.Set<Boolean>> sides = ls -> {
+            java.util.Set<Boolean> s = new java.util.HashSet<>();
+            for (Plan.Line l : ls) s.add(l.flip());
+            return s;
+        };
+        int[][] cw = {{0, 0}, {20, 0}, {20, 10}, {0, 10}, {0, 0}}, ccw = {{0, 0}, {0, 10}, {20, 10}, {20, 0}, {0, 0}};
+        // The town hall outside the ring: the open chain faced one way until the ring closed; the whole ring turns.
+        for (int[] hall : new int[][]{{100, 5}, {-50, -50}, {10, 5}, null}) {
+            check(sides.apply(drawChain(List.of(), hall, cw)).equals(java.util.Set.of(true)), "a ring drawn clockwise faces out as one");
+            check(sides.apply(drawChain(List.of(), hall, ccw)).equals(java.util.Set.of(false)), "a ring drawn counter-clockwise faces out as one");
+        }
+        // An open chain whose side of the town hall changes as it grows: one side for all of it, the final chain's.
+        List<Plan.Line> g = drawChain(List.of(), new int[]{5, 5}, new int[]{0, 0}, new int[]{10, 0}, new int[]{10, -20}, new int[]{40, -20}, new int[]{40, 30});
+        check(sides.apply(g).size() == 1 && Boolean.valueOf(g.get(0).flip()).equals(Plan.autoFlip(g, g, new int[]{5, 5})), "a growing open chain stays one side");
+        // The town hall north-west: the open chains face the other way until their loop closes.
+        int[] far = {-50, -50};
+        // A lasso: the chain ends on its own first wall (split there); the ring and its tail face out of the ring.
+        List<Plan.Line> lasso = drawChain(List.of(), far, new int[]{0, 0}, new int[]{20, 0}, new int[]{20, 10}, new int[]{10, 10}, new int[]{10, 0});
+        check(lasso.size() == 5 && sides.apply(lasso).equals(java.util.Set.of(true)) && loopOut(lasso, lasso.size() - 1), "a lasso faces out of its ring");
+        // A chain crossing its own first wall (both split): the same.
+        List<Plan.Line> cross = drawChain(List.of(), far, new int[]{0, 0}, new int[]{20, 0}, new int[]{20, 10}, new int[]{10, 10}, new int[]{10, -10});
+        check(cross.size() == 6 && sides.apply(cross).equals(java.util.Set.of(true)) && loopOut(cross, 1), "a self-crossing chain faces out of its loop: " + cross);
+        // A ring of two chains closed by a T onto the first one's body.
+        List<Plan.Line> a = drawChain(List.of(), far, new int[]{0, 0}, new int[]{20, 0}, new int[]{20, 10});
+        List<Plan.Line> tee = drawChain(a, far, new int[]{20, 10}, new int[]{10, 10}, new int[]{10, 0});
+        check(loopOut(tee, tee.size() - 1), "a ring closed by a T onto another chain faces out of it");
+        // ... closed by joining the first chain's free end from across (that end moves onto the line).
+        List<Plan.Line> b = drawChain(List.of(), far, new int[]{2, 0}, new int[]{20, 0}, new int[]{20, 10});
+        Plan.Faced j = click(b, List.of(), far, new int[]{20, 10}, new int[]{0, 10}, null);
+        j = click(j.lines(), j.chain(), far, new int[]{0, 10}, new int[]{0, 0}, new int[]{0, 0, 0, 0});
+        check(loopOut(j.lines(), j.lines().size() - 1), "a ring closed by joining a free end from across faces out of it");
+        // ... but a wall the player flipped since stays as it is (withFlip: the player's side).
+        List<Plan.Line> pf = new java.util.ArrayList<>(drawChain(List.of(), far, new int[]{0, 0}, new int[]{20, 0}, new int[]{20, 10}));
+        pf.set(0, pf.get(0).withFlip(!pf.get(0).flip()));
+        boolean kept = pf.get(0).flip();
+        check(drawChain(pf, far, new int[]{20, 10}, new int[]{0, 10}, new int[]{0, 0}).get(0).flip() == kept && !pf.get(0).faced(),
+                "a wall the player flipped stays when a loop closes");
+        // Undo of a loop closure, then the same click again: the same plan (sides and faced marks travel in the lines).
+        Plan.Faced half = new Plan.Faced(List.of(), List.of());
+        for (int k = 0; k < 3; k++) half = click(half.lines(), half.chain(), far, cw[k], cw[k + 1], null);
+        Plan.Faced closed = click(half.lines(), half.chain(), far, cw[3], cw[4], null);
+        Plan.Faced again = click(half.lines(), half.chain(), far, cw[3], cw[4], null);
+        check(closed.lines().equals(again.lines()) && closed.lines().stream().allMatch(Plan.Line::faced), "undo then redraw closes the loop the same way");
+        // A chain holding a locked (sending) segment isn't turned: it stays one side.
+        List<Plan.Line> open = drawChain(List.of(), new int[]{10, 5}, new int[]{0, 0}, new int[]{20, 0});
+        Plan.Line sending = open.get(0);
+        Plan.Faced held = Plan.faceChain(open, open, new int[]{10, -5}, l -> l.equals(sending), true);
+        check(held.lines().equals(open), "a chain with a sending segment isn't turned");
+        // A chord makes no single loop.
+        List<Plan.Line> chord = new java.util.ArrayList<>(drawChain(List.of(), null, cw));
+        chord.add(new Plan.Line("wall", 0, 0, 20, 10, "p", "f", 1, 0, false, false));
+        check(Plan.loopFlips(chord, 0) == null, "a chord: no single loop");
+        // Saved and read back, the planner's sides stay the planner's; a line saved without the mark is the player's.
+        String txt = Plan.write(List.of(), closed.lines(), java.util.Map.of(), java.util.Map.of(), List.of());
+        check(Plan.readLines(txt).equals(closed.lines()) && !Plan.readLines(txt.replaceAll("(?m)^A\t.*\n", "")).get(0).faced(), "faced marks are saved");
+    }
+
+    /**
+     * Minecolonies Original's palisade (Ethan's "posts inward" corner): its straights run along their 6-long side, and a
+     * ring's corners (counter-clockwise as drawn = L-left; clockwise, faced out by the flip = L-right-flipped) turn the
+     * corner's log L onto both runs.
+     */
+    private static void palisadeRing() throws Exception {
+        var fam = JointCases.classify("original").get("wall:walls/palisade");
+        for (var g : fam.straights()) for (var p : g.pieces()) check(p.nativeDir() == 0, "palisade straights run along x: " + p.path());
+        for (JointCases.Case cs : JointCases.cases("original", "wall:walls/palisade"))
+            if (cs.name().equals("L-left") || cs.name().equals("L-right-flipped"))
+                for (JointCases.Run r : cs.runs()) check(r.fit().match() >= 0.9, "palisade ring corner meets its run: " + cs.name() + " " + r.fit().match());
     }
 
     /** Edit-mode nodes: a node shared with a built segment can't be dragged (it would move the built end). */
@@ -1084,6 +1236,9 @@ public final class SelfCheck {
         builtNodes();
         fillGaps();
         faceOut();
+        autoChains();
+        // Early on purpose: recorded layouts hash block names, so the order pieces are read in doesn't matter.
+        palisadeRing();
         List<int[][]> segs = new java.util.ArrayList<>();
         segs.add(new int[][]{{0, 0}, {20, 0}});
         // Ends snap to an existing endpoint near the cursor; otherwise to 45° steps from the previous direction.
@@ -1561,8 +1716,16 @@ public final class SelfCheck {
         }
         check(LineSnap.joinEnd(new int[]{11, -12}, a, 1, false, 3) == null, "a shared end doesn't move");
         check(LineSnap.joinEnd(new int[]{3, 5}, new int[][]{{0, 0}, {10, 0}}, 1, true, 3) == null, "parallel and off the line: no joint");
-        // Corners: a clockwise loop (east, then south) bends away from the left-hand outside: outer; the other way: inner.
-        check(!PieceLayout.innerTurn(2, 1, false) && PieceLayout.innerTurn(2, 3, false) && PieceLayout.innerTurn(2, 1, true), "inner / outer corner by turn and flip");
+        // Corners: east then north (a left turn) with the outside on the right wraps around it: outer; east then south: inner.
+        Plan.Line east = new Plan.Line("wall", 0, 0, 10, 0, "p", "f", 1, 0, false, false), north = new Plan.Line("wall", 10, 0, 10, -10, "p", "f", 1, 0, false, false),
+                south = new Plan.Line("wall", 10, 0, 10, 10, "p", "f", 1, 0, false, false);
+        check(PieceLayout.outside(0, false) == 1 && PieceLayout.outside(0, true) == 3 && PieceLayout.outside(3, false) == 0, "walls face out to the right, flipped to the left");
+        check(!PieceLayout.concave(List.of(east, north), List.of(2, 3)) && PieceLayout.concave(List.of(east, south), List.of(2, 1))
+                && PieceLayout.concave(List.of(east.withFlip(true), north.withFlip(true)), List.of(2, 3)), "inner / outer corner by turn and flip");
+        check(!PieceLayout.concave(List.of(east, north.withFlip(true)), List.of(2, 3)) && !PieceLayout.concave(List.of(east, south.withFlip(true)), List.of(2, 1)),
+                "walls facing different ways: the plain corner");
+        Plan.Line re = new Plan.Line("road", 0, 0, 10, 0, "p", "f", 1, 0, false, false), rs = new Plan.Line("road", 10, 0, 10, 10, "p", "f", 1, 0, false, false);
+        check(!PieceLayout.concave(List.of(re, rs), List.of(2, 1)), "roads have no outside");
         check(LineSnap.radiusPx(40, 70, 240, 24) > LineSnap.RADIUS && LineSnap.radiusPx(1, 70, 240, 24) == LineSnap.RADIUS, "snap radius in screen pixels");
         check(LineSnap.extension(18, 0, 4, new int[]{9}, 20) == 4 && LineSnap.extension(22, 0, 4, new int[]{9}, 20) == 0, "grow a run for a new joint");
         check(PieceLayout.pickJoint(List.of(new int[]{4, 2}, new int[]{6, 0}), 1) == 1 && PieceLayout.pickJoint(List.of(new int[]{6, 2}, new int[]{6, 0}), 1) == 0,
@@ -1774,9 +1937,16 @@ public final class SelfCheck {
         return true;
     }
 
+    /** @return a grid's hash by block names, not the reader's ids (those depend on the order pieces were first read) */
+    private static int gridHash(PieceLayout.Grid g) {
+        int h = 1;
+        for (int id : g.ids()) h = 31 * h + (id > 0 ? PackPieces.name(id).hashCode() : id);
+        return h;
+    }
+
     /** @return a joint's layout as the planner places it: piece, turn (its blocks), box and each run's out, offset, shift, depth */
     private static String layoutSig(JointCases.Case cs) {
-        StringBuilder g = new StringBuilder(cs.jointPath() + "|" + Integer.toHexString(java.util.Arrays.hashCode(cs.joint().ids())) + "|" + java.util.Arrays.toString(cs.jointBox()));
+        StringBuilder g = new StringBuilder(cs.jointPath() + "|" + Integer.toHexString(gridHash(cs.joint())) + "|" + java.util.Arrays.toString(cs.jointBox()));
         for (var r : cs.runs()) g.append("|").append(r.out()).append(":").append(r.fit().off()).append(",").append(r.fit().shift()).append(",").append(r.fit().depth());
         return g.toString();
     }
@@ -1888,9 +2058,9 @@ public final class SelfCheck {
         for (var cs : all) {
             for (var r : cs.runs()) if (r.fit().depth() < 0) noContact.merge(cs.family(), 1, Integer::sum);
             String fam = cs.family().replaceAll(" L\\d+$", "");
-            StringBuilder g = new StringBuilder(fam + "|" + cs.name() + "|" + cs.jointPath() + "|" + Integer.toHexString(java.util.Arrays.hashCode(cs.joint().ids())) + "x" + cs.joint().sx());
+            StringBuilder g = new StringBuilder(fam + "|" + cs.name() + "|" + cs.jointPath() + "|" + Integer.toHexString(gridHash(cs.joint())) + "x" + cs.joint().sx());
             for (var r : cs.runs())
-                g.append("|").append(r.out()).append(":").append(Integer.toHexString(java.util.Arrays.hashCode(r.straight().ids()))).append(":").append(r.fit().off())
+                g.append("|").append(r.out()).append(":").append(Integer.toHexString(gridHash(r.straight()))).append(":").append(r.fit().off())
                         .append(",").append(r.fit().shift()).append(",").append(r.fit().depth());
             String geo = g.toString(), id = cs.family() + "|" + cs.name();
             if (!seen.add(geo)) continue;
@@ -2157,11 +2327,13 @@ public final class SelfCheck {
         List<Plan.Line> tri = List.of(new Plan.Line("wall", 0, 0, 20, 0, "p", "f", 1, -1, false, false), new Plan.Line("wall", 20, 0, 20, 20, "p", "f", 1, -1, false, false),
                 new Plan.Line("wall", 20, 20, 0, 20, "p", "f", 1, -1, false, false), new Plan.Line("wall", 0, 20, 0, 0, "p", "f", 1, -1, false, false));
         check(Plan.connected(tri, 0).size() == 4, "a closed loop is one wall");
-        // Auto: every L gets the plain corner whichever way it turns or faces; T, cross and straight on by count.
-        for (int a = 0; a < 4; a++)
-            check(PieceLayout.autoRole(2, false, a, (a + 1) % 4, false) == PieceLayout.CORNER && PieceLayout.autoRole(2, false, a, (a + 3) % 4, true) == PieceLayout.CORNER, "every L gets the corner");
-        check(PieceLayout.autoRole(3, false, 0, 1, false) == PieceLayout.TEE && PieceLayout.autoRole(4, false, 0, 1, true) == PieceLayout.CROSS
-                && PieceLayout.autoRole(2, true, 0, 2, false) == PieceLayout.NONE, "T, cross, straight on");
+        // Auto: an L gets the outer corner, the inner one when the walls face out into its bend; T, cross and straight on by count.
+        check(PieceLayout.autoRole(2, false, false) == PieceLayout.CORNER && PieceLayout.autoRole(2, false, true) == PieceLayout.INNER, "an L's corner follows the walls' outside");
+        check(PieceLayout.jointRoles(Plan.J_AUTO, 2, false, false, true).equals(List.of(PieceSets.Role.INNER, PieceSets.Role.CORNER))
+                && PieceLayout.jointRoles(Plan.J_CORNER, 2, false, false, true).get(0) == PieceSets.Role.CORNER
+                && PieceLayout.jointRoles(Plan.J_AUTO, 2, false, true, true).get(0) == PieceSets.Role.TOWER, "a chosen type or towers win over the outside");
+        check(PieceLayout.autoRole(3, false, true) == PieceLayout.TEE && PieceLayout.autoRole(4, false, false) == PieceLayout.CROSS
+                && PieceLayout.autoRole(2, true, true) == PieceLayout.NONE, "T, cross, straight on");
         // A free end's menu: auto / end cap / tower / none, never an L's corners; a tower there is laid out like a joint
         // (its role first, the cap as the stand-in); its type survives pruning while the end exists.
         check(Plan.menuTypes(1, false).equals(List.of(Plan.J_AUTO, Plan.J_CAP, Plan.J_TOWER, Plan.J_NONE)) && !Plan.menuTypes(1, false).contains(Plan.J_CORNER)
@@ -2814,6 +2986,24 @@ public final class SelfCheck {
                 {"city wall[■]", "OTHER"}, {"Cliff spiral staircase【Bottom】", "SLOPE"}, {"guardtower3", "TOWER"}, {"rampart", "OTHER"}};
         for (String[] r : roles) check(PieceSets.role(r[0]).name().equals(r[1]), "role of " + r[0] + ": " + PieceSets.role(r[0]));
         check(PieceSets.notInSet("diag2") && PieceSets.notInSet("city wall[━╲]") && !PieceSets.notInSet("straight"), "not-in-set names");
+        // S-jogs by shape (Shogun's bend 12x8, bend_short 6x5, curve 10x7 as scanned): a "corner" running through and out
+        // the far side is no corner; a curved L (turnwide 7x7) and a straight with an empty margin stay what they are.
+        String[][] jogs = {
+                {".......###..", ".....#######", "....########", "..##########", "#######...##", "#####.......", "####........", "##.........."},
+                {".###..", "######", "######", "######", "#...##"},
+                {"......##..", "....######", "..########", "##########", "######..##", "####......", "##........"}};
+        for (String[] rows : jogs) {
+            int sx = rows[0].length(), sz = rows.length;
+            boolean[] b = new boolean[sx * sz];
+            for (int z = 0; z < sz; z++) for (int x = 0; x < sx; x++) b[z * sx + x] = rows[z].charAt(x) == '#';
+            int got = PieceSets.openSides(b, sx, sz);
+            check(got == PieceSets.THROUGH && PieceSets.decide("bend", got) == PieceSets.Role.OTHER && PieceSets.decide("curve", got) == PieceSets.Role.OTHER,
+                    "an S-jog is no corner: " + PieceSets.sidesName(got));
+        }
+        String[] wide = {"....###", "...####", "..#####", ".######", "######.", "#####..", "####..."};
+        boolean[] wb = new boolean[49];
+        for (int z = 0; z < 7; z++) for (int x = 0; x < 7; x++) wb[z * 7 + x] = wide[z].charAt(x) == '#';
+        check(PieceSets.openSides(wb, 7, 7) != PieceSets.THROUGH && PieceSets.decide("bend", 15) == PieceSets.Role.CORNER, "a curved L stays a corner, also named bend");
         // Shapes, top-down ('#' body): straight, corner (outer sides are face bands), T (the bar is a face), cross, end; a
         // full oblong is a straight along its long side, a full square is unclear; merlon rows are trimmed.
         String[][] shapes = {

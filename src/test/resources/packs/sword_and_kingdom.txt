@@ -4,7 +4,7 @@ P	infrastructure/road/3-lane road【curve】.blueprint	12	2	12	12
 P	infrastructure/road/3-lane road【long】.blueprint	30	2	3	5
 P	infrastructure/road/3-lane road【short】.blueprint	3	2	12	10
 P	infrastructure/road/3-lane road【↑↑↑】.blueprint	3	6	6	5
-P	infrastructure/road/3-lane road【↑↑】.blueprint	13	4	3	11
+P	infrastructure/road/3-lane road【↑↑】.blueprint	13	4	3	16
 P	infrastructure/road/3-lane road【↑】.blueprint	3	3	19	10
 P	infrastructure/road/5 or 7-lane wide intersection.blueprint	15	11	15	15
 P	infrastructure/road/5-lane road【grade separation】.blueprint	17	9	13	0
@@ -18,7 +18,7 @@ P	infrastructure/road/Cliff spiral staircase【Bottom】.blueprint	9	13	11	5
 P	infrastructure/road/Cliff spiral staircase【Link】.blueprint	9	15	11	5
 P	infrastructure/road/Coastal road【1】.blueprint	11	13	6	13
 P	infrastructure/road/Coastal road【2】.blueprint	12	13	12	12
-P	walls/city wall[gate].blueprint	21	21	9	15
+P	walls/city wall[gate].blueprint	21	21	9	16
 P	walls/city wall[∩].blueprint	9	22	6	5
 P	walls/city wall[∩‖].blueprint	9	22	7	5
 P	walls/city wall[∩∩∩].blueprint	27	22	6	5

@@ -125,10 +125,17 @@ public final class Plan {
      * out); {@code height}: one of {@link #FOLLOW} .. {@link #SMOOTH}; {@code dy}: blocks added to that height;
      * {@code base}: the chain's shared ground level ({@link #CHAIN}); {@code built}: already built (kept so new
      * segments can snap and join onto it; never built again); {@code fill}: its uncovered cells are closed by a straight
-     * cropped to exactly those cells (Fill gaps, opt-in).
+     * cropped to exactly those cells (Fill gaps, opt-in); {@code faced}: the planner set its side (walls face out on
+     * their own, {@link #autoFlip}) and the player hasn't changed it, so a loop closed later may turn it (saved as
+     * {@code A} rows; lines saved without one, shared or older, count as the player's).
      */
     public record Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
-                       boolean gate, boolean flip, int height, int dy, int base, boolean built, boolean fill) {
+                       boolean gate, boolean flip, int height, int dy, int base, boolean built, boolean fill, boolean faced) {
+        public Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
+                    boolean gate, boolean flip, int height, int dy, int base, boolean built, boolean fill) {
+            this(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, fill, false);
+        }
+
         public Line(String tool, int x0, int z0, int x1, int z1, String pack, String family, int level, int variant, boolean towers,
                     boolean gate, boolean flip, int height, int dy, int base, boolean built) {
             this(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, false);
@@ -144,24 +151,30 @@ public final class Plan {
 
         /** @return this segment with other ends (a split keeps every option) */
         public Line between(int ax, int az, int bx, int bz) {
-            return new Line(tool, ax, az, bx, bz, pack, family, level, variant, towers, gate, flip, height, dy, base, built, fill);
+            return new Line(tool, ax, az, bx, bz, pack, family, level, variant, towers, gate, flip, height, dy, base, built, fill, faced);
         }
 
+        /** @return this segment with side {@code f} chosen by the player (no longer the planner's to turn) */
         public Line withFlip(boolean f) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, f, height, dy, base, built, fill);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, f, height, dy, base, built, fill, false);
+        }
+
+        /** @return this segment faced by the planner: side {@code f}, still the planner's to turn */
+        public Line faced(boolean f) {
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, f, height, dy, base, built, fill, true);
         }
 
         public Line withHeight(int mode, int d, int b) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, mode, d, b, built, fill);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, mode, d, b, built, fill, faced);
         }
 
         public Line asBuilt() {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, true, fill);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, true, fill, faced);
         }
 
         /** @return this segment as a plain planned one (its built blocks were taken down) */
         public Line asPlanned() {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, false, fill);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, false, fill, faced);
         }
 
         public int[][] ends() {
@@ -169,11 +182,11 @@ public final class Plan {
         }
 
         public Line with(String family, int level, int variant, boolean towers, boolean gate) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, fill);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, fill, faced);
         }
 
         public Line withFill(boolean f) {
-            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, f);
+            return new Line(tool, x0, z0, x1, z1, pack, family, level, variant, towers, gate, flip, height, dy, base, built, f, faced);
         }
     }
 
@@ -297,6 +310,9 @@ public final class Plan {
         // Fill gaps: its own row type (older builds skip rows they don't know; an extra L3 field would drop the line).
         for (Line l : lines)
             if (l.fill()) sb.append(String.join("\t", "F", "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1())).append('\n');
+        // Faced by the planner (its own row type too): without one a line's side is the player's.
+        for (Line l : lines)
+            if (l.faced()) sb.append(String.join("\t", "A", "" + l.x0(), "" + l.z0(), "" + l.x1(), "" + l.z1())).append('\n');
         for (Entry e : entries)
             sb.append(String.join("\t", e.isHut() ? e.hut() : "-", e.pack(), e.path(), "" + e.level(), "" + e.x(), "" + e.y(), "" + e.z(), "" + e.rot(),
                     "" + e.minX(), "" + e.minY(), "" + e.minZ(), "" + e.maxX(), "" + e.maxY(), "" + e.maxZ())).append('\n');
@@ -369,10 +385,11 @@ public final class Plan {
         String[] rows = text.split("\n");
         if (rows.length == 0 || !rows[0].startsWith("mccitybuilder-plan\t") && !rows[0].startsWith("colonyplanner-plan\t")) return out;
         // Fill gaps rows ("F x0 z0 x1 z1"): the segments they name fill their gaps.
-        java.util.Set<String> filled = new java.util.HashSet<>();
+        java.util.Set<String> filled = new java.util.HashSet<>(), faced = new java.util.HashSet<>();
         for (String r : rows) {
             String[] f = r.split("\t");
             if (f.length == 5 && f[0].equals("F")) filled.add(f[1].trim() + "," + f[2].trim() + "," + f[3].trim() + "," + f[4].trim());
+            if (f.length == 5 && f[0].equals("A")) faced.add(f[1].trim() + "," + f[2].trim() + "," + f[3].trim() + "," + f[4].trim());
         }
         for (int i = 1; i < rows.length; i++) {
             String[] f = rows[i].split("\t");
@@ -388,7 +405,8 @@ public final class Plan {
                     int base = Integer.parseInt(f[15]);
                     if (mode < FOLLOW || mode > SMOOTH || Math.abs(dy) > 64 || base != NO_BASE && Math.abs(base) > 4096) continue;
                     l = new Line(l.tool(), x0, z0, x1, z1, l.pack(), l.family(), l.level(), l.variant(), l.towers(), l.gate(), Boolean.parseBoolean(f[12]),
-                            mode, dy, base, Boolean.parseBoolean(f[16].trim()), filled.contains(x0 + "," + z0 + "," + x1 + "," + z1));
+                            mode, dy, base, Boolean.parseBoolean(f[16].trim()), filled.contains(x0 + "," + z0 + "," + x1 + "," + z1),
+                            faced.contains(x0 + "," + z0 + "," + x1 + "," + z1));
                 }
                 out.add(l);
             } catch (NumberFormatException ignored) {
@@ -461,26 +479,183 @@ public final class Plan {
     }
 
     /**
-     * Walls face out to the right of their drawing direction (the battlement side; {@code flip} swaps it). A chain of
-     * walls closed on its own start is a loop: drawn counter-clockwise seen from above (north up) it already faces
-     * out, drawn clockwise every wall faces in.
+     * Walls face out to the right of their drawing direction (the battlement side; {@code flip} swaps it). The flip a
+     * chain of walls needs to face out, first rule that applies: closed on its own start (a loop), away from the area
+     * it encloses; starting (else ending) on another wall, that wall's outside carried on through the joint (a T
+     * branch continues the half arriving at it); else away from {@code centre} (the colony's town hall).
      *
-     * @param chain the chain's segments in drawing order
-     * @return the flip every segment needs to face out of the loop, or null when the chain isn't a closed loop of
-     * walls drawn end to end with one flip
+     * @param chain  the chain's segments in drawing order
+     * @param lines  every planned segment (the chain's own are skipped)
+     * @param centre {x, z} of the town hall, or null
+     * @return the flip for every segment of the chain, or null when it can't tell (not walls, segments flipped
+     * differently, an open chain with no wall to follow and no centre, or the centre on its line)
      */
-    public static Boolean faceOutFlip(List<Line> chain) {
-        if (chain.size() < 3) return null;
+    public static Boolean outwardFlip(List<Line> chain, List<Line> lines, int[] centre) {
+        if (chain.isEmpty()) return null;
         Line first = chain.get(0), last = chain.get(chain.size() - 1);
-        if (last.x1() != first.x0() || last.z1() != first.z0()) return null;
-        long area = 0;
-        for (int k = 0; k < chain.size(); k++) {
-            Line l = chain.get(k), n = chain.get((k + 1) % chain.size());
-            if (!l.isWall() || l.flip() != first.flip() || l.x1() != n.x0() || l.z1() != n.z0()) return null;
-            area += (long) l.x0() * l.z1() - (long) l.x1() * l.z0();
+        for (Line l : chain) if (!l.isWall() || l.flip() != first.flip()) return null;
+        if (chain.size() >= 3 && last.x1() == first.x0() && last.z1() == first.z0()) {
+            long a = turning(chain, 0, 0);
+            if (a != 0) return a > 0;
         }
-        // Shoelace sum in x / z (z south): negative = counter-clockwise on screen = facing out unflipped.
-        return area == 0 ? null : area > 0;
+        Boolean j = joinFlip(chain, lines, first.x0(), first.z0(), true);
+        if (j == null) j = joinFlip(chain, lines, last.x1(), last.z1(), false);
+        if (j != null || centre == null) return j;
+        long a = turning(chain, centre[0], centre[1]);
+        return a == 0 ? null : a > 0;
+    }
+
+    /**
+     * {@link #outwardFlip} for a chain the planner faces out on its own: its segments' current flips don't count (a
+     * decision that changed mid-chain turns the whole chain, never leaves it mixed).
+     *
+     * @param lines every planned segment, the chain's own included
+     */
+    public static Boolean autoFlip(List<Line> chain, List<Line> lines, int[] centre) {
+        List<Line> c = new ArrayList<>(), others = new ArrayList<>(lines);
+        for (Line l : chain) c.add(l.withFlip(false));
+        others.removeAll(chain);
+        return outwardFlip(c, others, centre);
+    }
+
+    /** The plan's lines and the chain being drawn, after {@link #faceChain}. */
+    public record Faced(List<Line> lines, List<Line> chain) {
+    }
+
+    /**
+     * After a drop: the chain's segments found again in the plan (a split, a moved end, a refit or a new height made new
+     * records: each stale one is replaced by the plan's segments lying along it, in drawing order), then, when the
+     * planner faces this chain ({@code auto}: every segment {@link Line#faced}), the chain turned as one
+     * ({@link #autoFlip}), a loop through it ({@link #loopFlips}) winning and also turning the loop's other walls the
+     * planner faced. Built, locked and player-set walls never turn; a chain holding a locked segment isn't turned.
+     */
+    public static Faced faceChain(List<Line> lines, List<Line> chain, int[] centre, java.util.function.Predicate<Line> locked, boolean auto) {
+        List<Line> ls = new ArrayList<>(lines), ch = new ArrayList<>();
+        for (Line r : chain) {
+            if (ls.contains(r)) {
+                if (!ch.contains(r)) ch.add(r);
+                continue;
+            }
+            List<Line> parts = new ArrayList<>();
+            for (Line o : ls) if (!ch.contains(o) && along(r, o)) parts.add(o);
+            int d = dirOf(r.x0(), r.z0(), r.x1(), r.z1());
+            parts.sort(java.util.Comparator.comparingInt(o -> d == 0 ? o.x0() + o.x1() : d == 2 ? -(o.x0() + o.x1()) : d == 1 ? o.z0() + o.z1() : -(o.z0() + o.z1())));
+            ch.addAll(parts);
+        }
+        // A locked (built / sending) segment can't turn, so the chain isn't turned at all (it stays one side).
+        if (!auto || ch.isEmpty() || !ch.stream().allMatch(l -> l.isWall() && l.faced() && !locked.test(l))) return new Faced(ls, ch);
+        List<Integer> idx = new ArrayList<>();
+        for (Line l : ch) idx.add(ls.indexOf(l));
+        Boolean f = autoFlip(ch, ls, centre);
+        java.util.Map<Integer, Boolean> loop = loopFlips(ls, idx.get(idx.size() - 1));
+        if (loop != null)
+            for (int i : idx)
+                if (loop.containsKey(i)) {
+                    f = loop.get(i);
+                    break;
+                }
+        if (f == null) return new Faced(ls, ch);
+        for (int i : idx) ls.set(i, ls.get(i).faced(f));
+        if (loop != null)
+            for (var e : loop.entrySet()) {
+                Line o = ls.get(e.getKey());
+                if (!idx.contains(e.getKey()) && o.faced() && !o.built() && !locked.test(o)) ls.set(e.getKey(), o.faced(e.getValue()));
+            }
+        ch.clear();
+        for (int i : idx) ch.add(ls.get(i));
+        return new Faced(ls, ch);
+    }
+
+    /** @return true when {@code o} lies along {@code r}: same tool, axis line and direction, sharing more than a point */
+    private static boolean along(Line r, Line o) {
+        if (!o.tool().equals(r.tool()) || dirOf(o.x0(), o.z0(), o.x1(), o.z1()) != dirOf(r.x0(), r.z0(), r.x1(), r.z1())) return false;
+        boolean x = r.z0() == r.z1();
+        if (x ? o.z0() != r.z0() || o.z1() != r.z0() : o.x0() != r.x0() || o.x1() != r.x0()) return false;
+        int a0 = x ? Math.min(r.x0(), r.x1()) : Math.min(r.z0(), r.z1()), a1 = x ? Math.max(r.x0(), r.x1()) : Math.max(r.z0(), r.z1());
+        int b0 = x ? Math.min(o.x0(), o.x1()) : Math.min(o.z0(), o.z1()), b1 = x ? Math.max(o.x0(), o.x1()) : Math.max(o.z0(), o.z1());
+        return Math.min(a1, b1) > Math.max(a0, b0);
+    }
+
+    /**
+     * The wall loop through segment {@code i}'s group of connected walls (several chains, or a chain closed onto its own
+     * earlier segment): tails pruned, what is left must be one simple cycle.
+     *
+     * @return per segment index of that cycle, the flip facing out of what it encloses; null when there is no single loop
+     */
+    public static java.util.Map<Integer, Boolean> loopFlips(List<Line> lines, int i) {
+        List<Integer> loop = new ArrayList<>();
+        for (int j : connected(lines, i)) if (lines.get(j).isWall()) loop.add(j);
+        // Prune tails: segments with an end no other segment of the group shares.
+        for (boolean pruned = true; pruned; ) {
+            pruned = false;
+            for (int k = 0; k < loop.size(); k++)
+                if (degree(lines, loop, lines.get(loop.get(k)).x0(), lines.get(loop.get(k)).z0()) < 2
+                        || degree(lines, loop, lines.get(loop.get(k)).x1(), lines.get(loop.get(k)).z1()) < 2) {
+                    loop.remove(k--);
+                    pruned = true;
+                }
+        }
+        if (loop.size() < 3) return null;
+        for (int j : loop)
+            for (int[] e : lines.get(j).ends()) if (degree(lines, loop, e[0], e[1]) != 2) return null;
+        // Walk the cycle from its first segment: each segment forward (x0 -> x1) or back.
+        java.util.Map<Integer, Boolean> forward = new java.util.LinkedHashMap<>();
+        int cur = loop.get(0);
+        int[] at = {lines.get(cur).x1(), lines.get(cur).z1()};
+        forward.put(cur, true);
+        long area = 0;
+        for (int steps = 0; steps < loop.size(); steps++) {
+            Line l = lines.get(cur);
+            boolean fw = forward.get(cur);
+            area += fw ? (long) l.x0() * l.z1() - (long) l.x1() * l.z0() : (long) l.x1() * l.z0() - (long) l.x0() * l.z1();
+            int next = -1;
+            for (int j : loop)
+                if (j != cur && !forward.containsKey(j) && (lines.get(j).x0() == at[0] && lines.get(j).z0() == at[1] || lines.get(j).x1() == at[0] && lines.get(j).z1() == at[1])) next = j;
+            if (next < 0) break;
+            Line n = lines.get(next);
+            boolean nfw = n.x0() == at[0] && n.z0() == at[1];
+            forward.put(next, nfw);
+            at = nfw ? new int[]{n.x1(), n.z1()} : new int[]{n.x0(), n.z0()};
+            cur = next;
+        }
+        // Not one cycle (two loops sharing nothing but the pruning) or no area.
+        if (forward.size() != loop.size() || area == 0) return null;
+        java.util.Map<Integer, Boolean> out = new java.util.HashMap<>();
+        for (var e : forward.entrySet()) out.put(e.getKey(), e.getValue() == area > 0);
+        return out;
+    }
+
+    // Segments of the group ending at (x, z).
+    private static int degree(List<Line> lines, List<Integer> group, int x, int z) {
+        int n = 0;
+        for (int j : group) for (int[] e : lines.get(j).ends()) if (e[0] == x && e[1] == z) n++;
+        return n;
+    }
+
+    /** Shoelace sum around (ox, oz), z south: negative = counter-clockwise on screen = the origin on the walls' left. */
+    private static long turning(List<Line> chain, int ox, int oz) {
+        long a = 0;
+        for (Line l : chain) a += (long) (l.x0() - ox) * (l.z1() - oz) - (long) (l.x1() - ox) * (l.z0() - oz);
+        return a;
+    }
+
+    /**
+     * @param start true: the chain leaves cell (x, z), false: it arrives there
+     * @return the flip continuing another wall's outside through (x, z): a wall the chain flows on from (or into) keeps
+     * its flip, one met head on the other; null when no other wall is there
+     */
+    private static Boolean joinFlip(List<Line> chain, List<Line> lines, int x, int z, boolean start) {
+        Boolean other = null;
+        for (Line o : lines) {
+            if (!o.isWall() || chain.contains(o)) continue;
+            boolean at0 = o.x0() == x && o.z0() == z, at1 = o.x1() == x && o.z1() == z;
+            // Flowing on: from a wall ending here / into one starting here.
+            if (start ? at1 : at0) return o.flip();
+            if (other == null && (start ? at0 : at1)) other = !o.flip();
+            // Onto a wall's body (not split yet): continues the half arriving at the joint.
+            if (other == null && !at0 && !at1 && touches(o, new int[]{x, z})) other = o.flip();
+        }
+        return other;
     }
 
     /**

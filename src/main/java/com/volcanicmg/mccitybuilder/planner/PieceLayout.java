@@ -1381,30 +1381,43 @@ public final class PieceLayout {
         return fb >= 0 ? fb : best;
     }
 
+    /** @return the direction a wall running in {@code dir} faces out: its right (directions run clockwise), its left when flipped */
+    public static int outside(int dir, boolean flip) {
+        return (dir + (flip ? 3 : 1)) % 4;
+    }
+
     /**
-     * @param outA the first line's direction out of the joint (travel arrives along it); @param outB the other's
-     * @param flip the first line's flip (unflipped walls face out to the left of travel)
-     * @return true when the turn bends toward the outside: an inner corner
+     * @param outA one line's direction out of an L joint, @param sideA its {@link #outside}; the same for the other line
+     * @return true when both walls face out into the L's own quadrant (the bend wraps their outside): an inner corner;
+     * false for an outer corner and for walls facing inconsistent ways
      */
-    public static boolean innerTurn(int outA, int outB, boolean flip) {
-        int arrive = (outA + 2) % 4, turn = Math.floorMod(outB - arrive, 4);
-        // Directions run clockwise seen from above (east, south, west, north): +1 is a right turn.
-        boolean left = turn == 3;
-        return left != flip;
+    public static boolean concave(int outA, int sideA, int outB, int sideB) {
+        return sideA == outB && sideB == outA;
+    }
+
+    /** @param at the two lines meeting at an L joint; @param outs each one's direction out of it. @return {@link #concave} for two walls (roads: false) */
+    public static boolean concave(List<Plan.Line> at, List<Integer> outs) {
+        if (at.size() != 2 || !at.get(0).isWall() || !at.get(1).isWall() || outs.get(0) % 2 == outs.get(1) % 2) return false;
+        int[] side = new int[2];
+        for (int q = 0; q < 2; q++) {
+            Plan.Line l = at.get(q);
+            side[q] = outside(dir(new int[]{l.x0(), l.z0()}, new int[]{l.x1(), l.z1()}), l.flip());
+        }
+        return concave(outs.get(0), side[0], outs.get(1), side[1]);
     }
 
     /** Auto joint roles: none (a straight line), outer corner, inner corner, T, cross. */
     public static final int NONE = 0, CORNER = 1, INNER = 2, TEE = 3, CROSS = 4;
 
     /**
-     * Auto's joint from the topology alone: how many lines meet, straight on or not. Every L gets the plain corner
-     * (turned to fit either way round); the inner corner and the tower are only used when chosen per joint, so the
-     * same gesture turning left or right looks the same ({@link #innerTurn} stays for the hints).
+     * Auto's joint from the topology and the walls' outside: how many lines meet, straight on or not; an L gets the
+     * outer corner, or the inner corner when the walls face out into its bend ({@link #concave}), so a ring's corners
+     * follow its shape whichever way it was drawn.
      */
-    public static int autoRole(int degree, boolean collinear, int outA, int outB, boolean flip) {
+    public static int autoRole(int degree, boolean collinear, boolean concave) {
         if (degree >= 4) return CROSS;
         if (degree == 3) return TEE;
-        return collinear ? NONE : CORNER;
+        return collinear ? NONE : concave ? INNER : CORNER;
     }
 
     /**
@@ -1416,14 +1429,19 @@ public final class PieceLayout {
      * @param type   {@link Plan#J_AUTO} .. {@link Plan#J_NONE}; @param towers the line was drawn with towers
      */
     public static List<PieceSets.Role> jointRoles(int type, int degree, boolean collinear, boolean towers) {
+        return jointRoles(type, degree, collinear, towers, false);
+    }
+
+    /** @param concave an L whose walls face out into its bend ({@link #concave}): auto takes the inner corner */
+    public static List<PieceSets.Role> jointRoles(int type, int degree, boolean collinear, boolean towers, boolean concave) {
         if (type == Plan.J_NONE) return List.of();
         // A free end: its cap, or a tower standing at the wall's end when chosen.
         if (degree <= 1) return type == Plan.J_TOWER ? List.of(PieceSets.Role.TOWER, PieceSets.Role.END) : List.of(PieceSets.Role.END);
         if (type == Plan.J_CAP) type = Plan.J_AUTO;
         if (type == Plan.J_AUTO) {
             if (towers) return List.of(PieceSets.Role.TOWER, PieceSets.Role.CORNER, PieceSets.Role.INNER);
-            int auto = autoRole(degree, collinear, 0, 0, false);
-            type = auto == NONE ? Plan.J_NONE : auto == CROSS ? Plan.J_CROSS : auto == TEE ? Plan.J_TEE : Plan.J_CORNER;
+            int auto = autoRole(degree, collinear, concave);
+            type = auto == NONE ? Plan.J_NONE : auto == CROSS ? Plan.J_CROSS : auto == TEE ? Plan.J_TEE : auto == INNER ? Plan.J_INNER : Plan.J_CORNER;
         }
         return switch (type) {
             case Plan.J_TOWER -> List.of(PieceSets.Role.TOWER, PieceSets.Role.CORNER, PieceSets.Role.INNER);

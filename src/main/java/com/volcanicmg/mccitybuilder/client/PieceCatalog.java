@@ -1095,10 +1095,15 @@ final class PieceCatalog {
      * @return the cells such a joint takes from a run meeting it (0 while loading or with no such piece)
      */
     static int expectedReach(Plan.Line l, int type) {
+        return expectedReach(l, type, false);
+    }
+
+    /** @param concave the walls meeting there face out into the bend ({@link PieceLayout#concave}): auto takes the inner corner */
+    static int expectedReach(Plan.Line l, int type, boolean concave) {
         Map<String, PieceSets.Family> fs = families(l.pack());
         PieceSets.Family f = familyOf(l.pack(), l.family());
         if (f == null) return 0;
-        for (PieceSets.Role r : PieceLayout.jointRoles(type, 2, false, l.towers())) if (!groups(l.pack(), f, r).isEmpty()) return reachOf(l, r);
+        for (PieceSets.Role r : PieceLayout.jointRoles(type, 2, false, l.towers(), concave)) if (!groups(l.pack(), f, r).isEmpty()) return reachOf(l, r);
         return 0;
     }
 
@@ -1222,8 +1227,7 @@ final class PieceCatalog {
 
     /**
      * The joint piece at cell {@code c}, by the joint's type ({@link Plan#J_AUTO} unless the player chose one):
-     * auto = an outer or inner corner for an L (inner when the turn bends toward the walls' outside: unflipped walls
-     * face out to the left of the first segment), T or cross by how many lines meet, nothing for two lines in a
+     * auto = an outer or inner corner for an L (inner when the walls face out into its bend, {@link PieceLayout#concave}), T or cross by how many lines meet, nothing for two lines in a
      * straight line; a tower only when chosen (or for old segments drawn with towers), or when auto's pick would cost
      * the runs whole straights a tower keeps. Among the role's variants and turns: the turn whose faces best match a
      * straight's end; the variant leaving the runs the least uncovered cells ({@link PieceLayout#pickJoint}).
@@ -1246,7 +1250,10 @@ final class PieceCatalog {
         }
         // The first role the family has, in the type's order of stand-ins; none = a butt joint.
         List<PieceSets.Role> primary = new ArrayList<>(), fallback = new ArrayList<>();
-        for (PieceSets.Role r : PieceLayout.jointRoles(type, degree, collinear, l.towers()))
+        // The inner corner by the walls' outside, but never where a built wall meets (it may have been laid out before
+        // that rule, and no record of it may be kept) nor at an auto joint turned by hand before it (oriented as a corner).
+        boolean concave = orient < 0 && at.stream().noneMatch(Plan.Line::built) && PieceLayout.concave(at, outs);
+        for (PieceSets.Role r : PieceLayout.jointRoles(type, degree, collinear, l.towers(), concave))
             if (!groups(l.pack(), f, r).isEmpty()) {
                 primary.add(r);
                 break;

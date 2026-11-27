@@ -618,7 +618,7 @@ final class PlannerScreen extends Screen {
         }, Component.translatable("mccitybuilder.line.joint.tip"));
         // A gate (walls: the selected segment or the next one), the other side out, edit mode.
         boolean wall = "wall".equals(tool);
-        boolean[] on = {sel != null ? sel.gate() : LineView.gate, sel != null ? sel.flip() : LineView.flip, LineView.wholeMode, false};
+        boolean[] on = {sel != null ? sel.gate() : LineView.gate, LineView.flipShown(), LineView.wholeMode, false};
         String[] keys = {"gate", "flip", LineView.wholeMode ? "select_wall" : "select_segment", "fill"};
         boolean canFill = !LineView.fillTargets().isEmpty();
         int bw3 = (iw - 6) / 4;

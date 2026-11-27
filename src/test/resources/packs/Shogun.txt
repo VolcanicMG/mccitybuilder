@@ -1,16 +1,16 @@
 P	infrastructure/avenue/crossfour.blueprint	7	3	7	-1
 P	infrastructure/avenue/crossthree.blueprint	7	3	7	-1
 P	infrastructure/avenue/curve.blueprint	9	3	12	10
-P	infrastructure/avenue/diag.blueprint	18	3	10	0
+P	infrastructure/avenue/diag.blueprint	18	3	10	16
 P	infrastructure/avenue/diagshort.blueprint	14	3	5	10
 P	infrastructure/avenue/end.blueprint	7	3	4	15
 P	infrastructure/avenue/endofbag.blueprint	11	3	11	15
 P	infrastructure/avenue/ess.blueprint	11	3	12	13
-P	infrastructure/avenue/offset.blueprint	10	3	12	15
-P	infrastructure/avenue/offsetlong.blueprint	10	3	10	15
+P	infrastructure/avenue/offset.blueprint	10	3	12	16
+P	infrastructure/avenue/offsetlong.blueprint	10	3	10	16
 P	infrastructure/avenue/offsetlongxfour.blueprint	8	3	7	-1
 P	infrastructure/avenue/offsetlongxthree.blueprint	8	3	7	-1
-P	infrastructure/avenue/offsetshort.blueprint	9	3	6	14
+P	infrastructure/avenue/offsetshort.blueprint	9	3	6	16
 P	infrastructure/avenue/offsetxfour.blueprint	9	3	7	-1
 P	infrastructure/avenue/offsetxthree.blueprint	9	3	7	-1
 P	infrastructure/avenue/shim.blueprint	2	3	7	10
@@ -26,14 +26,14 @@ P	infrastructure/avenue/turnthree.blueprint	10	3	10	15
 P	infrastructure/avenue/turnthreeuptwo.blueprint	10	5	10	15
 P	infrastructure/avenue/upone.blueprint	7	3	4	5
 P	infrastructure/avenue/uponelong.blueprint	7	3	6	5
-P	infrastructure/avenue/uponeoffset.blueprint	9	4	6	14
+P	infrastructure/avenue/uponeoffset.blueprint	9	4	6	16
 P	infrastructure/avenue/uponestair.blueprint	7	1	1	5
 P	infrastructure/avenue/uponesteep.blueprint	7	2	2	5
 P	infrastructure/avenue/upthree.blueprint	7	5	8	13
 P	infrastructure/avenue/upthreestair.blueprint	7	3	3	13
 P	infrastructure/avenue/uptwo.blueprint	7	4	8	10
 P	infrastructure/avenue/uptwolong.blueprint	7	4	12	10
-P	infrastructure/avenue/uptwooffset.blueprint	9	4	6	14
+P	infrastructure/avenue/uptwooffset.blueprint	9	4	6	16
 P	infrastructure/avenue/uptwostair.blueprint	7	2	2	5
 P	infrastructure/avenue/uptwosteep.blueprint	7	3	4	5
 P	infrastructure/retainingwall/incline/aveupone.blueprint	1	3	4	10
@@ -55,7 +55,7 @@ P	infrastructure/retainingwall/stair/bottom_rfour.blueprint	6	5	4	2
 P	infrastructure/retainingwall/stair/bottomoffset_reight.blueprint	10	9	4	8
 P	infrastructure/retainingwall/stair/bottomoffset_rfour.blueprint	6	5	4	8
 P	infrastructure/retainingwall/stair/mid_rfour.blueprint	4	5	3	9
-P	infrastructure/retainingwall/stair/midoffset_reight.blueprint	8	9	2	11
+P	infrastructure/retainingwall/stair/midoffset_reight.blueprint	8	9	2	16
 P	infrastructure/retainingwall/stair/midoffset_rfour.blueprint	4	5	2	11
 P	infrastructure/retainingwall/stair/risermid.blueprint	4	4	2	5
 P	infrastructure/retainingwall/stair/risermidoffset.blueprint	4	4	1	5
@@ -140,18 +140,18 @@ P	infrastructure/retainingwall/wall/short/top_offset_shingle.blueprint	4	4	3	0
 P	infrastructure/retainingwall/wall/short/top_plain.blueprint	4	4	2	2
 P	infrastructure/retainingwall/wall/short/top_shingle.blueprint	4	4	2	2
 P	infrastructure/retainingwall/wall/short/top_tall_shingle.blueprint	4	5	2	2
-P	infrastructure/road/dark/bend.blueprint	12	1	8	1
-P	infrastructure/road/dark/bend_short.blueprint	6	1	5	15
+P	infrastructure/road/dark/bend.blueprint	12	1	8	16
+P	infrastructure/road/dark/bend_short.blueprint	6	1	5	16
 P	infrastructure/road/dark/crossfour.blueprint	4	1	4	-1
 P	infrastructure/road/dark/crossthree.blueprint	4	1	4	-1
-P	infrastructure/road/dark/curve.blueprint	10	1	7	11
-P	infrastructure/road/dark/diag.blueprint	8	1	13	0
+P	infrastructure/road/dark/curve.blueprint	10	1	7	16
+P	infrastructure/road/dark/diag.blueprint	8	1	13	16
 P	infrastructure/road/dark/diagshort.blueprint	2	1	7	5
 P	infrastructure/road/dark/halfincline.blueprint	2	1	4	10
 P	infrastructure/road/dark/halfinclinethree.blueprint	6	3	4	11
 P	infrastructure/road/dark/halfinclinetwo.blueprint	4	2	4	-1
-P	infrastructure/road/dark/offset.blueprint	12	1	7	15
-P	infrastructure/road/dark/offset_short.blueprint	6	1	5	15
+P	infrastructure/road/dark/offset.blueprint	12	1	7	16
+P	infrastructure/road/dark/offset_short.blueprint	6	1	5	16
 P	infrastructure/road/dark/quartercline.blueprint	4	1	4	-1
 P	infrastructure/road/dark/quarterclinetwo.blueprint	8	2	4	5
 P	infrastructure/road/dark/short.blueprint	4	1	4	-1
@@ -164,17 +164,17 @@ P	infrastructure/road/dark/stairtwo.blueprint	2	2	4	10
 P	infrastructure/road/dark/straight.blueprint	12	1	4	5
 P	infrastructure/road/dark/turn.blueprint	4	1	4	-1
 P	infrastructure/road/dark/turnwide.blueprint	7	1	7	15
-P	infrastructure/road/light/bend.blueprint	12	1	8	1
-P	infrastructure/road/light/bend_short.blueprint	6	1	5	15
+P	infrastructure/road/light/bend.blueprint	12	1	8	16
+P	infrastructure/road/light/bend_short.blueprint	6	1	5	16
 P	infrastructure/road/light/crossfour.blueprint	4	1	4	-1
 P	infrastructure/road/light/crossthree.blueprint	4	1	4	-1
-P	infrastructure/road/light/diag.blueprint	8	1	13	0
+P	infrastructure/road/light/diag.blueprint	8	1	13	16
 P	infrastructure/road/light/diagshort.blueprint	2	1	8	5
 P	infrastructure/road/light/halfincline.blueprint	2	1	4	10
 P	infrastructure/road/light/halfinclinethree.blueprint	6	3	4	11
 P	infrastructure/road/light/halfinclinetwo.blueprint	4	2	4	-1
-P	infrastructure/road/light/offset.blueprint	12	1	7	15
-P	infrastructure/road/light/offset_short.blueprint	6	1	5	15
+P	infrastructure/road/light/offset.blueprint	12	1	7	16
+P	infrastructure/road/light/offset_short.blueprint	6	1	5	16
 P	infrastructure/road/light/quartercline.blueprint	4	1	4	-1
 P	infrastructure/road/light/quarterclinetwo.blueprint	8	2	4	5
 P	infrastructure/road/light/short.blueprint	4	1	4	-1
@@ -207,7 +207,7 @@ P	walls/city_flat/corner/cornerinround.blueprint	8	12	8	0
 P	walls/city_flat/corner/cornerinsquare.blueprint	8	12	8	12
 P	walls/city_flat/corner/corneroutround.blueprint	8	12	8	0
 P	walls/city_flat/corner/corneroutsquare.blueprint	8	12	8	12
-P	walls/city_flat/diag/diag.blueprint	22	12	10	0
+P	walls/city_flat/diag/diag.blueprint	22	12	10	16
 P	walls/city_flat/diag/diagadaptin.blueprint	14	12	5	0
 P	walls/city_flat/diag/diagadaptout.blueprint	14	12	5	0
 P	walls/city_flat/diag/diagshort.blueprint	16	12	4	10
@@ -267,8 +267,8 @@ P	walls/city_walltower/extendedtower.blueprint	11	15	7	11
 P	walls/city_walltower/inwallallroundtower.blueprint	9	15	9	0
 P	walls/city_walltower/inwalltower.blueprint	8	15	7	11
 P	walls/city_walltower/lonetower.blueprint	9	15	9	0
-P	walls/palisades/diag.blueprint	17	6	21	0
-P	walls/palisades/incline.blueprint	8	8	5	13
+P	walls/palisades/diag.blueprint	17	6	21	16
+P	walls/palisades/incline.blueprint	8	8	5	16
 P	walls/palisades/insideturn.blueprint	12	6	12	2
 P	walls/palisades/long.blueprint	25	6	5	5
 P	walls/palisades/lookout.blueprint	6	9	6	15
@@ -315,12 +315,12 @@ C	-	road:infrastructure/avenue	SLOPE	uptwosteep	false	infrastructure/avenue/uptw
 C	-	road:infrastructure/avenue	STRAIGHT	short	false	infrastructure/avenue/short.blueprint	1
 C	-	road:infrastructure/avenue	STRAIGHT	straight	false	infrastructure/avenue/straight.blueprint	1
 C	-	road:infrastructure/avenue	TEE	crossthree	false	infrastructure/avenue/crossthree.blueprint	-1
-C	-	road:infrastructure/road/dark	CORNER	bend	false	infrastructure/road/dark/bend.blueprint	-1
-C	-	road:infrastructure/road/dark	CORNER	bend_short	false	infrastructure/road/dark/bend_short.blueprint	-1
-C	-	road:infrastructure/road/dark	CORNER	curve	false	infrastructure/road/dark/curve.blueprint	-1
 C	-	road:infrastructure/road/dark	CORNER	turn	false	infrastructure/road/dark/turn.blueprint	-1
 C	-	road:infrastructure/road/dark	CORNER	turnwide	false	infrastructure/road/dark/turnwide.blueprint	-1
 C	-	road:infrastructure/road/dark	CROSS	crossfour	false	infrastructure/road/dark/crossfour.blueprint	-1
+C	-	road:infrastructure/road/dark	OTHER	bend	false	infrastructure/road/dark/bend.blueprint	-1
+C	-	road:infrastructure/road/dark	OTHER	bend_short	false	infrastructure/road/dark/bend_short.blueprint	-1
+C	-	road:infrastructure/road/dark	OTHER	curve	false	infrastructure/road/dark/curve.blueprint	-1
 C	-	road:infrastructure/road/dark	OTHER	diag	false	infrastructure/road/dark/diag.blueprint	-1
 C	-	road:infrastructure/road/dark	OTHER	diagshort	false	infrastructure/road/dark/diagshort.blueprint	-1
 C	-	road:infrastructure/road/dark	OTHER	offset	false	infrastructure/road/dark/offset.blueprint	-1
@@ -339,11 +339,11 @@ C	-	road:infrastructure/road/dark	STRAIGHT	short	false	infrastructure/road/dark/
 C	-	road:infrastructure/road/dark	STRAIGHT	straight	false	infrastructure/road/dark/straight.blueprint	0
 C	-	road:infrastructure/road/dark	TEE	crossthree	false	infrastructure/road/dark/crossthree.blueprint	-1
 C	-	road:infrastructure/road/dark/offset	OTHER	offset_short	false	infrastructure/road/dark/offset_short.blueprint	-1
-C	-	road:infrastructure/road/light	CORNER	bend	false	infrastructure/road/light/bend.blueprint	-1
-C	-	road:infrastructure/road/light	CORNER	bend_short	false	infrastructure/road/light/bend_short.blueprint	-1
 C	-	road:infrastructure/road/light	CORNER	turn	false	infrastructure/road/light/turn.blueprint	-1
 C	-	road:infrastructure/road/light	CORNER	turnwide	false	infrastructure/road/light/turnwide.blueprint	-1
 C	-	road:infrastructure/road/light	CROSS	crossfour	false	infrastructure/road/light/crossfour.blueprint	-1
+C	-	road:infrastructure/road/light	OTHER	bend	false	infrastructure/road/light/bend.blueprint	-1
+C	-	road:infrastructure/road/light	OTHER	bend_short	false	infrastructure/road/light/bend_short.blueprint	-1
 C	-	road:infrastructure/road/light	OTHER	diag	false	infrastructure/road/light/diag.blueprint	-1
 C	-	road:infrastructure/road/light	OTHER	diagshort	false	infrastructure/road/light/diagshort.blueprint	-1
 C	-	road:infrastructure/road/light	OTHER	offset	false	infrastructure/road/light/offset.blueprint	-1
@@ -676,6 +676,9 @@ O	infrastructure/retainingwall/wall/short/top_offset_shingle.blueprint
 O	infrastructure/retainingwall/wall/short/top_plain.blueprint
 O	infrastructure/retainingwall/wall/short/top_shingle.blueprint
 O	infrastructure/retainingwall/wall/short/top_tall_shingle.blueprint
+O	infrastructure/road/dark/bend.blueprint
+O	infrastructure/road/dark/bend_short.blueprint
+O	infrastructure/road/dark/curve.blueprint
 O	infrastructure/road/dark/diag.blueprint
 O	infrastructure/road/dark/diagshort.blueprint
 O	infrastructure/road/dark/halfincline.blueprint
@@ -691,6 +694,8 @@ O	infrastructure/road/dark/stairfour.blueprint
 O	infrastructure/road/dark/stairsix.blueprint
 O	infrastructure/road/dark/stairthree.blueprint
 O	infrastructure/road/dark/stairtwo.blueprint
+O	infrastructure/road/light/bend.blueprint
+O	infrastructure/road/light/bend_short.blueprint
 O	infrastructure/road/light/diag.blueprint
 O	infrastructure/road/light/diagshort.blueprint
 O	infrastructure/road/light/halfincline.blueprint

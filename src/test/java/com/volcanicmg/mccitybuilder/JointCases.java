@@ -81,11 +81,21 @@ final class JointCases {
         return PACKS;
     }
 
+    /** @return a bundled pack's families as the game classifies them: with every piece's {@link PieceSets#openSides} */
+    static Map<String, PieceSets.Family> classify(String pack) throws Exception {
+        Map<String, Integer> shapes = new java.util.HashMap<>();
+        for (PieceSets.Piece p : packs().get(pack)) {
+            PieceLayout.Grid g = PackPieces.grid(pack + "/" + p.path());
+            shapes.put(p.path(), PieceSets.openSides(PieceSets.body(g, "road".equals(PieceSets.tool(p.path()))), g.sx(), g.sz()));
+        }
+        return PieceSets.classify(packs().get(pack), shapes);
+    }
+
     /** @return every case of every bundled road / wall family that has a straight and a joint or cap piece (top level) */
     static List<Case> all() throws Exception {
         List<Case> out = new ArrayList<>();
         for (var en : packs().entrySet())
-            for (String famKey : PieceSets.classify(en.getValue()).keySet()) out.addAll(cases(en.getKey(), famKey));
+            for (String famKey : classify(en.getKey()).keySet()) out.addAll(cases(en.getKey(), famKey));
         return out;
     }
 
@@ -143,7 +153,7 @@ final class JointCases {
                 if (ls.size() < 2) continue;
                 Plan.Line l0 = ls.get(0);
                 String folder = folders.get(l0.pack()), xz = en.getKey().substring(en.getKey().lastIndexOf('|') + 1);
-                PieceSets.Family fam = folder == null ? null : PieceSets.classify(packs().get(folder)).get(l0.family());
+                PieceSets.Family fam = folder == null ? null : classify(folder).get(l0.family());
                 if (fam == null || fam.straights().isEmpty()) continue;
                 int[] c = {Integer.parseInt(xz.split(",")[0]), Integer.parseInt(xz.split(",")[1])};
                 int[] outs = new int[ls.size()], dirs = new int[ls.size()];
@@ -169,7 +179,7 @@ final class JointCases {
      * @return every case the family has pieces for
      */
     static List<Case> cases(String pack, String famKey) throws Exception {
-        PieceSets.Family fam = PieceSets.classify(packs().get(pack)).get(famKey);
+        PieceSets.Family fam = classify(pack).get(famKey);
         List<Case> out = new ArrayList<>();
         if (fam == null || fam.straights().isEmpty()) return out;
         PieceSets.Piece st = pickTop(fam.straights().get(0));
