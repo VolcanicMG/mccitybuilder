@@ -120,6 +120,113 @@ public final class DevBridge {
                 }
                 return "ok";
             });
+            // huts|deco|other: the palette's tab as its tab buttons set it; answers the palette (see /palette).
+            case "/tab" -> client(() -> {
+                if (!(Minecraft.getInstance().screen instanceof PlannerScreen)) return "not the planner";
+                setPlanner("decoTab", !a[0].equals("huts"));
+                setPlanner("otherTab", a[0].equals("other"));
+                setPlanner("category", null);
+                setPlanner("search", "");
+                setPlanner("decoScroll", 0);
+                if (Planner.placing != null || Planner.deco != null) Planner.stopPlacing();
+                return palette();
+            });
+            // text: the palette search field's text (empty clears it); answers the palette.
+            case "/search" -> client(() -> {
+                setPlanner("search", body);
+                return palette();
+            });
+            // The palette: tab, search, item count and the first names.
+            case "/palette" -> client(DevBridge::palette);
+            // road|wall|off: the line tool, as the toolbar buttons set it.
+            case "/tool" -> client(() -> {
+                if (!Planner.active()) return "planner is off";
+                if (a[0].equals("off") ? LineView.active() : !a[0].equals(LineView.tool)) LineView.use(a[0].equals("off") ? LineView.tool : a[0]);
+                PlanView.linesChanged();
+                PlanView.selectedLine = -1;
+                return "tool=" + LineView.tool;
+            });
+            // on|off: the line panel's piece-role editor (needs a tool with a family).
+            case "/rolepanel" -> client(() -> {
+                setPlanner("editorOpen", a[0].equals("on"));
+                return "rolepanel=" + a[0] + " family=" + LineView.family();
+            });
+            // setup|joint: the Set up pieces screen / the joint editor for the pack's first road (else wall) family, as the role panel's buttons open them.
+            case "/open" -> client(() -> {
+                Minecraft mc = Minecraft.getInstance();
+                String pk = PlannerScreen.pack(), fam = null;
+                for (String t : new String[]{"road", "wall"}) {
+                    var k = PieceCatalog.familyKeys(pk, t);
+                    if (k == null) return "loading";
+                    if (fam == null && !k.isEmpty()) fam = k.get(0);
+                }
+                if (fam == null) return "no families";
+                switch (a[0]) {
+                    case "setup" -> mc.setScreen(new PieceSetScreen(pk, fam.substring(fam.indexOf(':') + 1), fam));
+                    case "joint" -> mc.setScreen(new JointEditorScreen(pk, fam, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.CORNER, -1));
+                    default -> throw new IllegalArgumentException("open setup|joint");
+                }
+                return "ok " + fam;
+            });
+            // The open screen's Cancel / Close (its onClose: back to the planner).
+            case "/close" -> client(() -> {
+                var s = Minecraft.getInstance().screen;
+                if (s == null) return "no screen";
+                s.onClose();
+                return "ok";
+            });
+            // (empty) | discard | keep: the open screen's question box (Modal): its text and buttons, or press its first
+            // button (Discard / Save anyway / the first pick) or its last (Keep editing / Cancel); "none" when none is open.
+            case "/modal" -> client(() -> {
+                var s = Minecraft.getInstance().screen;
+                Modal m = null;
+                if (s != null)
+                    for (var f : s.getClass().getDeclaredFields())
+                        if (f.getType() == Modal.class) {
+                            f.setAccessible(true);
+                            m = (Modal) f.get(s);
+                        }
+                if (m == null || m.describe() == null) return "none";
+                if (a.length == 0 || a[0].isEmpty()) return "open: " + m.describe();
+                return switch (a[0]) {
+                    case "discard" -> m.press(0) ? "ok" : "none";
+                    case "keep" -> m.press(-1) ? "ok" : "none";
+                    default -> throw new IllegalArgumentException("modal [discard|keep]");
+                };
+            });
+            // The Set up pieces screen's "Same as…" list for its first row; answers the box as /modal does.
+            case "/variantpick" -> client(() -> {
+                if (!(Minecraft.getInstance().screen instanceof PieceSetScreen s)) return "not the set-up screen";
+                if (!s.openVariantPicker()) return "loading";
+                for (var f : PieceSetScreen.class.getDeclaredFields())
+                    if (f.getType() == Modal.class) {
+                        f.setAccessible(true);
+                        return "open: " + ((Modal) f.get(s)).describe();
+                    }
+                return "none";
+            });
+            // The joint editor's Auto-fix button; answers the turn it chose ("loading" while the layout isn't ready).
+            case "/autofix" -> client(() -> {
+                if (!(Minecraft.getInstance().screen instanceof JointEditorScreen s)) return "not the joint editor";
+                var lm = JointEditorScreen.class.getDeclaredMethod("layout");
+                lm.setAccessible(true);
+                Object lay = lm.invoke(s);
+                if (lay == null) return "loading";
+                for (var m : JointEditorScreen.class.getDeclaredMethods())
+                    if (m.getName().equals("autoFix") && m.getParameterCount() == 1) {
+                        m.setAccessible(true);
+                        m.invoke(s, lay);
+                    }
+                var tf = JointEditorScreen.class.getDeclaredField("turn");
+                tf.setAccessible(true);
+                return "ok turn=" + tf.get(s);
+            });
+            // The tool's Clear (armed, then confirmed); answers the planned segment count.
+            case "/clearlines" -> client(() -> {
+                LineView.clearTool();
+                LineView.clearTool();
+                return "lines=" + PlanView.lines.size();
+            });
             case "/screenshot" -> client(() -> shot(a.length > 0 ? a[0] : "shot"));
             case "/blocks" -> blocks(a);
             // x y z item count [item count ...]: items into the colony building at x y z (its own and its racks' inventories).
@@ -588,6 +695,30 @@ public final class DevBridge {
             }
         });
         return f.get(20, TimeUnit.SECONDS);
+    }
+
+    /** Sets a private static of the planner screen (its palette / panel state). */
+    private static void setPlanner(String name, Object v) throws ReflectiveOperationException {
+        var f = PlannerScreen.class.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(null, v);
+    }
+
+    /** @return the palette's tab, search, item count and first names, read from the screen's own lists */
+    private static String palette() throws ReflectiveOperationException {
+        var df = PlannerScreen.class.getDeclaredMethod("decoFolder");
+        df.setAccessible(true);
+        boolean deco = df.invoke(null) != null;
+        var lm = PlannerScreen.class.getDeclaredMethod(deco ? "decos" : "huts");
+        lm.setAccessible(true);
+        var sf = PlannerScreen.class.getDeclaredField("search");
+        sf.setAccessible(true);
+        var of = PlannerScreen.class.getDeclaredField("otherTab");
+        of.setAccessible(true);
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (Object o : (java.util.List<?>) lm.invoke(null))
+            names.add(o instanceof Blueprints.Hut h ? h.blueprint().getFileName() : ((net.minecraft.world.level.block.Block) o).getName().getString());
+        return "tab=" + (!deco ? "huts" : (boolean) of.get(null) ? "other" : "deco") + " search=\"" + sf.get(null) + "\" count=" + names.size() + " first=" + names.subList(0, Math.min(5, names.size()));
     }
 
     private static String state() {

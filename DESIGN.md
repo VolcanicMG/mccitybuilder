@@ -433,6 +433,22 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   wall; a shape-only wall crossing that is a square wider than the wall is a tower ([■] bastions). Hut blueprints
   (anchor on a hut block, S&K's guardtower1-5) are no decorations (`Blueprints.decorations`), so never pieces; the
   scan skips them too. `tee` is a whole-word keyword (not "street"), which made caledonia's and pagoda's tees T pieces in 0.3.
+- Third-party pack fixtures (`src/test/resources/packs/<pack>.txt`, checked by SelfCheck): we can't ship other mods'
+  blueprints, so each file holds only what `PieceSets.classify` reads: a `P` line per road / wall piece (path, size,
+  `openSides` of its top-down body; the body itself is not stored, `openSides`/`body` have their own cases) followed by
+  the recorded result (`C` family / role / group / levels / path / axis lines, `O` lines = the Other-tab pieces).
+  SelfCheck re-classifies the `P` lines and prints the lost / new result lines on a mismatch. Regenerate (a meant
+  change, or a new pack) from the pack jars: `./gradlew pieceScan -Pfixtures=src/test/resources/packs
+  -Pjars=Byzantine-1.21.1-51.1.jar,sword_and_kingdom_schematic-1.6.jar` (one file per pack with road / wall pieces;
+  Rebel_Base has none; a non-ASCII pack folder gets a `pack<hash>.txt` name: S&K's 剑与王国风格 is kept as
+  `sword_and_kingdom_zh.txt`, rename after regenerating).
+- In-game smoke suite (`tools/smoke.sh [checkout|--no-launch]`; dev bridge only, never shipped): launches the dev
+  client through `~/mcdev/tools/splaunch.sh`, then per pack (Byzantine_for_1.20, Sword and Kingdom, Colonial) switches
+  the palette tabs, opens the road / wall tools, role panel, Set up pieces, joint editor + Auto-fix (Cancel each),
+  draws a crossing and clears it, searches Huts for "quarr", and finally scans `logs/latest.log` for `CityBuilder
+  failed`, `baked no blocks` and exceptions mentioning mccitybuilder. PASS / FAIL per step; non-zero exit on any.
+  Bridge commands it uses (DevBridge): `tab`, `search`, `palette`, `tool`, `rolepanel`, `open setup|joint`, `close`,
+  `autofix`, `clearlines`.
 - Set-up (`client/PieceSetScreen`, keys in the per-pack overrides file next to the role picks and alignments; the
   mod's `alignments/<pack>.txt` built-ins use the same keys, the player's win): `tool|<folder or blueprint>` = road /
   wall / none (the nearest key up the path wins, `PieceSets.toolOf`), `piece|<blueprint>` = a role, `variant:<base>`

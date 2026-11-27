@@ -1,0 +1,572 @@
+P	infrastructure/avenue/bend.blueprint	12	1	10	9
+P	infrastructure/avenue/bend_short.blueprint	6	1	7	15
+P	infrastructure/avenue/crossfour.blueprint	6	1	6	-1
+P	infrastructure/avenue/crossthree.blueprint	5	1	6	10
+P	infrastructure/avenue/diag.blueprint	8	1	15	0
+P	infrastructure/avenue/diag_short.blueprint	2	1	9	5
+P	infrastructure/avenue/halfincline.blueprint	2	1	8	10
+P	infrastructure/avenue/halfinclineramp.blueprint	2	1	8	10
+P	infrastructure/avenue/halfinclinerampthree.blueprint	6	3	8	11
+P	infrastructure/avenue/halfinclineramptwo.blueprint	4	2	8	10
+P	infrastructure/avenue/halfinclinethree.blueprint	6	3	8	11
+P	infrastructure/avenue/halfinclinetwo.blueprint	4	2	8	10
+P	infrastructure/avenue/offset.blueprint	12	1	9	15
+P	infrastructure/avenue/offset_short.blueprint	6	1	7	15
+P	infrastructure/avenue/quartercline.blueprint	4	1	6	10
+P	infrastructure/avenue/quarterclinetwo.blueprint	8	2	6	5
+P	infrastructure/avenue/short.blueprint	4	1	6	10
+P	infrastructure/avenue/stair.blueprint	1	1	6	10
+P	infrastructure/avenue/stairfive.blueprint	5	5	6	10
+P	infrastructure/avenue/stairfour.blueprint	4	4	6	11
+P	infrastructure/avenue/stairsix.blueprint	6	6	6	10
+P	infrastructure/avenue/stairthree.blueprint	3	3	6	11
+P	infrastructure/avenue/stairtwo.blueprint	2	2	6	10
+P	infrastructure/avenue/straight.blueprint	12	1	6	5
+P	infrastructure/avenue/turn.blueprint	5	1	5	-1
+P	infrastructure/avenue/turnwide.blueprint	9	1	9	15
+P	infrastructure/avenue_odd/bend.blueprint	12	1	11	9
+P	infrastructure/avenue_odd/bend_short.blueprint	6	1	8	15
+P	infrastructure/avenue_odd/crossfour.blueprint	7	1	7	-1
+P	infrastructure/avenue_odd/crossthree.blueprint	6	1	7	10
+P	infrastructure/avenue_odd/diag.blueprint	8	1	16	0
+P	infrastructure/avenue_odd/diag_short.blueprint	4	1	16	5
+P	infrastructure/avenue_odd/halfincline.blueprint	2	1	7	10
+P	infrastructure/avenue_odd/halfinclineramp.blueprint	2	1	8	10
+P	infrastructure/avenue_odd/halfinclinerampone.blueprint	7	1	2	5
+P	infrastructure/avenue_odd/halfinclinerampthree.blueprint	7	3	6	7
+P	infrastructure/avenue_odd/halfinclineramptwo.blueprint	7	2	4	5
+P	infrastructure/avenue_odd/halfinclinethree.blueprint	6	3	7	11
+P	infrastructure/avenue_odd/halfinclinetwo.blueprint	4	2	7	10
+P	infrastructure/avenue_odd/offset.blueprint	12	1	10	15
+P	infrastructure/avenue_odd/offsetshort.blueprint	6	1	8	15
+P	infrastructure/avenue_odd/quartercline.blueprint	4	1	7	10
+P	infrastructure/avenue_odd/quarterclinetwo.blueprint	8	2	7	5
+P	infrastructure/avenue_odd/short.blueprint	4	1	7	10
+P	infrastructure/avenue_odd/stairfive.blueprint	6	5	7	14
+P	infrastructure/avenue_odd/stairfour.blueprint	6	4	7	14
+P	infrastructure/avenue_odd/stairone.blueprint	6	1	7	10
+P	infrastructure/avenue_odd/stairsix.blueprint	6	6	7	10
+P	infrastructure/avenue_odd/stairthree.blueprint	6	3	7	14
+P	infrastructure/avenue_odd/stairtwo.blueprint	6	2	7	10
+P	infrastructure/avenue_odd/straight.blueprint	12	1	7	5
+P	infrastructure/avenue_odd/turn.blueprint	6	1	6	-1
+P	infrastructure/avenue_odd/turnwide.blueprint	10	1	10	15
+P	infrastructure/boulevard/crossfour.blueprint	15	2	15	-1
+P	infrastructure/boulevard/crossfourbevel.blueprint	15	2	15	-1
+P	infrastructure/boulevard/crossthree.blueprint	14	2	15	10
+P	infrastructure/boulevard/crossthreebevel.blueprint	14	2	15	10
+P	infrastructure/boulevard/diag.blueprint	12	2	25	0
+P	infrastructure/boulevard/diag_short.blueprint	6	2	19	5
+P	infrastructure/boulevard/diagswitch.blueprint	14	2	14	0
+P	infrastructure/boulevard/eighthincline.blueprint	8	3	13	10
+P	infrastructure/boulevard/eighthinclinebevel.blueprint	8	3	13	10
+P	infrastructure/boulevard/end.blueprint	13	2	7	15
+P	infrastructure/boulevard/endbevel.blueprint	13	2	7	15
+P	infrastructure/boulevard/halfinclineramp.blueprint	8	6	13	11
+P	infrastructure/boulevard/offset.blueprint	14	2	16	15
+P	infrastructure/boulevard/offsetbevel.blueprint	14	2	16	15
+P	infrastructure/boulevard/plaza_a.blueprint	31	2	17	5
+P	infrastructure/boulevard/plaza_b.blueprint	21	2	17	5
+P	infrastructure/boulevard/quarterincline.blueprint	8	4	13	10
+P	infrastructure/boulevard/quarterinclinebevel.blueprint	8	4	13	10
+P	infrastructure/boulevard/short.blueprint	4	2	13	10
+P	infrastructure/boulevard/shortbevel.blueprint	4	2	13	10
+P	infrastructure/boulevard/straight.blueprint	16	2	13	5
+P	infrastructure/boulevard/straightbevel.blueprint	16	2	13	5
+P	infrastructure/boulevard/turneight.blueprint	21	2	21	15
+P	infrastructure/boulevard/turnsix.blueprint	19	2	19	15
+P	infrastructure/boulevard/turnzero.blueprint	13	2	13	-1
+P	infrastructure/boulevard/turnzerobevel.blueprint	13	2	13	-1
+P	infrastructure/retainingwall/bottom/cornerin.blueprint	5	4	5	15
+P	infrastructure/retainingwall/bottom/cornerout.blueprint	4	5	4	12
+P	infrastructure/retainingwall/bottom/diag.blueprint	9	4	12	12
+P	infrastructure/retainingwall/bottom/diagbase.blueprint	9	2	12	12
+P	infrastructure/retainingwall/bottom/diagfootrise.blueprint	9	4	12	14
+P	infrastructure/retainingwall/bottom/diagfootrise_rev.blueprint	9	4	12	12
+P	infrastructure/retainingwall/bottom/diagshort.blueprint	5	4	6	12
+P	infrastructure/retainingwall/bottom/diagshortbase.blueprint	5	2	6	12
+P	infrastructure/retainingwall/bottom/offset.blueprint	11	4	9	15
+P	infrastructure/retainingwall/bottom/offsetbase.blueprint	11	2	9	15
+P	infrastructure/retainingwall/bottom/offsetfootrise.blueprint	11	4	9	15
+P	infrastructure/retainingwall/bottom/offsetfootrise_rev.blueprint	11	4	9	15
+P	infrastructure/retainingwall/bottom/offsetshort.blueprint	5	4	7	13
+P	infrastructure/retainingwall/bottom/offsetshortbase.blueprint	5	2	7	13
+P	infrastructure/retainingwall/bottom/short.blueprint	5	4	4	13
+P	infrastructure/retainingwall/bottom/shortbase.blueprint	5	2	4	13
+P	infrastructure/retainingwall/bottom/shortfootrise.blueprint	5	4	4	5
+P	infrastructure/retainingwall/bottom/shortthrees.blueprint	5	4	4	13
+P	infrastructure/retainingwall/bottom/shorttwos.blueprint	4	4	4	13
+P	infrastructure/retainingwall/bottom/straight.blueprint	11	4	4	13
+P	infrastructure/retainingwall/bottom/straightbase.blueprint	11	2	4	13
+P	infrastructure/retainingwall/bottom/straightfootrise.blueprint	11	4	4	5
+P	infrastructure/retainingwall/bottom/straightthrees.blueprint	9	4	4	13
+P	infrastructure/retainingwall/bottom/straighttwos.blueprint	10	4	4	13
+P	infrastructure/retainingwall/inclines/eighthinclinetop.blueprint	8	6	1	5
+P	infrastructure/retainingwall/inclines/halfinclinetop.blueprint	6	8	1	5
+P	infrastructure/retainingwall/inclines/halfstart.blueprint	6	4	1	10
+P	infrastructure/retainingwall/inclines/quarterinclinetop.blueprint	8	7	1	5
+P	infrastructure/retainingwall/inclines/quarterstart.blueprint	8	4	1	10
+P	infrastructure/retainingwall/inclines/stepsfive.blueprint	5	11	3	5
+P	infrastructure/retainingwall/inclines/stepstart.blueprint	6	7	3	8
+P	infrastructure/retainingwall/inclines/stepsthree.blueprint	3	9	3	-1
+P	infrastructure/retainingwall/mid/cornerin.blueprint	5	4	5	15
+P	infrastructure/retainingwall/mid/cornerout.blueprint	3	4	3	-1
+P	infrastructure/retainingwall/mid/corneroutshim.blueprint	3	2	3	-1
+P	infrastructure/retainingwall/mid/diag.blueprint	9	4	12	12
+P	infrastructure/retainingwall/mid/diagshim.blueprint	9	2	12	12
+P	infrastructure/retainingwall/mid/diagshort.blueprint	5	4	8	13
+P	infrastructure/retainingwall/mid/offset.blueprint	11	4	9	15
+P	infrastructure/retainingwall/mid/offsetshim.blueprint	11	2	9	15
+P	infrastructure/retainingwall/mid/offsetshort.blueprint	5	4	9	5
+P	infrastructure/retainingwall/mid/offsetshortshim.blueprint	5	2	9	5
+P	infrastructure/retainingwall/mid/short.blueprint	5	4	3	5
+P	infrastructure/retainingwall/mid/shortshim.blueprint	5	2	3	5
+P	infrastructure/retainingwall/mid/shortthreetop.blueprint	5	4	4	13
+P	infrastructure/retainingwall/mid/shorttwos.blueprint	4	4	3	5
+P	infrastructure/retainingwall/mid/straight.blueprint	11	4	3	5
+P	infrastructure/retainingwall/mid/straightshim.blueprint	11	2	3	5
+P	infrastructure/retainingwall/mid/straightthrees.blueprint	9	4	3	5
+P	infrastructure/retainingwall/mid/straightthreetop.blueprint	9	4	3	5
+P	infrastructure/retainingwall/mid/straighttwos.blueprint	10	4	3	5
+P	infrastructure/retainingwall/stairs/sidesetbottom.blueprint	6	4	3	8
+P	infrastructure/retainingwall/stairs/sidesetbottom_ext.blueprint	4	4	3	13
+P	infrastructure/retainingwall/stairs/sidesetmid.blueprint	4	4	2	11
+P	infrastructure/retainingwall/stairs/sidesetmid_ext.blueprint	4	4	2	5
+P	infrastructure/retainingwall/stairs/sidesettop.blueprint	7	6	3	10
+P	infrastructure/retainingwall/stairs/sidesettop_ext.blueprint	3	4	3	-1
+P	infrastructure/retainingwall/stairs/sidesettop_foot.blueprint	3	2	3	-1
+P	infrastructure/retainingwall/stairs/wellbottom.blueprint	5	6	3	5
+P	infrastructure/retainingwall/stairs/wellstairs_top.blueprint	5	7	3	15
+P	infrastructure/retainingwall/stairs/wellstairseight.blueprint	8	13	3	9
+P	infrastructure/retainingwall/stairs/wellstairsfour.blueprint	4	9	3	13
+P	infrastructure/retainingwall/stairs/wellstairssix.blueprint	6	11	3	13
+P	infrastructure/retainingwall/stairs/wellstairstwo.blueprint	2	6	3	13
+P	infrastructure/retainingwall/top/cornerin.blueprint	5	6	5	15
+P	infrastructure/retainingwall/top/cornerinlantern.blueprint	5	6	5	-1
+P	infrastructure/retainingwall/top/cornerout.blueprint	3	6	3	-1
+P	infrastructure/retainingwall/top/corneroutlantern.blueprint	3	5	3	-1
+P	infrastructure/retainingwall/top/diag.blueprint	9	6	12	12
+P	infrastructure/retainingwall/top/diagshort.blueprint	5	6	12	13
+P	infrastructure/retainingwall/top/lantern.blueprint	5	6	4	5
+P	infrastructure/retainingwall/top/lanterndbl.blueprint	9	5	4	5
+P	infrastructure/retainingwall/top/lanterntwos.blueprint	10	6	3	5
+P	infrastructure/retainingwall/top/offset.blueprint	11	6	9	15
+P	infrastructure/retainingwall/top/offsetshort.blueprint	5	6	6	-1
+P	infrastructure/retainingwall/top/short.blueprint	5	6	3	5
+P	infrastructure/retainingwall/top/shorttwos.blueprint	4	6	3	5
+P	infrastructure/retainingwall/top/stepfive.blueprint	5	11	3	5
+P	infrastructure/retainingwall/top/stepstart.blueprint	6	7	3	8
+P	infrastructure/retainingwall/top/stepthree.blueprint	3	9	3	-1
+P	infrastructure/retainingwall/top/straight.blueprint	11	6	3	5
+P	infrastructure/retainingwall/top/straighttwos.blueprint	10	6	3	5
+P	walls/flat/cornerin.blueprint	7	14	7	6
+P	walls/flat/cornerinrev.blueprint	8	14	8	6
+P	walls/flat/cornerout.blueprint	7	14	7	10
+P	walls/flat/corneroutrev.blueprint	7	14	7	15
+P	walls/flat/diag.blueprint	10	14	16	0
+P	walls/flat/diagshort.blueprint	5	14	12	0
+P	walls/flat/diagstair.blueprint	10	14	16	0
+P	walls/flat/diagswitch.blueprint	6	13	6	0
+P	walls/flat/diagtostraight.blueprint	3	13	8	15
+P	walls/flat/diagtostraight_i.blueprint	3	13	8	13
+P	walls/flat/endcap.blueprint	2	14	6	5
+P	walls/flat/gatebig.blueprint	11	14	7	5
+P	walls/flat/gatesmall.blueprint	9	14	7	5
+P	walls/flat/offset.blueprint	12	14	10	7
+P	walls/flat/offsetshort.blueprint	6	14	7	7
+P	walls/flat/offsetstair.blueprint	12	14	10	15
+P	walls/flat/shim.blueprint	2	13	7	10
+P	walls/flat/straight.blueprint	12	14	7	7
+P	walls/flat/straightshort.blueprint	6	14	7	7
+P	walls/flat/straightstair.blueprint	12	14	8	15
+P	walls/incline/offset/shallow.blueprint	6	16	8	15
+P	walls/incline/offset/shallow_twice.blueprint	12	18	10	14
+P	walls/incline/offset/shallowstep.blueprint	6	14	8	15
+P	walls/incline/offset/steep.blueprint	6	17	8	15
+P	walls/incline/offset/steep_twice.blueprint	12	20	10	15
+P	walls/incline/offset/steepstep.blueprint	6	17	8	15
+P	walls/incline/straight/histep.blueprint	6	18	7	10
+P	walls/incline/straight/histep_i.blueprint	6	18	7	10
+P	walls/incline/straight/shallow.blueprint	6	16	7	-1
+P	walls/incline/straight/shallow_i.blueprint	6	16	7	15
+P	walls/incline/straight/shallow_i_twice.blueprint	12	18	7	5
+P	walls/incline/straight/shallow_twice.blueprint	12	18	7	15
+P	walls/incline/straight/shallowstep.blueprint	6	16	7	10
+P	walls/incline/straight/shallowstep_i.blueprint	6	15	7	15
+P	walls/incline/straight/steep.blueprint	4	16	7	10
+P	walls/incline/straight/steep_i.blueprint	4	17	7	10
+P	walls/incline/straight/steep_i_twice.blueprint	8	19	6	5
+P	walls/incline/straight/steep_twice.blueprint	8	18	7	5
+P	walls/incline/straight/steepstep.blueprint	4	16	7	10
+P	walls/moat/corner.blueprint	7	3	7	-1
+P	walls/moat/cross.blueprint	7	3	7	-1
+P	walls/moat/diag.blueprint	12	3	18	15
+P	walls/moat/diagshort.blueprint	4	3	11	10
+P	walls/moat/diagswitch.blueprint	7	3	7	-1
+P	walls/moat/end.blueprint	3	3	7	10
+P	walls/moat/offset.blueprint	12	3	11	5
+P	walls/moat/shim.blueprint	2	3	7	10
+P	walls/moat/straight.blueprint	11	3	7	5
+P	walls/moat/straightshort.blueprint	5	3	7	10
+P	walls/moat/tee.blueprint	7	3	7	-1
+P	walls/tower/corner.blueprint	8	14	10	10
+P	walls/tower/cornertall.blueprint	8	16	10	10
+P	walls/tower/midwall.blueprint	7	14	11	10
+P	walls/tower/midwalltall.blueprint	7	16	11	10
+P	walls/tower/tee.blueprint	7	14	10	10
+P	walls/tower/teetall.blueprint	7	16	10	10
+C	-	road:infrastructure/avenue	CORNER	bend	false	infrastructure/avenue/bend.blueprint	-1
+C	-	road:infrastructure/avenue	CORNER	bend_short	false	infrastructure/avenue/bend_short.blueprint	-1
+C	-	road:infrastructure/avenue	CORNER	turn	false	infrastructure/avenue/turn.blueprint	-1
+C	-	road:infrastructure/avenue	CORNER	turnwide	false	infrastructure/avenue/turnwide.blueprint	-1
+C	-	road:infrastructure/avenue	CROSS	crossfour	false	infrastructure/avenue/crossfour.blueprint	-1
+C	-	road:infrastructure/avenue	OTHER	diag	false	infrastructure/avenue/diag.blueprint	-1
+C	-	road:infrastructure/avenue	OTHER	offset	false	infrastructure/avenue/offset.blueprint	-1
+C	-	road:infrastructure/avenue	OTHER	quartercline	false	infrastructure/avenue/quartercline.blueprint	-1
+C	-	road:infrastructure/avenue	OTHER	quarterclinetwo	false	infrastructure/avenue/quarterclinetwo.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	halfincline	false	infrastructure/avenue/halfincline.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	halfinclineramp	false	infrastructure/avenue/halfinclineramp.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	halfinclinerampthree	false	infrastructure/avenue/halfinclinerampthree.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	halfinclineramptwo	false	infrastructure/avenue/halfinclineramptwo.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	halfinclinethree	false	infrastructure/avenue/halfinclinethree.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	halfinclinetwo	false	infrastructure/avenue/halfinclinetwo.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	stair	false	infrastructure/avenue/stair.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	stairfive	false	infrastructure/avenue/stairfive.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	stairfour	false	infrastructure/avenue/stairfour.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	stairsix	false	infrastructure/avenue/stairsix.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	stairthree	false	infrastructure/avenue/stairthree.blueprint	-1
+C	-	road:infrastructure/avenue	SLOPE	stairtwo	false	infrastructure/avenue/stairtwo.blueprint	-1
+C	-	road:infrastructure/avenue	STRAIGHT	short	false	infrastructure/avenue/short.blueprint	0
+C	-	road:infrastructure/avenue	STRAIGHT	straight	false	infrastructure/avenue/straight.blueprint	0
+C	-	road:infrastructure/avenue	TEE	crossthree	false	infrastructure/avenue/crossthree.blueprint	-1
+C	-	road:infrastructure/avenue/diag	OTHER	diag_short	false	infrastructure/avenue/diag_short.blueprint	-1
+C	-	road:infrastructure/avenue/offset	OTHER	offset_short	false	infrastructure/avenue/offset_short.blueprint	-1
+C	-	road:infrastructure/avenue_odd	CORNER	bend	false	infrastructure/avenue_odd/bend.blueprint	-1
+C	-	road:infrastructure/avenue_odd	CORNER	bend_short	false	infrastructure/avenue_odd/bend_short.blueprint	-1
+C	-	road:infrastructure/avenue_odd	CORNER	turn	false	infrastructure/avenue_odd/turn.blueprint	-1
+C	-	road:infrastructure/avenue_odd	CORNER	turnwide	false	infrastructure/avenue_odd/turnwide.blueprint	-1
+C	-	road:infrastructure/avenue_odd	CROSS	crossfour	false	infrastructure/avenue_odd/crossfour.blueprint	-1
+C	-	road:infrastructure/avenue_odd	OTHER	diag	false	infrastructure/avenue_odd/diag.blueprint	-1
+C	-	road:infrastructure/avenue_odd	OTHER	offset	false	infrastructure/avenue_odd/offset.blueprint	-1
+C	-	road:infrastructure/avenue_odd	OTHER	offsetshort	false	infrastructure/avenue_odd/offsetshort.blueprint	-1
+C	-	road:infrastructure/avenue_odd	OTHER	quartercline	false	infrastructure/avenue_odd/quartercline.blueprint	-1
+C	-	road:infrastructure/avenue_odd	OTHER	quarterclinetwo	false	infrastructure/avenue_odd/quarterclinetwo.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	halfincline	false	infrastructure/avenue_odd/halfincline.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	halfinclineramp	false	infrastructure/avenue_odd/halfinclineramp.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	halfinclinerampone	false	infrastructure/avenue_odd/halfinclinerampone.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	halfinclinerampthree	false	infrastructure/avenue_odd/halfinclinerampthree.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	halfinclineramptwo	false	infrastructure/avenue_odd/halfinclineramptwo.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	halfinclinethree	false	infrastructure/avenue_odd/halfinclinethree.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	halfinclinetwo	false	infrastructure/avenue_odd/halfinclinetwo.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	stairfive	false	infrastructure/avenue_odd/stairfive.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	stairfour	false	infrastructure/avenue_odd/stairfour.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	stairone	false	infrastructure/avenue_odd/stairone.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	stairsix	false	infrastructure/avenue_odd/stairsix.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	stairthree	false	infrastructure/avenue_odd/stairthree.blueprint	-1
+C	-	road:infrastructure/avenue_odd	SLOPE	stairtwo	false	infrastructure/avenue_odd/stairtwo.blueprint	-1
+C	-	road:infrastructure/avenue_odd	STRAIGHT	short	false	infrastructure/avenue_odd/short.blueprint	0
+C	-	road:infrastructure/avenue_odd	STRAIGHT	straight	false	infrastructure/avenue_odd/straight.blueprint	0
+C	-	road:infrastructure/avenue_odd	TEE	crossthree	false	infrastructure/avenue_odd/crossthree.blueprint	-1
+C	-	road:infrastructure/avenue_odd/diag	OTHER	diag_short	false	infrastructure/avenue_odd/diag_short.blueprint	-1
+C	-	road:infrastructure/boulevard	CORNER	turneight	false	infrastructure/boulevard/turneight.blueprint	-1
+C	-	road:infrastructure/boulevard	CORNER	turnsix	false	infrastructure/boulevard/turnsix.blueprint	-1
+C	-	road:infrastructure/boulevard	CORNER	turnzero	false	infrastructure/boulevard/turnzero.blueprint	-1
+C	-	road:infrastructure/boulevard	CROSS	crossfour	false	infrastructure/boulevard/crossfour.blueprint	-1
+C	-	road:infrastructure/boulevard	END	end	false	infrastructure/boulevard/end.blueprint	-1
+C	-	road:infrastructure/boulevard	OTHER	diag	false	infrastructure/boulevard/diag.blueprint	-1
+C	-	road:infrastructure/boulevard	OTHER	diagswitch	false	infrastructure/boulevard/diagswitch.blueprint	-1
+C	-	road:infrastructure/boulevard	OTHER	offset	false	infrastructure/boulevard/offset.blueprint	-1
+C	-	road:infrastructure/boulevard	SLOPE	eighthincline	false	infrastructure/boulevard/eighthincline.blueprint	-1
+C	-	road:infrastructure/boulevard	SLOPE	halfinclineramp	false	infrastructure/boulevard/halfinclineramp.blueprint	-1
+C	-	road:infrastructure/boulevard	SLOPE	quarterincline	false	infrastructure/boulevard/quarterincline.blueprint	-1
+C	-	road:infrastructure/boulevard	STRAIGHT	short	false	infrastructure/boulevard/short.blueprint	0
+C	-	road:infrastructure/boulevard	STRAIGHT	straight	false	infrastructure/boulevard/straight.blueprint	0
+C	-	road:infrastructure/boulevard	TEE	crossthree	false	infrastructure/boulevard/crossthree.blueprint	-1
+C	-	road:infrastructure/boulevard/bevel	CORNER	turnzerobevel	false	infrastructure/boulevard/turnzerobevel.blueprint	-1
+C	-	road:infrastructure/boulevard/bevel	CROSS	crossfourbevel	false	infrastructure/boulevard/crossfourbevel.blueprint	-1
+C	-	road:infrastructure/boulevard/bevel	END	endbevel	false	infrastructure/boulevard/endbevel.blueprint	-1
+C	-	road:infrastructure/boulevard/bevel	OTHER	offsetbevel	false	infrastructure/boulevard/offsetbevel.blueprint	-1
+C	-	road:infrastructure/boulevard/bevel	SLOPE	eighthinclinebevel	false	infrastructure/boulevard/eighthinclinebevel.blueprint	-1
+C	-	road:infrastructure/boulevard/bevel	SLOPE	quarterinclinebevel	false	infrastructure/boulevard/quarterinclinebevel.blueprint	-1
+C	-	road:infrastructure/boulevard/bevel	STRAIGHT	shortbevel	false	infrastructure/boulevard/shortbevel.blueprint	0
+C	-	road:infrastructure/boulevard/bevel	STRAIGHT	straightbevel	false	infrastructure/boulevard/straightbevel.blueprint	0
+C	-	road:infrastructure/boulevard/bevel	TEE	crossthreebevel	false	infrastructure/boulevard/crossthreebevel.blueprint	-1
+C	-	road:infrastructure/boulevard/diag	OTHER	diag_short	false	infrastructure/boulevard/diag_short.blueprint	-1
+C	-	road:infrastructure/boulevard/plaza	OTHER	plaza_a	false	infrastructure/boulevard/plaza_a.blueprint	-1
+C	-	road:infrastructure/boulevard/plaza	OTHER	plaza_b	false	infrastructure/boulevard/plaza_b.blueprint	-1
+C	-	wall:infrastructure/retainingwall	OTHER	sidesetbottom	false	infrastructure/retainingwall/stairs/sidesetbottom.blueprint	-1
+C	-	wall:infrastructure/retainingwall	OTHER	sidesetmid	false	infrastructure/retainingwall/stairs/sidesetmid.blueprint	-1
+C	-	wall:infrastructure/retainingwall	OTHER	sidesettop	false	infrastructure/retainingwall/stairs/sidesettop.blueprint	-1
+C	-	wall:infrastructure/retainingwall	OTHER	wellbottom	false	infrastructure/retainingwall/stairs/wellbottom.blueprint	-1
+C	-	wall:infrastructure/retainingwall	SLOPE	wellstairs_top	false	infrastructure/retainingwall/stairs/wellstairs_top.blueprint	-1
+C	-	wall:infrastructure/retainingwall	SLOPE	wellstairseight	false	infrastructure/retainingwall/stairs/wellstairseight.blueprint	-1
+C	-	wall:infrastructure/retainingwall	SLOPE	wellstairsfour	false	infrastructure/retainingwall/stairs/wellstairsfour.blueprint	-1
+C	-	wall:infrastructure/retainingwall	SLOPE	wellstairssix	false	infrastructure/retainingwall/stairs/wellstairssix.blueprint	-1
+C	-	wall:infrastructure/retainingwall	SLOPE	wellstairstwo	false	infrastructure/retainingwall/stairs/wellstairstwo.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	CORNER	cornerout	false	infrastructure/retainingwall/bottom/cornerout.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	INNER	cornerin	false	infrastructure/retainingwall/bottom/cornerin.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	diag	false	infrastructure/retainingwall/bottom/diag.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	diagbase	false	infrastructure/retainingwall/bottom/diagbase.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	diagfootrise	false	infrastructure/retainingwall/bottom/diagfootrise.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	diagshort	false	infrastructure/retainingwall/bottom/diagshort.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	diagshortbase	false	infrastructure/retainingwall/bottom/diagshortbase.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	offset	false	infrastructure/retainingwall/bottom/offset.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	offsetbase	false	infrastructure/retainingwall/bottom/offsetbase.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	offsetfootrise	false	infrastructure/retainingwall/bottom/offsetfootrise.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	offsetshort	false	infrastructure/retainingwall/bottom/offsetshort.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	OTHER	offsetshortbase	false	infrastructure/retainingwall/bottom/offsetshortbase.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	short	false	infrastructure/retainingwall/bottom/short.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	shortbase	false	infrastructure/retainingwall/bottom/shortbase.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	shortfootrise	false	infrastructure/retainingwall/bottom/shortfootrise.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	shortthrees	false	infrastructure/retainingwall/bottom/shortthrees.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	shorttwos	false	infrastructure/retainingwall/bottom/shorttwos.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	straight	false	infrastructure/retainingwall/bottom/straight.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	straightbase	false	infrastructure/retainingwall/bottom/straightbase.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	straightfootrise	false	infrastructure/retainingwall/bottom/straightfootrise.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	straightthrees	false	infrastructure/retainingwall/bottom/straightthrees.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom	STRAIGHT	straighttwos	false	infrastructure/retainingwall/bottom/straighttwos.blueprint	0
+C	-	wall:infrastructure/retainingwall/bottom/diagfootrise	OTHER	diagfootrise_rev	false	infrastructure/retainingwall/bottom/diagfootrise_rev.blueprint	-1
+C	-	wall:infrastructure/retainingwall/bottom/offsetfootrise	OTHER	offsetfootrise_rev	false	infrastructure/retainingwall/bottom/offsetfootrise_rev.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	OTHER	halfstart	false	infrastructure/retainingwall/inclines/halfstart.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	OTHER	quarterstart	false	infrastructure/retainingwall/inclines/quarterstart.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	SLOPE	eighthinclinetop	false	infrastructure/retainingwall/inclines/eighthinclinetop.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	SLOPE	halfinclinetop	false	infrastructure/retainingwall/inclines/halfinclinetop.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	SLOPE	quarterinclinetop	false	infrastructure/retainingwall/inclines/quarterinclinetop.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	SLOPE	stepsfive	false	infrastructure/retainingwall/inclines/stepsfive.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	SLOPE	stepstart	false	infrastructure/retainingwall/inclines/stepstart.blueprint	-1
+C	-	wall:infrastructure/retainingwall/inclines	SLOPE	stepsthree	false	infrastructure/retainingwall/inclines/stepsthree.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	CORNER	cornerout	false	infrastructure/retainingwall/mid/cornerout.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	INNER	cornerin	false	infrastructure/retainingwall/mid/cornerin.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	corneroutshim	false	infrastructure/retainingwall/mid/corneroutshim.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	diag	false	infrastructure/retainingwall/mid/diag.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	diagshim	false	infrastructure/retainingwall/mid/diagshim.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	diagshort	false	infrastructure/retainingwall/mid/diagshort.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	offset	false	infrastructure/retainingwall/mid/offset.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	offsetshim	false	infrastructure/retainingwall/mid/offsetshim.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	offsetshort	false	infrastructure/retainingwall/mid/offsetshort.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	offsetshortshim	false	infrastructure/retainingwall/mid/offsetshortshim.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	shortshim	false	infrastructure/retainingwall/mid/shortshim.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	OTHER	straightshim	false	infrastructure/retainingwall/mid/straightshim.blueprint	-1
+C	-	wall:infrastructure/retainingwall/mid	STRAIGHT	short	false	infrastructure/retainingwall/mid/short.blueprint	0
+C	-	wall:infrastructure/retainingwall/mid	STRAIGHT	shortthreetop	false	infrastructure/retainingwall/mid/shortthreetop.blueprint	0
+C	-	wall:infrastructure/retainingwall/mid	STRAIGHT	shorttwos	false	infrastructure/retainingwall/mid/shorttwos.blueprint	0
+C	-	wall:infrastructure/retainingwall/mid	STRAIGHT	straight	false	infrastructure/retainingwall/mid/straight.blueprint	0
+C	-	wall:infrastructure/retainingwall/mid	STRAIGHT	straightthrees	false	infrastructure/retainingwall/mid/straightthrees.blueprint	0
+C	-	wall:infrastructure/retainingwall/mid	STRAIGHT	straightthreetop	false	infrastructure/retainingwall/mid/straightthreetop.blueprint	0
+C	-	wall:infrastructure/retainingwall/mid	STRAIGHT	straighttwos	false	infrastructure/retainingwall/mid/straighttwos.blueprint	0
+C	-	wall:infrastructure/retainingwall/sidesetbottom	OTHER	sidesetbottom_ext	false	infrastructure/retainingwall/stairs/sidesetbottom_ext.blueprint	-1
+C	-	wall:infrastructure/retainingwall/sidesetmid	OTHER	sidesetmid_ext	false	infrastructure/retainingwall/stairs/sidesetmid_ext.blueprint	-1
+C	-	wall:infrastructure/retainingwall/sidesettop	OTHER	sidesettop_ext	false	infrastructure/retainingwall/stairs/sidesettop_ext.blueprint	-1
+C	-	wall:infrastructure/retainingwall/sidesettop	OTHER	sidesettop_foot	false	infrastructure/retainingwall/stairs/sidesettop_foot.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	CORNER	cornerout	false	infrastructure/retainingwall/top/cornerout.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	CORNER	corneroutlantern	false	infrastructure/retainingwall/top/corneroutlantern.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	INNER	cornerin	false	infrastructure/retainingwall/top/cornerin.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	INNER	cornerinlantern	false	infrastructure/retainingwall/top/cornerinlantern.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	OTHER	diag	false	infrastructure/retainingwall/top/diag.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	OTHER	diagshort	false	infrastructure/retainingwall/top/diagshort.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	OTHER	lantern	false	infrastructure/retainingwall/top/lantern.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	OTHER	lanterndbl	false	infrastructure/retainingwall/top/lanterndbl.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	OTHER	lanterntwos	false	infrastructure/retainingwall/top/lanterntwos.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	OTHER	offset	false	infrastructure/retainingwall/top/offset.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	OTHER	offsetshort	false	infrastructure/retainingwall/top/offsetshort.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	SLOPE	stepfive	false	infrastructure/retainingwall/top/stepfive.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	SLOPE	stepstart	false	infrastructure/retainingwall/top/stepstart.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	SLOPE	stepthree	false	infrastructure/retainingwall/top/stepthree.blueprint	-1
+C	-	wall:infrastructure/retainingwall/top	STRAIGHT	short	false	infrastructure/retainingwall/top/short.blueprint	0
+C	-	wall:infrastructure/retainingwall/top	STRAIGHT	shorttwos	false	infrastructure/retainingwall/top/shorttwos.blueprint	0
+C	-	wall:infrastructure/retainingwall/top	STRAIGHT	straight	false	infrastructure/retainingwall/top/straight.blueprint	0
+C	-	wall:infrastructure/retainingwall/top	STRAIGHT	straighttwos	false	infrastructure/retainingwall/top/straighttwos.blueprint	0
+C	-	wall:walls	CORNER	corner	false	walls/tower/corner.blueprint	-1
+C	-	wall:walls	CORNER	cornertall	false	walls/tower/cornertall.blueprint	-1
+C	-	wall:walls	OTHER	teetall	false	walls/tower/teetall.blueprint	-1
+C	-	wall:walls	STRAIGHT	midwall	false	walls/tower/midwall.blueprint	1
+C	-	wall:walls	STRAIGHT	midwalltall	false	walls/tower/midwalltall.blueprint	1
+C	-	wall:walls	TEE	tee	false	walls/tower/tee.blueprint	-1
+C	-	wall:walls/flat	CORNER	cornerout	false	walls/flat/cornerout.blueprint	-1
+C	-	wall:walls/flat	CORNER	corneroutrev	false	walls/flat/corneroutrev.blueprint	-1
+C	-	wall:walls/flat	END	endcap	false	walls/flat/endcap.blueprint	-1
+C	-	wall:walls/flat	GATE	gatebig	false	walls/flat/gatebig.blueprint	0
+C	-	wall:walls/flat	GATE	gatesmall	false	walls/flat/gatesmall.blueprint	0
+C	-	wall:walls/flat	INNER	cornerin	false	walls/flat/cornerin.blueprint	-1
+C	-	wall:walls/flat	INNER	cornerinrev	false	walls/flat/cornerinrev.blueprint	-1
+C	-	wall:walls/flat	OTHER	diag	false	walls/flat/diag.blueprint	-1
+C	-	wall:walls/flat	OTHER	diagshort	false	walls/flat/diagshort.blueprint	-1
+C	-	wall:walls/flat	OTHER	diagstair	false	walls/flat/diagstair.blueprint	-1
+C	-	wall:walls/flat	OTHER	diagswitch	false	walls/flat/diagswitch.blueprint	-1
+C	-	wall:walls/flat	OTHER	diagtostraight	false	walls/flat/diagtostraight.blueprint	-1
+C	-	wall:walls/flat	OTHER	offset	false	walls/flat/offset.blueprint	-1
+C	-	wall:walls/flat	OTHER	offsetshort	false	walls/flat/offsetshort.blueprint	-1
+C	-	wall:walls/flat	OTHER	offsetstair	false	walls/flat/offsetstair.blueprint	-1
+C	-	wall:walls/flat	OTHER	shim	false	walls/flat/shim.blueprint	-1
+C	-	wall:walls/flat	SLOPE	straightstair	false	walls/flat/straightstair.blueprint	-1
+C	-	wall:walls/flat	STRAIGHT	straight	false	walls/flat/straight.blueprint	0
+C	-	wall:walls/flat	STRAIGHT	straightshort	false	walls/flat/straightshort.blueprint	0
+C	-	wall:walls/flat/diagtostraight	OTHER	diagtostraight_i	false	walls/flat/diagtostraight_i.blueprint	-1
+C	-	wall:walls/incline	OTHER	shallow	false	walls/incline/straight/shallow.blueprint	-1
+C	-	wall:walls/incline	OTHER	steep	false	walls/incline/straight/steep.blueprint	-1
+C	-	wall:walls/incline	SLOPE	histep	false	walls/incline/straight/histep.blueprint	-1
+C	-	wall:walls/incline	SLOPE	histep_i	false	walls/incline/straight/histep_i.blueprint	-1
+C	-	wall:walls/incline	SLOPE	shallowstep	false	walls/incline/straight/shallowstep.blueprint	-1
+C	-	wall:walls/incline	SLOPE	shallowstep_i	false	walls/incline/straight/shallowstep_i.blueprint	-1
+C	-	wall:walls/incline	SLOPE	steepstep	false	walls/incline/straight/steepstep.blueprint	-1
+C	-	wall:walls/incline/offset	OTHER	shallow	false	walls/incline/offset/shallow.blueprint	-1
+C	-	wall:walls/incline/offset	OTHER	steep	false	walls/incline/offset/steep.blueprint	-1
+C	-	wall:walls/incline/offset	SLOPE	shallowstep	false	walls/incline/offset/shallowstep.blueprint	-1
+C	-	wall:walls/incline/offset	SLOPE	steepstep	false	walls/incline/offset/steepstep.blueprint	-1
+C	-	wall:walls/incline/offset/shallow	OTHER	shallow_twice	false	walls/incline/offset/shallow_twice.blueprint	-1
+C	-	wall:walls/incline/offset/steep	OTHER	steep_twice	false	walls/incline/offset/steep_twice.blueprint	-1
+C	-	wall:walls/incline/shallow	OTHER	shallow_i	false	walls/incline/straight/shallow_i.blueprint	-1
+C	-	wall:walls/incline/shallow	OTHER	shallow_i_twice	false	walls/incline/straight/shallow_i_twice.blueprint	-1
+C	-	wall:walls/incline/shallow	OTHER	shallow_twice	false	walls/incline/straight/shallow_twice.blueprint	-1
+C	-	wall:walls/incline/steep	OTHER	steep_i	false	walls/incline/straight/steep_i.blueprint	-1
+C	-	wall:walls/incline/steep	OTHER	steep_i_twice	false	walls/incline/straight/steep_i_twice.blueprint	-1
+C	-	wall:walls/incline/steep	OTHER	steep_twice	false	walls/incline/straight/steep_twice.blueprint	-1
+C	-	wall:walls/moat	CORNER	corner	false	walls/moat/corner.blueprint	-1
+C	-	wall:walls/moat	CROSS	cross	false	walls/moat/cross.blueprint	-1
+C	-	wall:walls/moat	END	end	false	walls/moat/end.blueprint	0
+C	-	wall:walls/moat	OTHER	diag	false	walls/moat/diag.blueprint	-1
+C	-	wall:walls/moat	OTHER	diagshort	false	walls/moat/diagshort.blueprint	-1
+C	-	wall:walls/moat	OTHER	diagswitch	false	walls/moat/diagswitch.blueprint	-1
+C	-	wall:walls/moat	OTHER	offset	false	walls/moat/offset.blueprint	-1
+C	-	wall:walls/moat	OTHER	shim	false	walls/moat/shim.blueprint	-1
+C	-	wall:walls/moat	STRAIGHT	straight	false	walls/moat/straight.blueprint	0
+C	-	wall:walls/moat	STRAIGHT	straightshort	false	walls/moat/straightshort.blueprint	0
+C	-	wall:walls/moat	TEE	tee	false	walls/moat/tee.blueprint	-1
+O	infrastructure/avenue/diag.blueprint
+O	infrastructure/avenue/diag_short.blueprint
+O	infrastructure/avenue/halfincline.blueprint
+O	infrastructure/avenue/halfinclineramp.blueprint
+O	infrastructure/avenue/halfinclinerampthree.blueprint
+O	infrastructure/avenue/halfinclineramptwo.blueprint
+O	infrastructure/avenue/halfinclinethree.blueprint
+O	infrastructure/avenue/halfinclinetwo.blueprint
+O	infrastructure/avenue/offset.blueprint
+O	infrastructure/avenue/offset_short.blueprint
+O	infrastructure/avenue/quartercline.blueprint
+O	infrastructure/avenue/quarterclinetwo.blueprint
+O	infrastructure/avenue/stair.blueprint
+O	infrastructure/avenue/stairfive.blueprint
+O	infrastructure/avenue/stairfour.blueprint
+O	infrastructure/avenue/stairsix.blueprint
+O	infrastructure/avenue/stairthree.blueprint
+O	infrastructure/avenue/stairtwo.blueprint
+O	infrastructure/avenue_odd/diag.blueprint
+O	infrastructure/avenue_odd/diag_short.blueprint
+O	infrastructure/avenue_odd/halfincline.blueprint
+O	infrastructure/avenue_odd/halfinclineramp.blueprint
+O	infrastructure/avenue_odd/halfinclinerampone.blueprint
+O	infrastructure/avenue_odd/halfinclinerampthree.blueprint
+O	infrastructure/avenue_odd/halfinclineramptwo.blueprint
+O	infrastructure/avenue_odd/halfinclinethree.blueprint
+O	infrastructure/avenue_odd/halfinclinetwo.blueprint
+O	infrastructure/avenue_odd/offset.blueprint
+O	infrastructure/avenue_odd/offsetshort.blueprint
+O	infrastructure/avenue_odd/quartercline.blueprint
+O	infrastructure/avenue_odd/quarterclinetwo.blueprint
+O	infrastructure/avenue_odd/stairfive.blueprint
+O	infrastructure/avenue_odd/stairfour.blueprint
+O	infrastructure/avenue_odd/stairone.blueprint
+O	infrastructure/avenue_odd/stairsix.blueprint
+O	infrastructure/avenue_odd/stairthree.blueprint
+O	infrastructure/avenue_odd/stairtwo.blueprint
+O	infrastructure/boulevard/diag.blueprint
+O	infrastructure/boulevard/diag_short.blueprint
+O	infrastructure/boulevard/diagswitch.blueprint
+O	infrastructure/boulevard/eighthincline.blueprint
+O	infrastructure/boulevard/eighthinclinebevel.blueprint
+O	infrastructure/boulevard/halfinclineramp.blueprint
+O	infrastructure/boulevard/offset.blueprint
+O	infrastructure/boulevard/offsetbevel.blueprint
+O	infrastructure/boulevard/plaza_a.blueprint
+O	infrastructure/boulevard/plaza_b.blueprint
+O	infrastructure/boulevard/quarterincline.blueprint
+O	infrastructure/boulevard/quarterinclinebevel.blueprint
+O	infrastructure/retainingwall/bottom/diag.blueprint
+O	infrastructure/retainingwall/bottom/diagbase.blueprint
+O	infrastructure/retainingwall/bottom/diagfootrise.blueprint
+O	infrastructure/retainingwall/bottom/diagfootrise_rev.blueprint
+O	infrastructure/retainingwall/bottom/diagshort.blueprint
+O	infrastructure/retainingwall/bottom/diagshortbase.blueprint
+O	infrastructure/retainingwall/bottom/offset.blueprint
+O	infrastructure/retainingwall/bottom/offsetbase.blueprint
+O	infrastructure/retainingwall/bottom/offsetfootrise.blueprint
+O	infrastructure/retainingwall/bottom/offsetfootrise_rev.blueprint
+O	infrastructure/retainingwall/bottom/offsetshort.blueprint
+O	infrastructure/retainingwall/bottom/offsetshortbase.blueprint
+O	infrastructure/retainingwall/inclines/eighthinclinetop.blueprint
+O	infrastructure/retainingwall/inclines/halfinclinetop.blueprint
+O	infrastructure/retainingwall/inclines/halfstart.blueprint
+O	infrastructure/retainingwall/inclines/quarterinclinetop.blueprint
+O	infrastructure/retainingwall/inclines/quarterstart.blueprint
+O	infrastructure/retainingwall/inclines/stepsfive.blueprint
+O	infrastructure/retainingwall/inclines/stepstart.blueprint
+O	infrastructure/retainingwall/inclines/stepsthree.blueprint
+O	infrastructure/retainingwall/mid/corneroutshim.blueprint
+O	infrastructure/retainingwall/mid/diag.blueprint
+O	infrastructure/retainingwall/mid/diagshim.blueprint
+O	infrastructure/retainingwall/mid/diagshort.blueprint
+O	infrastructure/retainingwall/mid/offset.blueprint
+O	infrastructure/retainingwall/mid/offsetshim.blueprint
+O	infrastructure/retainingwall/mid/offsetshort.blueprint
+O	infrastructure/retainingwall/mid/offsetshortshim.blueprint
+O	infrastructure/retainingwall/mid/shortshim.blueprint
+O	infrastructure/retainingwall/mid/straightshim.blueprint
+O	infrastructure/retainingwall/stairs/sidesetbottom.blueprint
+O	infrastructure/retainingwall/stairs/sidesetbottom_ext.blueprint
+O	infrastructure/retainingwall/stairs/sidesetmid.blueprint
+O	infrastructure/retainingwall/stairs/sidesetmid_ext.blueprint
+O	infrastructure/retainingwall/stairs/sidesettop.blueprint
+O	infrastructure/retainingwall/stairs/sidesettop_ext.blueprint
+O	infrastructure/retainingwall/stairs/sidesettop_foot.blueprint
+O	infrastructure/retainingwall/stairs/wellbottom.blueprint
+O	infrastructure/retainingwall/stairs/wellstairs_top.blueprint
+O	infrastructure/retainingwall/stairs/wellstairseight.blueprint
+O	infrastructure/retainingwall/stairs/wellstairsfour.blueprint
+O	infrastructure/retainingwall/stairs/wellstairssix.blueprint
+O	infrastructure/retainingwall/stairs/wellstairstwo.blueprint
+O	infrastructure/retainingwall/top/diag.blueprint
+O	infrastructure/retainingwall/top/diagshort.blueprint
+O	infrastructure/retainingwall/top/lantern.blueprint
+O	infrastructure/retainingwall/top/lanterndbl.blueprint
+O	infrastructure/retainingwall/top/lanterntwos.blueprint
+O	infrastructure/retainingwall/top/offset.blueprint
+O	infrastructure/retainingwall/top/offsetshort.blueprint
+O	infrastructure/retainingwall/top/stepfive.blueprint
+O	infrastructure/retainingwall/top/stepstart.blueprint
+O	infrastructure/retainingwall/top/stepthree.blueprint
+O	walls/flat/diag.blueprint
+O	walls/flat/diagshort.blueprint
+O	walls/flat/diagstair.blueprint
+O	walls/flat/diagswitch.blueprint
+O	walls/flat/diagtostraight.blueprint
+O	walls/flat/diagtostraight_i.blueprint
+O	walls/flat/offset.blueprint
+O	walls/flat/offsetshort.blueprint
+O	walls/flat/offsetstair.blueprint
+O	walls/flat/shim.blueprint
+O	walls/flat/straightstair.blueprint
+O	walls/incline/offset/shallow.blueprint
+O	walls/incline/offset/shallow_twice.blueprint
+O	walls/incline/offset/shallowstep.blueprint
+O	walls/incline/offset/steep.blueprint
+O	walls/incline/offset/steep_twice.blueprint
+O	walls/incline/offset/steepstep.blueprint
+O	walls/incline/straight/histep.blueprint
+O	walls/incline/straight/histep_i.blueprint
+O	walls/incline/straight/shallow.blueprint
+O	walls/incline/straight/shallow_i.blueprint
+O	walls/incline/straight/shallow_i_twice.blueprint
+O	walls/incline/straight/shallow_twice.blueprint
+O	walls/incline/straight/shallowstep.blueprint
+O	walls/incline/straight/shallowstep_i.blueprint
+O	walls/incline/straight/steep.blueprint
+O	walls/incline/straight/steep_i.blueprint
+O	walls/incline/straight/steep_i_twice.blueprint
+O	walls/incline/straight/steep_twice.blueprint
+O	walls/incline/straight/steepstep.blueprint
+O	walls/moat/diag.blueprint
+O	walls/moat/diagshort.blueprint
+O	walls/moat/diagswitch.blueprint
+O	walls/moat/offset.blueprint
+O	walls/moat/shim.blueprint
+O	walls/tower/teetall.blueprint

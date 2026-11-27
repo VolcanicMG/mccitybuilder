@@ -568,7 +568,9 @@ final class PlannerScreen extends Screen {
             click();
             LineView.toggleEdit();
         }, Component.translatable("mccitybuilder.line.edit.tip")));
-        int iy = picker(g, ix, ey + 24, iw, Component.translatable("mccitybuilder.line.family", fam == null ? "-" : fam.substring(fam.indexOf(':') + 1)).getString(),
+        boolean famMissing = sel != null && PieceCatalog.familyMissing(sel);
+        int iy = picker(g, ix, ey + 24, iw, Component.translatable(famMissing ? "mccitybuilder.line.family.missing" : "mccitybuilder.line.family",
+                        fam == null ? "-" : fam.substring(fam.indexOf(':') + 1)).getString(),
                 mx, my, d -> {
                     LineView.cycleFamily(d);
                     click();
@@ -767,10 +769,11 @@ final class PlannerScreen extends Screen {
     }
 
     /** The per-role piece editor, a popup beside the line panel: which piece group plays each role (auto / none / any). */
-    private void pieceEditor(GuiGraphics g, int x, int y, int w, String pk, String fam, int mx, int my) {
-        var fs = PieceCatalog.families(pk);
-        var f = fs == null ? null : fs.get(fam);
+    private void pieceEditor(GuiGraphics g, int x, int y, int w, String pk, String famKey, int mx, int my) {
+        var f = PieceCatalog.familyOf(pk, famKey);
         if (f == null) return;
+        // The family as it is now (a line may still carry a renamed key): role picks and the screens use this key.
+        String fam = f.tool() + ":" + f.key();
         int h = PAD * 2 + 70 + EDIT_ROLES.length * 18;
         x = Math.max(4, x);
         panels.add(new int[]{x, y, w, h});
@@ -1152,6 +1155,24 @@ final class PlannerScreen extends Screen {
      * hide every one of them; empty while they load
      */
     private static List<Blueprints.Hut> decorations(String folder) {
+        // Worked out once per pack, tab, set-up and piece loads (the palette asks every frame, per folder).
+        List<Object> stamp = List.of(pack(), otherTab, PieceCatalog.setupVersion, PieceCatalog.loadVersion, Blueprints.generation);
+        if (!stamp.equals(decoStamp)) {
+            decoCache.clear();
+            decoStamp = stamp;
+        }
+        List<Blueprints.Hut> done = decoCache.get(folder);
+        if (done != null) return done;
+        List<Blueprints.Hut> out = decorationsNow(folder);
+        // Not cached while the folder or the pack's pieces load (it changes without a stamp change).
+        if (Blueprints.decorations(pack(), folder) != null && (!otherTab || PieceCatalog.families(pack()) != null)) decoCache.put(folder, out);
+        return out;
+    }
+
+    private static final Map<String, List<Blueprints.Hut>> decoCache = new java.util.HashMap<>();
+    private static List<Object> decoStamp;
+
+    private static List<Blueprints.Hut> decorationsNow(String folder) {
         List<Blueprints.Hut> all = Blueprints.decorations(pack(), folder);
         if (all == null) return List.of();
         List<Blueprints.Hut> out = new ArrayList<>();
@@ -1342,8 +1363,12 @@ final class PlannerScreen extends Screen {
                 if (drows.get(decoScroll + i) instanceof String header) {
                     g.drawString(font, font.plainSubstrByWidth(header, iw - 4), ix + 1, ry + 2, 0xFF404040, false);
                     g.fill(ix, ry + DECO_ROW_H - 1, ix + iw, ry + DECO_ROW_H, VanillaUi.SLOT);
+                    // A folder header opens that folder (its own category).
                     hits.add(new Hit(ix, ry, iw, DECO_ROW_H, () -> {
-                    }, Component.translatable("mccitybuilder.sets.deco.tip")));
+                        click();
+                        category = "deco:" + header;
+                        decoScroll = 0;
+                    }, Component.translatable("mccitybuilder.palette.folder.tip")));
                     setupHits.add(new Hit(ix, ry, iw, DECO_ROW_H, () -> minecraft.setScreen(new PieceSetScreen(pack(), com.volcanicmg.mccitybuilder.planner.PieceSets.folder(header + "/x.blueprint"), null)), null));
                     continue;
                 }
@@ -1361,10 +1386,15 @@ final class PlannerScreen extends Screen {
                     click();
                     if (sel) Planner.stopPlacing();
                     else Planner.startPlacingDeco(d);
-                }, null));
+                }, Component.translatable("mccitybuilder.sets.deco.tip")));
             }
         } else for (int i = 0; i < huts.size(); i++) hutSlot(g, huts.get(i), ix + i % COLS * SLOT, yy + i / COLS * SLOT, mx, my);
-        if (decoMode ? decos.isEmpty() : huts.isEmpty()) g.drawString(font, Component.translatable(decoMode ? otherTab ? "mccitybuilder.no_match_other" : "mccitybuilder.no_match_deco" : "mccitybuilder.no_match"), ix + 1, yy + 2, 0xFF606060, false);
+        if (decoMode ? decos.isEmpty() : huts.isEmpty()) {
+            // Other: still loading only while the pack's pieces load; then nothing here, or nothing matching.
+            String none = !decoMode ? "mccitybuilder.no_match" : !otherTab ? "mccitybuilder.no_match_deco" : PieceCatalog.families(pack()) == null ? "mccitybuilder.invalid.loading"
+                    : search.isEmpty() ? "mccitybuilder.other.none" : "mccitybuilder.no_match_other";
+            g.drawString(font, Component.translatable(none), ix + 1, yy + 2, 0xFF606060, false);
+        }
         yy += gridH + 6;
         String counter = decoMode && drows.size() > DECO_ROWS ? (decoScroll + 1) + "-" + Math.min(drows.size(), decoScroll + DECO_ROWS) + "/" + drows.size() : "";
         int cw = counter.isEmpty() ? 0 : font.width(counter) + 4;

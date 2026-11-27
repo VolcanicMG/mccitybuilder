@@ -172,6 +172,8 @@ final class Blueprints {
 
     /** @return the pack's folders (sub-paths) that hold blueprints, sorted; empty while the walk runs */
     static List<String> decoFolders(String pack) {
+        // A pack the server hasn't synced yet: nothing cached, so it is listed once it arrives.
+        if (StructurePacks.getStructurePack(pack) == null) return List.of();
         CompletableFuture<List<String>> f = decoFolders.computeIfAbsent(pack, k -> CompletableFuture.supplyAsync(() -> {
             StructurePackMeta meta = StructurePacks.getStructurePack(pack);
             List<String> out = new ArrayList<>();
@@ -187,6 +189,13 @@ final class Blueprints {
             return out;
         }));
         return f.isDone() && !f.isCompletedExceptionally() ? f.getNow(List.of()) : List.of();
+    }
+
+    /** @return true once the pack's folders are listed ({@link #decoFolders} is empty while that walk runs, or for a pack without blueprints) */
+    static boolean decoFoldersLoaded(String pack) {
+        decoFolders(pack);
+        CompletableFuture<List<String>> f = decoFolders.get(pack);
+        return f != null && f.isDone();
     }
 
     /** @return the folder's decorations (blueprints whose anchor is not a hut), or null while they load */
@@ -286,7 +295,11 @@ final class Blueprints {
         return need;
     }
 
+    /** Bumped by {@link #clear} (a pack reload, client packs synced): what was worked out from the lists is stale. */
+    static int generation;
+
     static void clear() {
+        generation++;
         cache.clear();
         levels.clear();
         decoFolders.clear();

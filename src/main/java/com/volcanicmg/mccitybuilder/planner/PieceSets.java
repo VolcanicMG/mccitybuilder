@@ -383,13 +383,19 @@ public final class PieceSets {
      * @return families keyed "tool:key", in path order
      */
     public static Map<String, Family> classify(List<Piece> pieces, Map<String, Integer> shapes, Map<String, String> overrides) {
-        // A variant joins its base's group: it takes that base name.
+        // A variant joins its base's group: it takes that base name (followed along chains: A of B, B of C: C).
+        Map<String, String> variantOf = new java.util.HashMap<>();
+        for (Piece p : pieces) {
+            String v = overrides.get(PIECE + p.path());
+            if (v != null && v.startsWith(VARIANT) && v.length() > VARIANT.length()) variantOf.putIfAbsent(p.base(), v.substring(VARIANT.length()));
+        }
         Map<String, Role> roleOf = new java.util.HashMap<>();
         List<Piece> eff = new ArrayList<>();
         for (Piece p : pieces) {
             String v = overrides.get(PIECE + p.path());
             if (EXCLUDED.equals(v)) continue;
-            if (v != null && v.startsWith(VARIANT) && v.length() > VARIANT.length()) p = new Piece(p.path(), v.substring(VARIANT.length()), p.number(), p.sx(), p.sy(), p.sz(), p.axis());
+            if (v != null && v.startsWith(VARIANT) && v.length() > VARIANT.length()) p = new Piece(p.path(), variantRoot(v.substring(VARIANT.length()), variantOf), p.number(), p.sx(), p.sy(),
+                    p.sz(), p.axis());
             else if (v != null) for (Role r : Role.values()) if (r.name().equals(v)) roleOf.put(p.path(), r);
             eff.add(p);
         }
@@ -457,6 +463,42 @@ public final class PieceSets {
             out.put(en.getKey(), new Family(tool, en.getKey().substring(tool.length() + 1), roles));
         }
         return out;
+    }
+
+    /** @return the group a variant ends up in: its target, followed while that is a variant itself (a loop stops) */
+    static String variantRoot(String base, Map<String, String> variantOf) {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        while (variantOf.containsKey(base) && seen.add(base)) base = variantOf.get(base);
+        return base;
+    }
+
+    /**
+     * A planned line keeps its family key ("tool:key"); a set-up save or new name rules may rename the family.
+     *
+     * @param keys the pack's family keys now
+     * @return the key itself while it exists, else the one family of the same tool and folder (a folder split by
+     * styles or merged back counts as the same folder; another tool never does: a road line doesn't turn into a
+     * wall), or null when none or several fit
+     */
+    public static String resolveFamily(String key, java.util.Collection<String> keys) {
+        if (keys.contains(key)) return key;
+        int c = key.indexOf(':');
+        String tool = c < 0 ? "" : key.substring(0, c), part = key.substring(c + 1);
+        List<String> fit = new ArrayList<>();
+        for (String k : keys) {
+            int kc = k.indexOf(':');
+            String kp = k.substring(kc + 1);
+            if (k.substring(0, Math.max(0, kc)).equals(tool) && (kp.equals(part) || kp.startsWith(part + "/") || part.startsWith(kp + "/"))) fit.add(k);
+        }
+        if (fit.size() == 1) return fit.get(0);
+        // Only enclosing folders' families (walls/walls/tee folded into walls/walls, and walls): the nearest.
+        String best = null;
+        for (String k : fit) {
+            String kp = k.substring(k.indexOf(':') + 1);
+            if (!part.startsWith(kp + "/")) return null;
+            if (best == null || kp.length() > best.length() - best.indexOf(':') - 1) best = k;
+        }
+        return best;
     }
 
     /** Override key prefixes: "tool|folder or blueprint path" to road / wall / none; "piece|blueprint path" to a role, a variant or excluded. */

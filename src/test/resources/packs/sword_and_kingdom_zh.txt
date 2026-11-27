@@ -1,0 +1,76 @@
+P	infrastructure/道路/3或5格宽十字路口【1】.blueprint	9	8	9	0
+P	infrastructure/道路/3或5格宽十字路口【2】.blueprint	9	8	9	0
+P	infrastructure/道路/3格道路【↑↑↑】.blueprint	3	6	6	5
+P	infrastructure/道路/3格道路【↑↑】.blueprint	13	4	3	11
+P	infrastructure/道路/3格道路【↑】.blueprint	3	3	19	10
+P	infrastructure/道路/3格道路【弯道】.blueprint	12	2	12	12
+P	infrastructure/道路/3格道路【短】.blueprint	3	2	12	10
+P	infrastructure/道路/3格道路【长】.blueprint	30	2	3	5
+P	infrastructure/道路/5或7格宽十字路口.blueprint	15	11	15	15
+P	infrastructure/道路/5格道路【↑↑】.blueprint	5	11	5	5
+P	infrastructure/道路/5格道路【↑】.blueprint	5	10	23	13
+P	infrastructure/道路/5格道路【短】.blueprint	15	8	5	15
+P	infrastructure/道路/5格道路【立交】.blueprint	17	9	13	0
+P	infrastructure/道路/5格道路【长】.blueprint	5	8	63	15
+P	infrastructure/道路/7格宽十字路口【传送石碑底座】.blueprint	31	8	31	0
+P	infrastructure/道路/7格道路.blueprint	7	8	33	15
+P	infrastructure/道路/悬崖旋转楼梯【可连接】.blueprint	9	15	11	5
+P	infrastructure/道路/悬崖旋转楼梯【底】.blueprint	9	13	11	5
+P	infrastructure/道路/沿岸道路【1】.blueprint	11	13	6	13
+P	infrastructure/道路/沿岸道路【2】.blueprint	12	13	12	12
+P	城墙/城墙[∩].blueprint	9	22	6	5
+P	城墙/城墙[∩‖].blueprint	9	22	7	5
+P	城墙/城墙[∩∩∩].blueprint	27	22	6	5
+P	城墙/城墙[∩∩∩‖].blueprint	27	22	7	5
+P	城墙/城墙[━].blueprint	9	22	6	5
+P	城墙/城墙[━━━].blueprint	27	22	6	5
+P	城墙/城墙[━╲].blueprint	6	21	8	15
+P	城墙/城墙[╲].blueprint	9	21	9	15
+P	城墙/城墙[■].blueprint	9	21	9	15
+P	城墙/城墙[□].blueprint	9	21	9	15
+P	城墙/城墙[▲].blueprint	8	25	6	5
+P	城墙/城墙[▲▲].blueprint	5	26	6	10
+P	城墙/城墙[城门].blueprint	21	21	9	15
+C	-	road:infrastructure/道路	CORNER	3格道路【弯道】	false	infrastructure/道路/3格道路【弯道】.blueprint	-1
+C	-	road:infrastructure/道路	CROSS	3或5格宽十字路口【1】	false	infrastructure/道路/3或5格宽十字路口【1】.blueprint	-1
+C	-	road:infrastructure/道路	CROSS	3或5格宽十字路口【2】	false	infrastructure/道路/3或5格宽十字路口【2】.blueprint	-1
+C	-	road:infrastructure/道路	CROSS	5或7格宽十字路口	false	infrastructure/道路/5或7格宽十字路口.blueprint	-1
+C	-	road:infrastructure/道路	CROSS	7格宽十字路口【传送石碑底座】	false	infrastructure/道路/7格宽十字路口【传送石碑底座】.blueprint	-1
+C	-	road:infrastructure/道路	OTHER	5格道路【立交】	false	infrastructure/道路/5格道路【立交】.blueprint	-1
+C	-	road:infrastructure/道路	SLOPE	3格道路【↑↑↑】	false	infrastructure/道路/3格道路【↑↑↑】.blueprint	-1
+C	-	road:infrastructure/道路	SLOPE	3格道路【↑↑】	false	infrastructure/道路/3格道路【↑↑】.blueprint	-1
+C	-	road:infrastructure/道路	SLOPE	3格道路【↑】	false	infrastructure/道路/3格道路【↑】.blueprint	-1
+C	-	road:infrastructure/道路	SLOPE	5格道路【↑↑】	false	infrastructure/道路/5格道路【↑↑】.blueprint	-1
+C	-	road:infrastructure/道路	SLOPE	5格道路【↑】	false	infrastructure/道路/5格道路【↑】.blueprint	-1
+C	-	road:infrastructure/道路	SLOPE	悬崖旋转楼梯【可连接】	false	infrastructure/道路/悬崖旋转楼梯【可连接】.blueprint	-1
+C	-	road:infrastructure/道路	SLOPE	悬崖旋转楼梯【底】	false	infrastructure/道路/悬崖旋转楼梯【底】.blueprint	-1
+C	-	road:infrastructure/道路	STRAIGHT	3格道路【短】	false	infrastructure/道路/3格道路【短】.blueprint	1
+C	-	road:infrastructure/道路	STRAIGHT	3格道路【长】	false	infrastructure/道路/3格道路【长】.blueprint	1
+C	-	road:infrastructure/道路	STRAIGHT	5格道路【短】	false	infrastructure/道路/5格道路【短】.blueprint	1
+C	-	road:infrastructure/道路	STRAIGHT	5格道路【长】	false	infrastructure/道路/5格道路【长】.blueprint	1
+C	-	road:infrastructure/道路	STRAIGHT	7格道路	false	infrastructure/道路/7格道路.blueprint	1
+C	-	road:infrastructure/道路	STRAIGHT	沿岸道路【1】	false	infrastructure/道路/沿岸道路【1】.blueprint	1
+C	-	road:infrastructure/道路	STRAIGHT	沿岸道路【2】	false	infrastructure/道路/沿岸道路【2】.blueprint	1
+C	-	wall:城墙	GATE	城墙[城门]	false	城墙/城墙[城门].blueprint	-1
+C	-	wall:城墙	OTHER	城墙[━╲]	false	城墙/城墙[━╲].blueprint	-1
+C	-	wall:城墙	OTHER	城墙[╲]	false	城墙/城墙[╲].blueprint	-1
+C	-	wall:城墙	STRAIGHT	城墙[∩]	false	城墙/城墙[∩].blueprint	0
+C	-	wall:城墙	STRAIGHT	城墙[∩‖]	false	城墙/城墙[∩‖].blueprint	0
+C	-	wall:城墙	STRAIGHT	城墙[∩∩∩]	false	城墙/城墙[∩∩∩].blueprint	0
+C	-	wall:城墙	STRAIGHT	城墙[∩∩∩‖]	false	城墙/城墙[∩∩∩‖].blueprint	0
+C	-	wall:城墙	STRAIGHT	城墙[━]	false	城墙/城墙[━].blueprint	0
+C	-	wall:城墙	STRAIGHT	城墙[━━━]	false	城墙/城墙[━━━].blueprint	0
+C	-	wall:城墙	STRAIGHT	城墙[▲]	false	城墙/城墙[▲].blueprint	0
+C	-	wall:城墙	STRAIGHT	城墙[▲▲]	false	城墙/城墙[▲▲].blueprint	0
+C	-	wall:城墙	TOWER	城墙[■]	false	城墙/城墙[■].blueprint	-1
+C	-	wall:城墙	TOWER	城墙[□]	false	城墙/城墙[□].blueprint	-1
+O	infrastructure/道路/3格道路【↑↑↑】.blueprint
+O	infrastructure/道路/3格道路【↑↑】.blueprint
+O	infrastructure/道路/3格道路【↑】.blueprint
+O	infrastructure/道路/5格道路【↑↑】.blueprint
+O	infrastructure/道路/5格道路【↑】.blueprint
+O	infrastructure/道路/5格道路【立交】.blueprint
+O	infrastructure/道路/悬崖旋转楼梯【可连接】.blueprint
+O	infrastructure/道路/悬崖旋转楼梯【底】.blueprint
+O	城墙/城墙[━╲].blueprint
+O	城墙/城墙[╲].blueprint

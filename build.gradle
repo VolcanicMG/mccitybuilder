@@ -99,7 +99,7 @@ tasks.register('wallJoints', JavaExec) {
 tasks.register('pieceScan', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'com.volcanicmg.mccitybuilder.PieceScan'
-    args = (project.findProperty('jars') ?: '').toString().split(',').findAll { it }
+    args = (project.hasProperty('fixtures') ? ['fixtures', project.fixtures.toString()] : []) + (project.findProperty('jars') ?: '').toString().split(',').findAll { it }
     jvmArgs "-Dshow=${project.findProperty('show') ?: ''}"
 }
 tasks.named('test') { failOnNoDiscoveredTests = false }

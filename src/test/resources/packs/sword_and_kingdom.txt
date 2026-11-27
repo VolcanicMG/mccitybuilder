@@ -1,0 +1,76 @@
+P	infrastructure/road/3 or 5-lane wide intersection【1】.blueprint	9	8	9	0
+P	infrastructure/road/3 or 5-lane wide intersection【2】.blueprint	9	8	9	0
+P	infrastructure/road/3-lane road【curve】.blueprint	12	2	12	12
+P	infrastructure/road/3-lane road【long】.blueprint	30	2	3	5
+P	infrastructure/road/3-lane road【short】.blueprint	3	2	12	10
+P	infrastructure/road/3-lane road【↑↑↑】.blueprint	3	6	6	5
+P	infrastructure/road/3-lane road【↑↑】.blueprint	13	4	3	11
+P	infrastructure/road/3-lane road【↑】.blueprint	3	3	19	10
+P	infrastructure/road/5 or 7-lane wide intersection.blueprint	15	11	15	15
+P	infrastructure/road/5-lane road【grade separation】.blueprint	17	9	13	0
+P	infrastructure/road/5-lane road【long】.blueprint	5	8	63	15
+P	infrastructure/road/5-lane road【short】.blueprint	15	8	5	15
+P	infrastructure/road/5-lane road【↑↑】.blueprint	5	11	5	5
+P	infrastructure/road/5-lane road【↑】.blueprint	5	10	23	13
+P	infrastructure/road/7-lane road.blueprint	7	8	33	15
+P	infrastructure/road/7-lane wide intersection【Teleportation Stone Pedestal】.blueprint	31	8	31	0
+P	infrastructure/road/Cliff spiral staircase【Bottom】.blueprint	9	13	11	5
+P	infrastructure/road/Cliff spiral staircase【Link】.blueprint	9	15	11	5
+P	infrastructure/road/Coastal road【1】.blueprint	11	13	6	13
+P	infrastructure/road/Coastal road【2】.blueprint	12	13	12	12
+P	walls/city wall[gate].blueprint	21	21	9	15
+P	walls/city wall[∩].blueprint	9	22	6	5
+P	walls/city wall[∩‖].blueprint	9	22	7	5
+P	walls/city wall[∩∩∩].blueprint	27	22	6	5
+P	walls/city wall[∩∩∩‖].blueprint	27	22	7	5
+P	walls/city wall[━].blueprint	9	22	6	5
+P	walls/city wall[━━━].blueprint	27	22	6	5
+P	walls/city wall[━╲].blueprint	6	21	8	15
+P	walls/city wall[╲].blueprint	9	21	9	15
+P	walls/city wall[■].blueprint	9	21	9	15
+P	walls/city wall[□].blueprint	9	21	9	15
+P	walls/city wall[▲].blueprint	8	25	6	5
+P	walls/city wall[▲▲].blueprint	5	26	6	10
+C	-	road:infrastructure/road	CORNER	3-lane road【curve】	false	infrastructure/road/3-lane road【curve】.blueprint	-1
+C	-	road:infrastructure/road	CROSS	3 or 5-lane wide intersection【1】	false	infrastructure/road/3 or 5-lane wide intersection【1】.blueprint	-1
+C	-	road:infrastructure/road	CROSS	3 or 5-lane wide intersection【2】	false	infrastructure/road/3 or 5-lane wide intersection【2】.blueprint	-1
+C	-	road:infrastructure/road	CROSS	5 or 7-lane wide intersection	false	infrastructure/road/5 or 7-lane wide intersection.blueprint	-1
+C	-	road:infrastructure/road	CROSS	7-lane wide intersection【Teleportation Stone Pedestal】	false	infrastructure/road/7-lane wide intersection【Teleportation Stone Pedestal】.blueprint	-1
+C	-	road:infrastructure/road	OTHER	5-lane road【grade separation】	false	infrastructure/road/5-lane road【grade separation】.blueprint	-1
+C	-	road:infrastructure/road	SLOPE	3-lane road【↑↑↑】	false	infrastructure/road/3-lane road【↑↑↑】.blueprint	-1
+C	-	road:infrastructure/road	SLOPE	3-lane road【↑↑】	false	infrastructure/road/3-lane road【↑↑】.blueprint	-1
+C	-	road:infrastructure/road	SLOPE	3-lane road【↑】	false	infrastructure/road/3-lane road【↑】.blueprint	-1
+C	-	road:infrastructure/road	SLOPE	5-lane road【↑↑】	false	infrastructure/road/5-lane road【↑↑】.blueprint	-1
+C	-	road:infrastructure/road	SLOPE	5-lane road【↑】	false	infrastructure/road/5-lane road【↑】.blueprint	-1
+C	-	road:infrastructure/road	SLOPE	Cliff spiral staircase【Bottom】	false	infrastructure/road/Cliff spiral staircase【Bottom】.blueprint	-1
+C	-	road:infrastructure/road	SLOPE	Cliff spiral staircase【Link】	false	infrastructure/road/Cliff spiral staircase【Link】.blueprint	-1
+C	-	road:infrastructure/road	STRAIGHT	3-lane road【long】	false	infrastructure/road/3-lane road【long】.blueprint	1
+C	-	road:infrastructure/road	STRAIGHT	3-lane road【short】	false	infrastructure/road/3-lane road【short】.blueprint	1
+C	-	road:infrastructure/road	STRAIGHT	5-lane road【long】	false	infrastructure/road/5-lane road【long】.blueprint	1
+C	-	road:infrastructure/road	STRAIGHT	5-lane road【short】	false	infrastructure/road/5-lane road【short】.blueprint	1
+C	-	road:infrastructure/road	STRAIGHT	7-lane road	false	infrastructure/road/7-lane road.blueprint	1
+C	-	road:infrastructure/road	STRAIGHT	Coastal road【1】	false	infrastructure/road/Coastal road【1】.blueprint	1
+C	-	road:infrastructure/road	STRAIGHT	Coastal road【2】	false	infrastructure/road/Coastal road【2】.blueprint	1
+C	-	wall:walls	GATE	city wall[gate]	false	walls/city wall[gate].blueprint	-1
+C	-	wall:walls	OTHER	city wall[━╲]	false	walls/city wall[━╲].blueprint	-1
+C	-	wall:walls	OTHER	city wall[╲]	false	walls/city wall[╲].blueprint	-1
+C	-	wall:walls	STRAIGHT	city wall[∩]	false	walls/city wall[∩].blueprint	0
+C	-	wall:walls	STRAIGHT	city wall[∩‖]	false	walls/city wall[∩‖].blueprint	0
+C	-	wall:walls	STRAIGHT	city wall[∩∩∩]	false	walls/city wall[∩∩∩].blueprint	0
+C	-	wall:walls	STRAIGHT	city wall[∩∩∩‖]	false	walls/city wall[∩∩∩‖].blueprint	0
+C	-	wall:walls	STRAIGHT	city wall[━]	false	walls/city wall[━].blueprint	0
+C	-	wall:walls	STRAIGHT	city wall[━━━]	false	walls/city wall[━━━].blueprint	0
+C	-	wall:walls	STRAIGHT	city wall[▲]	false	walls/city wall[▲].blueprint	0
+C	-	wall:walls	STRAIGHT	city wall[▲▲]	false	walls/city wall[▲▲].blueprint	0
+C	-	wall:walls	TOWER	city wall[■]	false	walls/city wall[■].blueprint	-1
+C	-	wall:walls	TOWER	city wall[□]	false	walls/city wall[□].blueprint	-1
+O	infrastructure/road/3-lane road【↑↑↑】.blueprint
+O	infrastructure/road/3-lane road【↑↑】.blueprint
+O	infrastructure/road/3-lane road【↑】.blueprint
+O	infrastructure/road/5-lane road【grade separation】.blueprint
+O	infrastructure/road/5-lane road【↑↑】.blueprint
+O	infrastructure/road/5-lane road【↑】.blueprint
+O	infrastructure/road/Cliff spiral staircase【Bottom】.blueprint
+O	infrastructure/road/Cliff spiral staircase【Link】.blueprint
+O	walls/city wall[━╲].blueprint
+O	walls/city wall[╲].blueprint

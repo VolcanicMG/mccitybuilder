@@ -121,7 +121,13 @@ final class PieceCatalog {
         Map<String, String> setup = setup(pack);
         List<String> folders = new ArrayList<>();
         for (String f : Blueprints.decoFolders(pack)) if (pieceFolder(f, setup)) folders.add(f);
-        if (Blueprints.decoFolders(pack).isEmpty()) return null;
+        // A pack without blueprint folders has no pieces (not "still loading" forever).
+        if (Blueprints.decoFolders(pack).isEmpty()) {
+            // A pack the server hasn't synced yet isn't empty: it loads later.
+            if (!Blueprints.decoFoldersLoaded(pack) || com.ldtteam.structurize.storage.StructurePacks.getStructurePack(pack) == null) return null;
+            families.put(pack, Map.of());
+            return Map.of();
+        }
         List<PieceSets.Piece> pieces = new ArrayList<>();
         boolean loading = false;
         for (String f : folders) {
@@ -161,6 +167,34 @@ final class PieceCatalog {
         }
         families.put(pack, out);
         return out;
+    }
+
+    /**
+     * The family a line (or the line panel) names, looked up the way every user of a line's family does: its saved key
+     * stays as it is in the plan, and a family renamed since (a set-up save, new name rules) is found by
+     * {@link PieceSets#resolveFamily}.
+     *
+     * @return the family, or null while the pack loads or when no family fits (the set is missing)
+     */
+    static PieceSets.Family familyOf(String pack, String key) {
+        Map<String, PieceSets.Family> fs = families(pack);
+        if (fs == null || key == null) return null;
+        PieceSets.Family f = fs.get(key);
+        if (f != null) return f;
+        String k = PieceSets.resolveFamily(key, fs.keySet());
+        return k == null ? null : fs.get(k);
+    }
+
+    /** @return true when two lines name the same family (their keys, or what they resolve to) */
+    static boolean sameFamily(Plan.Line a, Plan.Line b) {
+        if (a.family().equals(b.family())) return true;
+        PieceSets.Family fa = familyOf(a.pack(), a.family());
+        return fa != null && fa == familyOf(b.pack(), b.family());
+    }
+
+    /** @return true when the pack's pieces have loaded and no family fits the line's key (its set is gone) */
+    static boolean familyMissing(Plan.Line l) {
+        return families(l.pack()) != null && familyOf(l.pack(), l.family()) == null;
     }
 
     /** @return the usable families of a tool in the pack (have a straight), in order; null while loading */
@@ -611,7 +645,7 @@ final class PieceCatalog {
                 continue;
             }
             Map<String, PieceSets.Family> fs = families(l.pack());
-            PieceSets.Family f = fs == null ? null : fs.get(l.family());
+            PieceSets.Family f = familyOf(l.pack(), l.family());
             List<PieceSets.Group> straights = f == null ? List.of() : groups(l.pack(), f, PieceSets.Role.STRAIGHT);
             if (straights.isEmpty()) {
                 complete &= fs != null;
@@ -639,7 +673,7 @@ final class PieceCatalog {
                 long k = key(c[0], c[1]);
                 List<int[]> meet = new ArrayList<>();
                 for (int[] m : at.get(k))
-                    if (m[0] != i && lines.get(m[0]).family().equals(l.family()) && lines.get(m[0]).pack().equals(l.pack())) meet.add(m);
+                    if (m[0] != i && lines.get(m[0]).pack().equals(l.pack()) && sameFamily(lines.get(m[0]), l)) meet.add(m);
                 if (meet.isEmpty()) {
                     free[end] = true;
                     // A free end: its cap, a tower when chosen (laid out like a joint with one run), or nothing.
@@ -1060,7 +1094,7 @@ final class PieceCatalog {
      */
     static int expectedReach(Plan.Line l, int type) {
         Map<String, PieceSets.Family> fs = families(l.pack());
-        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        PieceSets.Family f = familyOf(l.pack(), l.family());
         if (f == null) return 0;
         for (PieceSets.Role r : PieceLayout.jointRoles(type, 2, false, l.towers())) if (!groups(l.pack(), f, r).isEmpty()) return reachOf(l, r);
         return 0;
@@ -1070,7 +1104,7 @@ final class PieceCatalog {
     static int reachOf(Plan.Line l, PieceSets.Role r) {
         if (r == null) return 0;
         Map<String, PieceSets.Family> fs = families(l.pack());
-        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        PieceSets.Family f = familyOf(l.pack(), l.family());
         PieceSets.Piece st = primary(l, 0);
         if (f == null || st == null) return 0;
         List<PieceSets.Group> gs = groups(l.pack(), f, r);
@@ -1085,7 +1119,7 @@ final class PieceCatalog {
     static int[] runLengths(Plan.Line l) {
         PieceSets.Piece p = primary(l, 0);
         Map<String, PieceSets.Family> fs = families(l.pack());
-        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        PieceSets.Family f = familyOf(l.pack(), l.family());
         if (p == null || f == null) return new int[0];
         return PieceSets.runPieces(groups(l.pack(), f, PieceSets.Role.STRAIGHT), runNumber(l), p.across()).stream().mapToInt(PieceSets.Piece::run).distinct().toArray();
     }
@@ -1093,7 +1127,7 @@ final class PieceCatalog {
     /** @return the number every piece of the line's runs shares: its straight's (level or variant), or -1 for mixed variants */
     static int runNumber(Plan.Line l) {
         Map<String, PieceSets.Family> fs = families(l.pack());
-        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        PieceSets.Family f = familyOf(l.pack(), l.family());
         List<PieceSets.Group> st = f == null ? List.of() : groups(l.pack(), f, PieceSets.Role.STRAIGHT);
         if (st.isEmpty() || !st.get(0).levels() && l.variant() < 0) return -1;
         PieceSets.Piece p = primary(l, 0);
@@ -1106,7 +1140,7 @@ final class PieceCatalog {
      */
     static List<Map.Entry<PieceSets.Role, PieceSets.Piece>> browse(Plan.Line l) {
         Map<String, PieceSets.Family> fs = families(l.pack());
-        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        PieceSets.Family f = familyOf(l.pack(), l.family());
         if (f == null) return List.of();
         Map<PieceSets.Role, List<PieceSets.Piece>> per = new java.util.EnumMap<>(PieceSets.Role.class);
         Map<String, PieceSets.Role> roleOf = new HashMap<>();
@@ -1127,7 +1161,7 @@ final class PieceCatalog {
     /** @return the line's main straight at its level / variant (sets its width), or null without one */
     static PieceSets.Piece primary(Plan.Line l, int seed) {
         Map<String, PieceSets.Family> fs = families(l.pack());
-        PieceSets.Family f = fs == null ? null : fs.get(l.family());
+        PieceSets.Family f = familyOf(l.pack(), l.family());
         List<PieceSets.Group> st = f == null ? List.of() : groups(l.pack(), f, PieceSets.Role.STRAIGHT);
         return st.isEmpty() ? null : st.get(0).pick(st.get(0).levels() ? l.level() : l.variant(), seed * 1000);
     }

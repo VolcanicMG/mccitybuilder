@@ -15,7 +15,7 @@ import java.util.zip.ZipFile;
 /**
  * Piece-set classification dumps: the bundled packs' (SelfCheck's golden, {@code bundled-piecesets.txt}) and what
  * detection makes of any style pack jar ({@code ./gradlew pieceScan -Pjars=a.jar,b.jar}; {@code -Pjars=golden,out.txt}
- * rewrites the golden). {@code -Pshow=regex} also prints the top-down body of matching pieces.
+ * rewrites the golden; {@code -Pfixtures=src/test/resources/packs -Pjars=...} writes per-pack fixtures). {@code -Pshow=regex} also prints the top-down body of matching pieces.
  */
 final class PieceScan {
     private PieceScan() {
@@ -90,6 +90,54 @@ final class PieceScan {
         return out;
     }
 
+    /**
+     * A pack's recorded detection inputs and result: "P path sx sy sz openSides" per road / wall piece (all that
+     * {@link PieceSets#classify} reads), then the result: "C ..." classified pieces, "O path" Other-tab pieces.
+     */
+    static List<String> fixture(Map<String, PieceLayout.Grid> pack) {
+        List<String> out = new ArrayList<>();
+        for (var en : pack.entrySet()) {
+            PieceLayout.Grid g = en.getValue();
+            boolean road = "road".equals(PieceSets.tool(en.getKey()));
+            out.add("P\t" + en.getKey() + "\t" + g.sx() + "\t" + g.sy() + "\t" + g.sz() + "\t" + PieceSets.openSides(PieceSets.body(g, road), g.sx(), g.sz()));
+        }
+        out.addAll(classifyFixture(out));
+        return out;
+    }
+
+    /** @return the "C" / "O" result lines for a fixture's "P" lines (other lines are ignored) */
+    static List<String> classifyFixture(List<String> fixture) {
+        List<PieceSets.Piece> ps = new ArrayList<>();
+        Map<String, Integer> shapes = new HashMap<>();
+        for (String l : fixture) {
+            String[] f = l.split("\t");
+            if (!f[0].equals("P")) continue;
+            String[] sn = PieceSets.split(f[1].substring(f[1].lastIndexOf('/') + 1));
+            ps.add(new PieceSets.Piece(f[1], sn[0], Integer.parseInt(sn[1]), Integer.parseInt(f[2]), Integer.parseInt(f[3]), Integer.parseInt(f[4])));
+            shapes.put(f[1], Integer.parseInt(f[5]));
+        }
+        var fams = PieceSets.classify(ps, shapes);
+        var tools = PieceSets.toolPieces(fams, PieceSets.Family::of);
+        List<String> out = new ArrayList<>();
+        for (String l : lines("-", fams)) out.add("C\t" + l);
+        for (var p : ps) if (!tools.contains(p.path())) out.add("O\t" + p.path());
+        java.util.Collections.sort(out);
+        return out;
+    }
+
+    /** Writes one fixture file per pack of each jar into dir (see {@link #fixture}) and prints their sizes. */
+    static void writeFixtures(String dir, String[] jars) throws Exception {
+        java.nio.file.Files.createDirectories(java.nio.file.Path.of(dir));
+        for (String jar : jars)
+            for (var pk : read(jar).entrySet()) {
+                String name = pk.getKey().substring(pk.getKey().lastIndexOf('/') + 1);
+                if (!name.matches("[A-Za-z0-9._-]+")) name = "pack" + Integer.toHexString(name.hashCode());
+                var f = java.nio.file.Path.of(dir, name + ".txt");
+                java.nio.file.Files.write(f, fixture(pk.getValue()));
+                System.out.println(f + " <- " + pk.getKey() + " (" + java.nio.file.Files.size(f) + " bytes)");
+            }
+    }
+
     /** Prints folder → family → role per piece of each pack in the jar (name role, shape, final). */
     static void scan(String jar) throws Exception {
         String show = System.getProperty("show", "");
@@ -138,6 +186,10 @@ final class PieceScan {
     public static void main(String[] args) throws Exception {
         if (args.length == 2 && args[0].equals("golden")) {
             java.nio.file.Files.write(java.nio.file.Path.of(args[1]), bundled());
+            return;
+        }
+        if (args.length > 1 && args[0].equals("fixtures")) {
+            writeFixtures(args[1], java.util.Arrays.copyOfRange(args, 2, args.length));
             return;
         }
         for (String jar : args) scan(jar);

@@ -62,7 +62,30 @@ final class PieceSetScreen extends Screen {
 
     @Override
     public void onClose() {
+        if (modal.open()) {
+            modal.close();
+            return;
+        }
+        if (changes.isEmpty()) {
+            closeNow();
+            return;
+        }
+        modal.ask(Component.translatable("mccitybuilder.discard", changes.size()).getString(), List.of(
+                new Modal.Choice(Component.translatable("mccitybuilder.discard.yes").getString(), this::closeNow),
+                new Modal.Choice(Component.translatable("mccitybuilder.discard.no").getString(), () -> {
+                })));
+    }
+
+    private void closeNow() {
         minecraft.setScreen(Planner.active() ? new PlannerScreen() : null);
+    }
+
+    private final Modal modal = new Modal();
+
+    @Override
+    public boolean keyPressed(int key, int scan, int mods) {
+        if (modal.open() && key != com.mojang.blaze3d.platform.InputConstants.KEY_ESCAPE) return true;
+        return super.keyPressed(key, scan, mods);
     }
 
     @Override
@@ -73,6 +96,8 @@ final class PieceSetScreen extends Screen {
     @Override
     public void render(GuiGraphics g, int mx, int my, float partial) {
         Planner.guard(() -> draw(g, mx, my));
+        // Its own guard: a failing draw above can't leave an invisible box that swallows every click.
+        Planner.guard(() -> modal.draw(g, font, width, height, mx, my));
     }
 
     // ---- model ----
@@ -81,7 +106,7 @@ final class PieceSetScreen extends Screen {
     private List<Blueprints.Hut> huts() {
         List<Blueprints.Hut> out = new ArrayList<>();
         for (String f : Blueprints.decoFolders(pack)) {
-            if (!f.equals(folder) && !f.startsWith(folder + "/")) continue;
+            if (!folder.isEmpty() && !f.equals(folder) && !f.startsWith(folder + "/")) continue;
             List<Blueprints.Hut> ds = Blueprints.decorations(pack, f);
             if (ds == null) return null;
             out.addAll(ds);
@@ -146,12 +171,13 @@ final class PieceSetScreen extends Screen {
         out.add(PieceSets.Role.INNER.name());
         out.add(PieceSets.Role.SLOPE.name());
         out.add(NOT_IN_SET);
-        if (more) for (Row r : rows) if (r != self) out.add(PieceSets.VARIANT + r.base());
+        if (more) out.add(PieceSets.VARIANT);
         return out;
     }
 
     /** Sets a row's role: a change per blueprint of the group, none where it is what detection gives anyway. */
     private void choose(Row r, String choice, String tool) {
+        saved = false;
         String v = choice.equals(NOT_IN_SET) ? PieceSets.EXCLUDED : choice;
         for (Blueprints.Hut h : r.huts()) {
             String key = PieceSets.PIECE + h.path();
@@ -166,6 +192,7 @@ final class PieceSetScreen extends Screen {
     }
 
     private void setTool(String tool) {
+        saved = false;
         String key = PieceSets.TOOL + folder;
         // The folder's tool without the player's key (the built-in key, a parent folder's, else detection).
         Map<String, String> without = setup();
@@ -175,7 +202,34 @@ final class PieceSetScreen extends Screen {
         famIndex = 0;
     }
 
+    /** @return " (sub-folder)" for a blueprint below the set's folder, else "" */
+    private String subLabel(String path) {
+        int sl = path.lastIndexOf('/');
+        String sub = sl < 0 ? "" : path.substring(0, sl);
+        if (sub.equals(folder)) return "";
+        return "  (" + (folder.isEmpty() ? sub : sub.substring(Math.min(sub.length(), folder.length() + 1))) + ")";
+    }
+
+    /**
+     * "Same as…": a list of the rows this one can join (not itself, not rows that are variants themselves), with their
+     * sub-folder when names repeat.
+     */
+    private void pickVariant(Row self, List<Row> rows, Map<String, String> setup, Map<String, PieceSets.Family> fams, String tool) {
+        Map<String, Integer> count = new java.util.HashMap<>();
+        for (Row r : rows) count.merge(r.base(), 1, Integer::sum);
+        List<Modal.Choice> cs = new ArrayList<>();
+        for (Row r : rows) {
+            if (r == self || current(r, setup, fams).startsWith(PieceSets.VARIANT)) continue;
+            String name = r.base() + (count.get(r.base()) > 1 ? subLabel(r.huts().get(0).path()) : "");
+            cs.add(new Modal.Choice(name, () -> choose(self, PieceSets.VARIANT + r.base(), tool)));
+        }
+        cs.add(new Modal.Choice(Component.translatable("mccitybuilder.sets.cancel").getString(), () -> {
+        }));
+        modal.ask(Component.translatable("mccitybuilder.sets.variant.title", self.base()).getString(), cs);
+    }
+
     private static String label(String choice) {
+        if (choice.equals(PieceSets.VARIANT)) return Component.translatable("mccitybuilder.sets.variant.pick").getString();
         if (choice.startsWith(PieceSets.VARIANT)) return Component.translatable("mccitybuilder.sets.variant", choice.substring(PieceSets.VARIANT.length())).getString();
         return Component.translatable("mccitybuilder.sets.role." + (choice.equals(NOT_IN_SET) ? "other" : choice.toLowerCase(Locale.ROOT))).getString();
     }
@@ -248,8 +302,7 @@ final class PieceSetScreen extends Screen {
                 shownRole = tool == null ? null : label(current(r, setup, fams));
             }
             hits.add(new Hit(lx + pad, ry, lw - 2 * pad - 92, ROW_H, () -> pickedPath = first.path()));
-            String sub = first.path().substring(0, first.path().lastIndexOf('/'));
-            String name = r.base() + (r.huts().size() > 1 ? " ×" + r.huts().size() : "") + (sub.equals(folder) ? "" : "  (" + sub.substring(folder.length() + 1) + ")");
+            String name = r.base() + (r.huts().size() > 1 ? " ×" + r.huts().size() : "") + subLabel(first.path());
             int bw = 92, bx = lx + lw - pad - bw;
             if (first.path().equals(pickedPath)) g.fill(lx + pad, ry, bx - 2, ry + 16, 0x30FFFFFF);
             g.drawString(font, font.plainSubstrByWidth(name, bx - lx - pad - 6), lx + pad + 2, ry + 5, VanillaUi.LABEL, false);
@@ -261,8 +314,10 @@ final class PieceSetScreen extends Screen {
             List<String> cs = choices(tool, r, rows);
             java.util.function.IntConsumer step = d -> {
                 PlannerScreen.click();
-                int k = cs.indexOf(cur);
-                choose(r, cs.get(Math.floorMod((k < 0 ? -1 : k) + d, cs.size())), tool);
+                int k = cs.indexOf(cur.startsWith(PieceSets.VARIANT) ? PieceSets.VARIANT : cur);
+                String next = cs.get(Math.floorMod((k < 0 ? -1 : k) + d, cs.size()));
+                if (next.equals(PieceSets.VARIANT)) pickVariant(r, rows, setup, fams, tool);
+                else choose(r, next, tool);
             };
             hits.add(new Hit(bx, ry, bw, 16, () -> {
                 pickedPath = first.path();
@@ -285,7 +340,8 @@ final class PieceSetScreen extends Screen {
     private void slots(GuiGraphics g, int x, int y, int w, int h, int pad, String tool, Map<String, PieceSets.Family> fams, int mx, int my) {
         int ix = x + pad, iw = w - 2 * pad, iy = y + pad;
         List<String> keys = new ArrayList<>(fams.keySet());
-        if (focusFamily != null && keys.contains(focusFamily) && famIndex == 0) famIndex = keys.indexOf(focusFamily) + 1;
+        String focus = focusFamily == null ? null : PieceSets.resolveFamily(focusFamily, keys);
+        if (focus != null && famIndex == 0) famIndex = keys.indexOf(focus) + 1;
         String famKey = keys.isEmpty() ? null : keys.get(Math.floorMod(famIndex - 1, keys.size()));
         if (saved) {
             for (var line : font.split(Component.translatable("mccitybuilder.sets.saved"), iw)) {
@@ -301,7 +357,7 @@ final class PieceSetScreen extends Screen {
         }
         if (keys.size() > 1) {
             String fl = famKey.substring(famKey.indexOf(':') + 1);
-            iy = picker(g, ix, iy, iw, fl.startsWith(folder) && fl.length() > folder.length() ? fl.substring(folder.length() + 1) : fl, mx, my, d -> famIndex = Math.floorMod(Math.floorMod(famIndex - 1, keys.size()) + d, keys.size()) + 1);
+            iy = picker(g, ix, iy, iw, !folder.isEmpty() && fl.startsWith(folder + "/") ? fl.substring(folder.length() + 1) : fl, mx, my, d -> famIndex = Math.floorMod(Math.floorMod(famIndex - 1, keys.size()) + d, keys.size()) + 1);
         }
         g.drawString(font, Component.translatable("mccitybuilder.sets.slots"), ix, iy, VanillaUi.LABEL, false);
         iy += 12;
@@ -312,15 +368,25 @@ final class PieceSetScreen extends Screen {
                 iy += 10;
             }
         } else {
+            // Short on room (small windows, big GUI scale): the missing parts' explanations become hover tips.
+            int need = 0;
+            for (PieceSets.Role r : PieceSets.slots(fam.tool())) {
+                need += 12;
+                if ((r == PieceSets.Role.STRAIGHT ? fam.straights() : fam.of(r)).isEmpty())
+                    need += 9 * font.split(Component.translatable("mccitybuilder.sets.missing." + r.name().toLowerCase(Locale.ROOT)), iw - 8).size();
+            }
+            boolean compact = iy + need > y + h - pad - 16 - 24 - 70;
             for (PieceSets.Role r : PieceSets.slots(fam.tool())) {
                 // Straights as the line tool orders them: its main straight first.
                 List<PieceSets.Group> gs = r == PieceSets.Role.STRAIGHT ? fam.straights() : fam.of(r);
                 boolean ok = !gs.isEmpty();
                 String head = (ok ? "✔ " : "⚠ ") + label(r.name()) + (ok ? ": " + gs.get(0).base() + (gs.size() > 1 ? " +" + (gs.size() - 1) : "") : "");
                 g.drawString(font, font.plainSubstrByWidth(head, iw), ix, iy, ok ? 0xFF206020 : 0xFF905000, false);
+                Component why = Component.translatable("mccitybuilder.sets.missing." + r.name().toLowerCase(Locale.ROOT));
+                if (!ok && compact && in(mx, my, ix, iy - 1, iw, 10)) tip = why.getString();
                 iy += 10;
-                if (!ok) {
-                    for (var line : font.split(Component.translatable("mccitybuilder.sets.missing." + r.name().toLowerCase(Locale.ROOT)), iw - 8)) {
+                if (!ok && !compact) {
+                    for (var line : font.split(why, iw - 8)) {
                         g.drawString(font, line, ix + 8, iy, 0xFF505050, false);
                         iy += 9;
                     }
@@ -334,12 +400,18 @@ final class PieceSetScreen extends Screen {
         // Always the one way out that keeps what is shown (nothing changed: detection's set stands, nothing written).
         boolean overS = in(mx, my, ix, by, iw, 16);
         VanillaUi.button(g, ix, by, iw, 16, false, false, overS);
-        VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.sets.save").getString(), ix, by, iw, 16, VanillaUi.INK);
+        VanillaUi.buttonLabel(g, font, Component.translatable(changes.isEmpty() ? "mccitybuilder.sets.done" : "mccitybuilder.sets.save").getString(), ix, by, iw, 16, VanillaUi.INK);
         hits.add(new Hit(ix, by, iw, 16, () -> {
             PlannerScreen.click();
-            if (!changes.isEmpty()) PieceCatalog.setSetup(pack, changes);
-            changes.clear();
-            saved = true;
+            int losing = changes.isEmpty() ? 0 : linesLosing();
+            if (losing == 0) {
+                save();
+                return;
+            }
+            modal.ask(Component.translatable("mccitybuilder.sets.lines_lose", losing).getString(), List.of(
+                    new Modal.Choice(Component.translatable("mccitybuilder.sets.save_anyway").getString(), this::save),
+                    new Modal.Choice(Component.translatable("mccitybuilder.sets.cancel").getString(), () -> {
+                    })));
         }));
         by -= 20;
         boolean overM = in(mx, my, ix, by, half, 16), overC = in(mx, my, ix + half + 2, by, half, 16);
@@ -353,6 +425,36 @@ final class PieceSetScreen extends Screen {
         VanillaUi.button(g, ix + half + 2, by, half, 16, false, false, overC);
         VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.sets.cancel").getString(), ix + half + 2, by, half, 16, VanillaUi.INK);
         hits.add(new Hit(ix + half + 2, by, half, 16, this::onClose));
+    }
+
+    /** The first row's "Same as…" list (the dev bridge's smoke test checks its Cancel stays reachable). @return false while loading */
+    boolean openVariantPicker() {
+        List<Blueprints.Hut> hs = huts();
+        if (hs == null || hs.isEmpty()) return false;
+        Map<String, String> setup = setup();
+        Map<String, Row> byBase = new LinkedHashMap<>();
+        for (Blueprints.Hut hh : hs) byBase.computeIfAbsent(hh.path().substring(0, hh.path().lastIndexOf('/') + 1) + base(hh.path()), k -> new Row(base(hh.path()), new ArrayList<>())).huts().add(hh);
+        List<Row> rows = new ArrayList<>(byBase.values());
+        pickVariant(rows.get(0), rows, setup, preview(hs, setup), toolNow(setup));
+        return true;
+    }
+
+    private void save() {
+        if (!changes.isEmpty()) PieceCatalog.setSetup(pack, changes);
+        changes.clear();
+        saved = true;
+    }
+
+    /** @return how many planned lines of this pack would be left without a set by the unsaved changes */
+    private int linesLosing() {
+        var now = PieceCatalog.families(pack);
+        List<Blueprints.Hut> hs = huts();
+        if (now == null || hs == null) return 0;
+        Map<String, String> before = new LinkedHashMap<>(PieceCatalog.setup(pack));
+        java.util.Set<String> mine = preview(hs, before).keySet(), after = new java.util.HashSet<>(now.keySet());
+        after.removeAll(mine);
+        after.addAll(preview(hs, setup()).keySet());
+        return PlanView.linesLosing(pack, now.keySet(), after);
     }
 
     /** The shown piece in 3D (drag to turn, wheel to zoom) with its name, size and role above it. */
@@ -410,6 +512,7 @@ final class PieceSetScreen extends Screen {
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         return Planner.guard(() -> {
+            if (modal.click(mx, my)) return true;
             for (Hit h : List.copyOf(button == 1 ? rightHits : button == 0 ? hits : List.of()))
                 if (h.in(mx, my)) {
                     h.run().run();
@@ -439,6 +542,7 @@ final class PieceSetScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (modal.scroll(sy)) return true;
         if (view != null && in(mx, my, view[0], view[1], view[2], view[3])) {
             PieceView.zoom = (float) Math.max(0.3, Math.min(5, PieceView.zoom * (sy > 0 ? 1.15 : 1 / 1.15)));
             return true;

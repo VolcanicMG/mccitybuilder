@@ -380,6 +380,14 @@ final class PlanView {
 
     /** Footprint outlines: white when selected, green when buildable, red with a conflict. */
     static void renderWorld(PoseStack pose, VertexConsumer lines) {
+        // Lines whose set is gone: an amber box along the segment (open Set up pieces to give them one).
+        if (on || LineView.active())
+            for (Plan.Line l : PlanView.lines)
+                if (PieceCatalog.familyMissing(l)) {
+                    int[] box = {Math.min(l.x0(), l.x1()), Math.min(l.z0(), l.z1()), Math.max(l.x0(), l.x1()), Math.max(l.z0(), l.z1())};
+                    Integer gy = Planner.groundAt((box[0] + box[2]) / 2, (box[1] + box[3]) / 2);
+                    if (gy != null) gap(pose, lines, box, gy + 1);
+                }
         if (on || LineView.active())
             for (int i = 0; i < linePieces.size() && i < PlanView.lines.size(); i++) {
                 List<Boolean> bs = i < pieceBad.size() ? pieceBad.get(i) : List.of();
@@ -801,6 +809,15 @@ final class PlanView {
 
     static void linesChanged() {
         linesDirty = true;
+    }
+
+    /** @return how many of the pack's lines would be left without a family with only these family keys */
+    static int linesLosing(String pack, java.util.Set<String> keysNow, java.util.Set<String> keysAfter) {
+        int n = 0;
+        for (Plan.Line l : lines)
+            if (l.pack().equals(pack) && com.volcanicmg.mccitybuilder.planner.PieceSets.resolveFamily(l.family(), keysNow) != null
+                    && com.volcanicmg.mccitybuilder.planner.PieceSets.resolveFamily(l.family(), keysAfter) == null) n++;
+        return n;
     }
 
     static void addLine(Plan.Line l) {

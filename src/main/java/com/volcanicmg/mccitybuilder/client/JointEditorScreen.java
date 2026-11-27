@@ -103,8 +103,29 @@ final class JointEditorScreen extends Screen {
 
     @Override
     public void onClose() {
-        // Back to the planner if it still runs (unsaved adjustments go in removed()).
-        minecraft.setScreen(Planner.active() ? new PlannerScreen() : null);
+        if (modal.open()) {
+            modal.close();
+            return;
+        }
+        // Back to the planner if it still runs (unsaved adjustments go in removed()), after asking about them.
+        confirm(() -> minecraft.setScreen(Planner.active() ? new PlannerScreen() : null));
+    }
+
+    private final Modal modal = new Modal();
+
+    /** Runs a change that drops the unsaved adjustments: at once without any, else after "Discard N unsaved changes?". */
+    private void confirm(Runnable change) {
+        if (drafts.isEmpty()) {
+            change.run();
+            return;
+        }
+        modal.ask(Component.translatable("mccitybuilder.discard", drafts.size()).getString(), List.of(
+                new Modal.Choice(Component.translatable("mccitybuilder.discard.yes").getString(), () -> {
+                    dropDrafts();
+                    change.run();
+                }),
+                new Modal.Choice(Component.translatable("mccitybuilder.discard.no").getString(), () -> {
+                })));
     }
 
     @Override
@@ -120,10 +141,12 @@ final class JointEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mx, int my, float partial) {
-        Planner.guard(() -> draw(g, mx, my));
+        Planner.guard(() -> drawMain(g, mx, my));
+        // Its own guard: a failing draw above can't leave an invisible box that swallows every click.
+        Planner.guard(() -> modal.draw(g, font, width, height, mx, my));
     }
 
-    private void draw(GuiGraphics g, int mx, int my) {
+    private void drawMain(GuiGraphics g, int mx, int my) {
         hits.clear();
         renderBackground(g, mx, my, 0);
         if (checking) {
@@ -150,7 +173,7 @@ final class JointEditorScreen extends Screen {
         iy += 14;
         iy = packFamily(g, ix, iy, iw, mx, my);
         iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.role", Component.translatable("mccitybuilder.line.role." + ROLES[role].name().toLowerCase(java.util.Locale.ROOT))).getString(),
-                mx, my, d -> {
+                mx, my, d -> confirm(() -> {
                     // Only the joint roles the set has.
                     for (int i = 0; i < ROLES.length; i++) {
                         role = Math.floorMod(role + d, ROLES.length);
@@ -159,8 +182,8 @@ final class JointEditorScreen extends Screen {
                     int[] ks = kases(ROLES[role]);
                     if (java.util.Arrays.stream(ks).noneMatch(k -> k == kase)) kase = ks[0];
                     dropDrafts();
-                });
-        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.case", CASES[kase] + (flipped ? " (flipped)" : "")).getString(), mx, my, d -> {
+                }));
+        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.case", CASES[kase] + (flipped ? " (flipped)" : "")).getString(), mx, my, d -> confirm(() -> {
             // The cases this role makes (corners turn left or right; a tower stands at any joint), each also flipped.
             int[] ks = kases(ROLES[role]);
             int at = 0;
@@ -170,13 +193,13 @@ final class JointEditorScreen extends Screen {
             flipped = k % 2 == 1;
             runSel = 0;
             dropDrafts();
-        });
+        }));
         Layout lay = layout();
         iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.turn", turn < 0 ? "auto (" + (lay == null ? "-" : lay.turn) + ")" : "" + turn).getString(), mx, my,
-                d -> {
+                d -> confirm(() -> {
                     turn = Math.floorMod(turn + 1 + d, 5) - 1;
                     dropDrafts();
-                });
+                }));
         if (lay == null) {
             g.drawString(font, Component.translatable("mccitybuilder.align.missing"), ix, iy + 4, 0xFFA02020, false);
             return;
@@ -360,10 +383,10 @@ final class JointEditorScreen extends Screen {
         bigButton(g, ix, iy, half, Component.translatable("mccitybuilder.fix.closer").getString(), mx, my, () -> adjust(sel, 0, 1));
         bigButton(g, ix + half + 2, iy, half, Component.translatable("mccitybuilder.fix.further").getString(), mx, my, () -> adjust(sel, 0, -1));
         iy += 22;
-        bigButton(g, ix, iy, iw, Component.translatable("mccitybuilder.fix.turn").getString(), mx, my, () -> {
+        bigButton(g, ix, iy, iw, Component.translatable("mccitybuilder.fix.turn").getString(), mx, my, () -> confirm(() -> {
             turn = ((turn < 0 ? lay.turn : turn) + 1) % 4;
             dropDrafts();
-        });
+        }));
         iy += 24;
         if (note != null && System.currentTimeMillis() < noteUntil)
             for (var line : font.split(Component.literal(note), iw)) {
@@ -409,9 +432,16 @@ final class JointEditorScreen extends Screen {
         }
         logScene(lay, parts);
         float[] hl = sel;
-        toGui = PieceView.renderScene(g, parts, bounds, hl == null ? null : (pose, buffers) -> net.minecraft.client.renderer.LevelRenderer.renderLineBox(pose,
-                buffers.getBuffer(net.minecraft.client.renderer.RenderType.lines()), new net.minecraft.world.phys.AABB(hl[0], hl[1], hl[2], hl[3], hl[4], hl[5]).inflate(0.05),
-                0.25f, 0.9f, 1f, 1f), null, null, x, y, w, h);
+        // The joint piece outlined like on the map (yellow): a tower as tall as its walls and built of the same stone
+        // otherwise reads as the walls running into each other.
+        net.minecraft.world.phys.AABB jbox = new net.minecraft.world.phys.AABB(lay.jb[0], -lay.joint.ground(), lay.jb[1], lay.jb[2] + 1,
+                -lay.joint.ground() + lay.joint.sy(), lay.jb[3] + 1).inflate(0.05);
+        toGui = PieceView.renderScene(g, parts, bounds, (pose, buffers) -> {
+            var lines = buffers.getBuffer(net.minecraft.client.renderer.RenderType.lines());
+            net.minecraft.client.renderer.LevelRenderer.renderLineBox(pose, lines, jbox, 1f, 0.88f, 0.25f, 1f);
+            if (hl != null) net.minecraft.client.renderer.LevelRenderer.renderLineBox(pose, lines,
+                    new net.minecraft.world.phys.AABB(hl[0], hl[1], hl[2], hl[3], hl[4], hl[5]).inflate(0.05), 0.25f, 0.9f, 1f, 1f);
+        }, null, null, x, y, w, h);
         armAt.clear();
         for (float[] c : centres) {
             org.joml.Vector3f v = toGui.transformPosition(new org.joml.Vector3f((c[0] + c[3]) / 2, (c[1] + c[4]) / 2, (c[2] + c[5]) / 2));
@@ -482,13 +512,13 @@ final class JointEditorScreen extends Screen {
     /** The pack and family pickers (the family resolves to one the pack has). */
     private int packFamily(GuiGraphics g, int ix, int iy, int iw, int mx, int my) {
         List<String> packs = Blueprints.packs();
-        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.pack", pack).getString(), mx, my, d -> {
+        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.pack", pack).getString(), mx, my, d -> confirm(() -> {
             pack = packs.get(Math.floorMod(packs.indexOf(pack) + d, packs.size()));
             fam = null;
             status = null;
             drafts.clear();
             PieceCatalog.clearDrafts();
-        });
+        }));
         List<String> fams = new ArrayList<>();
         boolean keysLoading = false;
         for (String t : new String[]{"wall", "road"}) {
@@ -497,13 +527,17 @@ final class JointEditorScreen extends Screen {
             else keysLoading = true;
         }
         // While the pack's families load, the family asked for stays (it may not be listed yet).
-        if (!keysLoading && (fam == null || !fams.contains(fam))) fam = fams.isEmpty() ? null : fams.get(0);
-        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.family", fam == null ? "-" : folderName(fam)).getString(), mx, my, d -> {
+        if (!keysLoading && (fam == null || !fams.contains(fam))) {
+            // A renamed family (an old line's key): the one it became, else the first.
+            String to = fam == null ? null : PieceSets.resolveFamily(fam, fams);
+            fam = to != null ? to : fams.isEmpty() ? null : fams.get(0);
+        }
+        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.family", fam == null ? "-" : folderName(fam)).getString(), mx, my, d -> confirm(() -> {
             if (!fams.isEmpty()) fam = fams.get(Math.floorMod(fams.indexOf(fam) + d, fams.size()));
             status = null;
             drafts.clear();
             PieceCatalog.clearDrafts();
-        });
+        }));
         return iy;
     }
 
@@ -563,8 +597,7 @@ final class JointEditorScreen extends Screen {
 
     /** @return a case's joint laid out as the planner would (overrides and drafts applied), or null while pieces load */
     private Layout layout(int role, int kase, boolean flipped, int turn) {
-        var fs = PieceCatalog.families(pack);
-        PieceSets.Family f = fs == null || fam == null ? null : fs.get(fam);
+        PieceSets.Family f = PieceCatalog.familyOf(pack, fam);
         if (f == null) return null;
         List<PieceSets.Group> st = PieceCatalog.groups(pack, f, PieceSets.Role.STRAIGHT), js = PieceCatalog.groups(pack, f, ROLES[role]);
         if (st.isEmpty() || js.isEmpty()) return null;
@@ -783,8 +816,7 @@ final class JointEditorScreen extends Screen {
 
     /** @return the joint cases this family has (corner and inner corner in both hands, T, cross, tower, end cap), by role order */
     private List<Case> cases() {
-        var fs = PieceCatalog.families(pack);
-        PieceSets.Family f = fs == null || fam == null ? null : fs.get(fam);
+        PieceSets.Family f = PieceCatalog.familyOf(pack, fam);
         List<Case> out = new ArrayList<>();
         if (f == null || PieceCatalog.groups(pack, f, PieceSets.Role.STRAIGHT).isEmpty()) return out;
         for (int r = 0; r < ROLES.length; r++) {
@@ -833,8 +865,7 @@ final class JointEditorScreen extends Screen {
 
     /** @return true when the set has a piece for the joint role */
     private boolean hasRole(int r) {
-        var fs = PieceCatalog.families(pack);
-        PieceSets.Family f = fs == null || fam == null ? null : fs.get(fam);
+        PieceSets.Family f = PieceCatalog.familyOf(pack, fam);
         return f != null && !PieceCatalog.groups(pack, f, ROLES[r]).isEmpty();
     }
 
@@ -938,7 +969,7 @@ final class JointEditorScreen extends Screen {
             if (!wait1 && v.ok()) g.drawString(font, Component.translatable("mccitybuilder.fix.state.0"), ix + 150, iy + 5, 0xFF40C040, false);
             if (!wait1 && !v.ok()) {
                 StringBuilder sb = new StringBuilder();
-                for (String k : v.issues()) sb.append(sb.length() > 0 ? ", " : "").append(Component.translatable("mccitybuilder.jointcheck." + k).getString());
+                for (String k : v.issues()) sb.append(sb.length() > 0 ? ", " : "").append(Component.translatable(word("mccitybuilder.jointcheck." + k)).getString());
                 g.drawString(font, font.plainSubstrByWidth(sb.toString(), iw - 150 - 50), ix + 150, iy + 5, 0xFFE0A020, false);
             }
             if (wait1 || !v.ok()) {
@@ -969,6 +1000,7 @@ final class JointEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int key, int scan, int mods) {
+        if (modal.open() && key != InputConstants.KEY_ESCAPE) return true;
         if (!checking) {
             Layout lay = layout();
             if (lay != null) {
@@ -983,8 +1015,10 @@ final class JointEditorScreen extends Screen {
                     return true;
                 }
                 if (key == InputConstants.KEY_R) {
-                    turn = ((turn < 0 ? lay.turn : turn) + 1) % 4;
-                    dropDrafts();
+                    confirm(() -> {
+                        turn = ((turn < 0 ? lay.turn : turn) + 1) % 4;
+                        dropDrafts();
+                    });
                     return true;
                 }
             }
@@ -1012,6 +1046,7 @@ final class JointEditorScreen extends Screen {
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         return Planner.guard(() -> {
+            if (modal.click(mx, my)) return true;
             if (button != 0) return false;
             for (Hit h : List.copyOf(hits))
                 if (in(mx, my, h.x(), h.y(), h.w(), h.h())) {
@@ -1057,6 +1092,7 @@ final class JointEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (modal.scroll(sy)) return true;
         if (checking) {
             scroll = Math.max(0, scroll - (int) Math.signum(sy));
             return true;

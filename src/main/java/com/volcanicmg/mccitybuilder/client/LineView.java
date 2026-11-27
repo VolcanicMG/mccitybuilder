@@ -737,8 +737,7 @@ final class LineView {
         List<Integer> at = linesAt(selectedJoint);
         if (at.isEmpty()) return;
         Plan.Line l = PlanView.lines.get(at.get(0));
-        var fs = PieceCatalog.families(l.pack());
-        var f = fs == null ? null : fs.get(l.family());
+        var f = PieceCatalog.familyOf(l.pack(), l.family());
         int degree = at.size();
         boolean collinear = degree == 2 && Plan.collinearAt(PlanView.lines, at.get(0), at.get(1));
         List<Integer> types = Plan.menuTypes(degree, collinear);
@@ -1813,8 +1812,7 @@ final class LineView {
     static int[] levelInfo() {
         Plan.Line s = PlanView.selectedLine();
         String pack = s != null ? s.pack() : PlannerScreen.pack(), fam = s != null ? s.family() : family();
-        var fs = PieceCatalog.families(pack);
-        PieceSets.Family f = fs == null || fam == null ? null : fs.get(fam);
+        PieceSets.Family f = PieceCatalog.familyOf(pack, fam);
         if (f == null) return new int[]{1, 1};
         List<PieceSets.Group> st = PieceCatalog.groups(pack, f, PieceSets.Role.STRAIGHT);
         if (st.isEmpty()) return new int[]{1, 1};

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.1
+
+- Joint editor: the joint piece is outlined in yellow in the 3D view (as on the map). Sword and Kingdom's
+  `city wall[■]` tower was drawn all along, but as tall as its walls and of the same stone it read as the walls
+  running into each other ("the tower doesn't draw").
+- Planned lines keep their set when it is renamed (a set-up save, new name rules): a line's saved key stays as it is
+  and is looked up as the one set of the same folder and tool (never the other tool: a road line doesn't turn into a
+  wall). A line no set fits stays in the plan, outlined amber and labelled "Set missing" in the line panel. Saving a
+  set-up that would leave planned lines without a set asks first.
+- Set up pieces: "Same as…" opens a list (rows that are variants themselves left out; sub-folder shown when names
+  repeat; chains of variants join the last one); a change after saving brings Save back; Esc / Cancel with unsaved
+  changes asks first; the Save button says Done when nothing changed; on short screens the missing parts'
+  explanations are hover tips; a pack's root folder works. Question boxes scroll when long, Cancel pinned.
+- Joint editor: Esc / Cancel and switching set, joint, case or turn with unsaved adjustments ask first; road sets'
+  joint check says "road".
+- Palette: Other says "No pieces here" (not "loading" forever for a pack without road / wall folders); decoration and
+  Other rows tell about right-click; a folder header click shows that folder; decoration lists are worked out once per
+  set-up / load change, not every frame. "Family" reads "set" in the player's text.
+
 ## 0.3.0
 
 - Road / wall sets from style packs that don't follow MineColonies' folders and names. Folders: a road under
@@ -46,8 +65,6 @@
   set its folder up.
 - Quarries (MineColonies' simple / medium / large quarry blocks, not named blockhut*) are on the Huts tab under
   Production and placed like any hut; the postbox and stash stay hidden (no blueprints).
-- Known issue: in the joint editor's 3D view, Sword and Kingdom's `city wall[■]` tower doesn't draw (the walls do).
-  It is preview only: the planner's ghosts and the built walls include the tower.
 
 ## 0.2.0
 

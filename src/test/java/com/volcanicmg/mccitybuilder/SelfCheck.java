@@ -2896,6 +2896,16 @@ public final class SelfCheck {
             String shared = PieceLayout.alignKey("walls/t.blueprint", 1, sps[0], sts[0], 2), own = PieceLayout.alignKey("walls/t.blueprint", 3, sps[0], sts[0], 2);
             check(com.volcanicmg.mccitybuilder.planner.JointHelp.clearable(List.of(shared, own), java.util.Set.of(shared)).equals(List.of(own)), "mirrored case keys are spared");
         }
+        // A line's family after a rename: itself, else the one family of its folder and tool (never the other tool), else none.
+        check("wall:walls/walls".equals(PieceSets.resolveFamily("wall:walls/walls/tee", List.of("wall:walls/walls", "wall:walls", "road:infrastructure/roads")))
+                && "road:infrastructure/road".equals(PieceSets.resolveFamily("road:infrastructure/road", List.of("road:infrastructure/road", "road:infrastructure/road/dio")))
+                && PieceSets.resolveFamily("road:infrastructure/road", List.of("road:infrastructure/road/dio", "road:infrastructure/road/bevel")) == null
+                && PieceSets.resolveFamily("road:infrastructure/forum", List.of("wall:infrastructure/forum")) == null
+                && PieceSets.resolveFamily("road:elsewhere", List.of("road:infrastructure/road")) == null, "family keys resolve after a rename");
+        // Variant chains: A of B, B of C: all in C.
+        var chain = PieceSets.classify(List.of(new PieceSets.Piece("walls/a.blueprint", "a", 0, 9, 6, 5), new PieceSets.Piece("walls/b.blueprint", "b", 0, 9, 6, 5),
+                new PieceSets.Piece("walls/wall.blueprint", "wall", 0, 9, 6, 5)), Map.of(), Map.of("piece|walls/a.blueprint", "variant:b", "piece|walls/b.blueprint", "variant:wall"));
+        check(chain.get("wall:walls").straights().size() == 1 && chain.get("wall:walls").straights().get(0).pieces().size() == 3, "variant chains join the root group");
         // Style suffixes split a folder like prefixes do (Byzantine's ...dio).
         var dio = PieceSets.classify(List.of(new PieceSets.Piece("infrastructure/road/straight.blueprint", "straight", 0, 9, 3, 5),
                 new PieceSets.Piece("infrastructure/road/straightdio.blueprint", "straightdio", 0, 9, 3, 5)));
@@ -2936,6 +2946,18 @@ public final class SelfCheck {
             added.removeAll(golden);
             check(gone.isEmpty() && added.isEmpty(), "bundled packs classify as recorded; lost " + gone.stream().limit(5).toList() + " new " + added.stream().limit(5).toList());
         } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        // Third-party packs: recorded detection inputs (packs/*.txt, no blueprint data) classify as their recorded result.
+        try (var fs = Files.list(Path.of("src/test/resources/packs"))) {
+            for (Path f : fs.filter(x -> x.toString().endsWith(".txt")).sorted().toList()) {
+                List<String> all = Files.readAllLines(f), golden = all.stream().filter(l -> !l.startsWith("P\t")).toList(), now = PieceScan.classifyFixture(all);
+                List<String> gone = new java.util.ArrayList<>(golden), added = new java.util.ArrayList<>(now);
+                gone.removeAll(now);
+                added.removeAll(golden);
+                check(gone.isEmpty() && added.isEmpty(), f.getFileName() + " classifies as recorded; lost " + gone.stream().limit(5).toList() + " new " + added.stream().limit(5).toList());
+            }
+        } catch (java.io.IOException e) {
             throw new AssertionError(e);
         }
     }
