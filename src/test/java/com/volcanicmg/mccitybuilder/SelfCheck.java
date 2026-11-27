@@ -12,6 +12,7 @@ import com.volcanicmg.mccitybuilder.planner.QueueOrder;
 import com.volcanicmg.mccitybuilder.planner.TerrainFollow;
 import com.volcanicmg.mccitybuilder.planner.CameraRig;
 import com.volcanicmg.mccitybuilder.planner.LineSnap;
+import com.volcanicmg.mccitybuilder.planner.JointCount;
 import com.volcanicmg.mccitybuilder.planner.PieceLayout;
 import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import com.volcanicmg.mccitybuilder.planner.Plan;
@@ -3049,6 +3050,22 @@ public final class SelfCheck {
             return -1;
         };
         check(shortAxis.apply(true) == 0 && shortAxis.apply(false) == 1, "a 6x12 short beside 12x12 straights and a 12x12 turn runs along its 6 side");
+        // The joint count (Pieces panel "Fix joints (N)"): bad cases named in order, the first to open, nothing shown while verdicts are pending.
+        var names = List.of("Corner (left)", "Corner (right)", "T", "Cross", "End");
+        var jcNone = JointCount.tally(names, new int[]{0, 0, 0, 0, 0});
+        var two = JointCount.tally(names, new int[]{0, 1, 0, 1, 0});
+        var wait = JointCount.tally(names, new int[]{0, 1, 2, 0, 0});
+        check(jcNone.bad() == 0 && jcNone.badge().isEmpty() && jcNone.first() == -1 && jcNone.done(), "joint count: all fit shows no number");
+        check(two.bad() == 2 && two.badge().equals("2") && two.failing().equals(List.of("Corner (right)", "Cross")) && two.first() == 1 && two.total() == 5,
+                "joint count: bad cases counted and named in order, first to open");
+        check(!wait.done() && wait.pending() == 1 && wait.badge().isEmpty() && wait.bad() == 1, "joint count: no badge until every case has a verdict");
+        check(JointCount.tally(List.of(), new int[0]).done() && JointCount.tally(List.of(), new int[0]).badge().isEmpty(), "joint count: a family without joints counts 0");
+        var failed = JointCount.tally(names, new int[]{0, 3, 1, 0, 3});
+        check(failed.done() && failed.pending() == 0 && failed.bad() == 1 && failed.badge().equals("1") && JointCount.tally(names, new int[]{0, 3, 0, 0, 3}).badge().isEmpty(),
+                "joint count: a piece that failed to load for good settles its case (no waiting, not counted)");
+        int[] many = new int[120];
+        java.util.Arrays.fill(many, JointCount.BAD);
+        check(JointCount.tally(java.util.Collections.nCopies(120, "x"), many).badge().equals("99+"), "joint count: badge caps at 99+");
     }
 
     private static void check(boolean ok, String what) {

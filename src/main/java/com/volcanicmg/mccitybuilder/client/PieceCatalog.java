@@ -292,7 +292,11 @@ final class PieceCatalog {
 
     /** @return the groups used for a role: the user's override if any (else the built-in one), else every group the classifier found */
     static List<PieceSets.Group> groups(String pack, PieceSets.Family f, PieceSets.Role r) {
-        String o = setup(pack).get(f.tool() + ":" + f.key() + "|" + r.name());
+        return groups(pack, f, r, setup(pack).get(f.tool() + ":" + f.key() + "|" + r.name()));
+    }
+
+    /** @return the groups a role would use were its set-up value {@code o} (null = none set, "-" = none, else a group's base name) */
+    static List<PieceSets.Group> groups(String pack, PieceSets.Family f, PieceSets.Role r, String o) {
         List<PieceSets.Group> all = new ArrayList<>(r == PieceSets.Role.STRAIGHT ? f.straights() : f.of(r));
         if (o == null) return all;
         if (o.equals("-")) return List.of();

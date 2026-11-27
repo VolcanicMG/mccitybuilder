@@ -146,16 +146,89 @@ public final class DevBridge {
                 PlanView.selectedLine = -1;
                 return "tool=" + LineView.tool;
             });
-            // on|off: the line panel's piece-role editor (needs a tool with a family).
+            // on|off: the Pieces panel beside the line panel (needs a tool with a family).
             case "/rolepanel" -> client(() -> {
                 setPlanner("editorOpen", a[0].equals("on"));
                 return "rolepanel=" + a[0] + " family=" + LineView.family();
             });
+            // <name>|list: a line / Pieces panel control's box as "x y w h cx cy" (GUI coords; mouse commands take cx cy), or "none".
+            case "/anchor" -> client(() -> {
+                if (a.length < 1) return "usage: anchor <name>|list";
+                if (a[0].equals("list")) return String.join(" ", (Minecraft.getInstance().screen instanceof PieceSetScreen ps0 ? ps0.anchors() : PlannerScreen.anchors).keySet());
+                var scr = Minecraft.getInstance().screen;
+                int[] r = scr instanceof PieceSetScreen ps ? ps.anchors().get(a[0]) : PlannerScreen.anchors.get(a[0]);
+                return r == null ? "none" : r[0] + " " + r[1] + " " + r[2] + " " + r[3] + " " + (r[0] + r[2] / 2) + " " + (r[1] + r[3] / 2);
+            });
+            // The joint count of the current family three ways: the check list's own verdicts ("ref"), a fresh probe stepped to the end ("probe", timed),
+            // and what the line panel worked out (render path "panel"): "ref=bad/total probe=bad/total panel=bad/total failing=[..] <timing>".
+            case "/jointcount" -> client(() -> {
+                String pk = PlannerScreen.pack();
+                var f = PieceCatalog.familyOf(pk, LineView.family());
+                if (f == null) return "no family";
+                String key = f.tool() + ":" + f.key();
+                var ref = JointEditorScreen.reference(pk, key, LineView.level);
+                var pr = new JointEditorScreen.Probe(pk, key, LineView.level);
+                com.volcanicmg.mccitybuilder.planner.JointCount.Result r = null;
+                for (int i = 0; i < 200 && !pr.finished(); i++) r = pr.step();
+                if (r == null) r = pr.step();
+                var pn = JointCheck.current();
+                return "ref=" + ref.bad() + "/" + ref.total() + (ref.done() ? "" : "+" + ref.pending()) + " probe=" + r.bad() + "/" + r.total() + (r.done() ? "" : "+" + r.pending())
+                        + " panel=" + (pn == null ? "none" : pn.bad() + "/" + pn.total() + (pn.done() ? "" : "+" + pn.pending())) + " failing=" + r.failing()
+                        + String.format(" steps=%d totalMs=%.2f maxStepMs=%.2f", pr.steps, pr.nanos / 1e6, pr.maxNanos / 1e6);
+            });
+            // open <x> <z> | type | set <t>: the edit-mode joint menu on the segment end nearest (x, z) (placed over the line panel: it must win clicks there),
+            // the selected joint's type, or a type set as the menu's pick does.
+            case "/jointmenu" -> client(() -> {
+                if (a.length < 1) return "usage: jointmenu open <x> <z>|type|set <t>";
+                switch (a[0]) {
+                    case "open": {
+                        if (a.length < 3 || !LineView.edit) return "needs edit mode and <x> <z>";
+                        int[] c = null;
+                        int best = 5;
+                        for (var l : PlanView.lines)
+                            for (int[] e : l.ends()) {
+                                int dd = Math.max(Math.abs(e[0] - Integer.parseInt(a[1])), Math.abs(e[1] - Integer.parseInt(a[2])));
+                                if (dd < best) {
+                                    best = dd;
+                                    c = e.clone();
+                                }
+                            }
+                        if (c == null) return "no joint near";
+                        LineView.selectedJoint = c;
+                        LineView.openJointMenu();
+                        int[] ed = PlannerScreen.anchors.get("edit");
+                        PlannerScreen.menuAt = ed == null ? null : new int[]{ed[0] + 4, ed[1] + 24};
+                        return "ok options=" + LineView.jointOptions.size();
+                    }
+                    case "type":
+                        return LineView.selectedJoint == null ? "none" : String.valueOf(com.volcanicmg.mccitybuilder.planner.Plan.jointType(
+                                PlanView.jointTypes.get(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1]))));
+                    case "set":
+                        if (a.length < 2) return "usage: jointmenu set <t>";
+                        PlannerScreen.menuAt = null;
+                        LineView.pickJoint(Integer.parseInt(a[1]));
+                        return "ok";
+                    default:
+                        return "unknown";
+                }
+            });
+            // The 3D hover tooltip drawn last frame ("title | size"), "" when none.
+            case "/tip" -> client(() -> PlannerScreen.tip3dText);
+            // The set-up screen's last frame: "tool=.. tiles=ROLE:ok|missing,.. rows=index:ROLE,.." (rows in path order); setupstep <row> <+1|-1> steps a row's role picker.
+            case "/setupstate" -> client(() -> Minecraft.getInstance().screen instanceof PieceSetScreen s ? s.dump() : "not the set-up screen");
+            case "/setupstep" -> client(() -> {
+                if (!(Minecraft.getInstance().screen instanceof PieceSetScreen s)) return "not the set-up screen";
+                if (a.length < 2) return "usage: setupstep <row> <+1|-1>";
+                return s.stepRow(Integer.parseInt(a[0]), Integer.parseInt(a[1])) ? "ok" : "no such row";
+            });
+            // preview | role <ROLE> | picks: the role the preview shows, a role's pick in the current set, whether the Picks row is drawn.
+            case "/panelstate" -> client(() -> panelState(a));
             // setup|joint: the Set up pieces screen / the joint editor for the pack's first road (else wall) family, as the role panel's buttons open them.
             case "/open" -> client(() -> {
                 Minecraft mc = Minecraft.getInstance();
                 String pk = PlannerScreen.pack(), fam = null;
-                for (String t : new String[]{"road", "wall"}) {
+                // open setup|joint [road|wall]: the first family of that tool, else the first road (else wall) family.
+                for (String t : a.length > 1 ? new String[]{a[1]} : new String[]{"road", "wall"}) {
                     var k = PieceCatalog.familyKeys(pk, t);
                     if (k == null) return "loading";
                     if (fam == null && !k.isEmpty()) fam = k.get(0);
@@ -739,6 +812,54 @@ public final class DevBridge {
             }
         });
         return f.get(20, TimeUnit.SECONDS);
+    }
+
+    /** The line panel's state for {@code /panelstate}: {@code picks}, {@code preview}, {@code role <ROLE>}. */
+    private static String panelState(String[] a) throws ReflectiveOperationException {
+        if (a.length < 1) return "usage: panelstate picks|preview|layout|has <ROLE>|role <ROLE>|setrole <ROLE> <auto|value>";
+        var pk = PlannerScreen.pack();
+        var f = PieceCatalog.familyOf(pk, LineView.family());
+        String key = f == null ? null : f.tool() + ":" + f.key();
+        com.volcanicmg.mccitybuilder.planner.PieceSets.Role role = null;
+        if (a.length > 1) {
+            try {
+                role = com.volcanicmg.mccitybuilder.planner.PieceSets.Role.valueOf(a[1]);
+            } catch (IllegalArgumentException e) {
+                return "unknown role " + a[1];
+            }
+        }
+        switch (a[0]) {
+            case "picks":
+                return String.valueOf(PlannerScreen.anchors.containsKey("pick_segment"));
+            case "dragging":
+                return String.valueOf(PieceView.dragging);
+            case "layout":
+                // x y w h queueBottom previewHeight tier, and the GUI size
+                var d = PlannerScreen.layoutDbg;
+                var w = Minecraft.getInstance().getWindow();
+                return d[0] + " " + d[1] + " " + d[2] + " " + d[3] + " " + d[4] + " " + d[5] + " " + d[6] + " gui=" + w.getGuiScaledWidth() + "x" + w.getGuiScaledHeight();
+            case "preview": {
+                var pf = PlannerScreen.class.getDeclaredField("previewRole");
+                pf.setAccessible(true);
+                return String.valueOf(pf.get(null));
+            }
+            case "has":
+                if (role == null) return "usage: panelstate has <ROLE>";
+                return String.valueOf(f != null && !PieceCatalog.groups(pk, f, role).isEmpty());
+            case "role": {
+                if (role == null || key == null) return "no family or role";
+                var o = PieceCatalog.overrides(pk).get(key + "|" + role.name());
+                return "role=" + a[1] + " pick=" + (o == null ? "auto" : o);
+            }
+            case "setrole":
+                // a[2]: "auto" clears the pick, anything else is the group base name or "-"
+                if (role == null || key == null || a.length < 3) return "usage: panelstate setrole <ROLE> <auto|value>";
+                PieceCatalog.override(pk, key, role, a[2].equals("auto") ? null : a[2]);
+                PlanView.linesChanged();
+                return "ok";
+            default:
+                return "unknown";
+        }
     }
 
     /** Sets a private static of the planner screen (its palette / panel state). */

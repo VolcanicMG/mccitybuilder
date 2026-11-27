@@ -803,10 +803,34 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
 - Committed pieces: each gets its own outline the height of its blueprint box, inset (Structurize draws its own
   white box around every ghost, which can't be turned off), green / red per piece, white for the selected segment,
   yellow for the hovered one.
-- Panel: family, level or variant (variants: one, or mixed by piece index), height, Towers / Gate (walls: the
-  selected segment, or the next one drawn; reset after a drop) / Flip, a 3D preview, the segment's numbers, Done /
-  Undo / Remove / Build. A gear opens the piece-set editor as a popup beside the panel: which group plays each role
-  (auto / none / any group of the family), saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
+- Panel (`PlannerScreen.linePanel`; icons in `client/PanelIcons`, pixel art drawn with `g.fill`): header (tool icon,
+  title, [?] help, [Pieces]), the Edit button (full width, green while on) and, in edit mode only, the Picks row
+  (segment / whole road or wall). PIECES: family, level or variant (only with more than one; variants: one, or mixed by
+  piece index), the 3D preview of the selected part (`previewRole`; arrows browse that part's pieces, the planned piece
+  under the cursor shows instead), piece-type tiles (click picks the part; parts the set lacks are dimmed) and, walls
+  only, a Gate toggle (the selected segment, or the next one drawn; reset after a drop). SHAPE: Height, Joints, Flip,
+  Fill gaps, the segment's numbers. BUILD: mode, builder, Undo / Remove / Clear / Done / Build. The preview shrinks
+  (100 to 48) and then drops when the screen is too short. Hovering a tile or an arrow draws a 3D tooltip (Minecraft's
+  tooltip look, z 1000, left of the panel) last, above every panel.
+- Pieces panel (`piecesPanel`, opened by the Pieces button, beside the line panel): one row per role with a green check
+  badge when the role resolves to a piece, arrows through auto / none / every group of the family (hover: the piece it
+  switches to, in 3D), and Set up pieces... / Fix joints. Picks are saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
+  Anything drawn over the 3D views (arrows, captions) is lifted to z 500: the views draw at z 400 with depth.
+- Joint count (`client/JointCheck`, `JointEditorScreen.Probe`, pure tally in `planner/JointCount`): the Pieces button's amber badge and
+  "Fix joints (N)" show the family's cases with a problem (overlap / no fit / off-centre, the joint check list's verdicts). A
+  headless editor instance lays out one case per frame (`Probe.step`), so nothing stalls; the cache key is pack, family,
+  `setupVersion`, `loadVersion`, the overrides' hash and the level; cases still loading are retried after a second.
+  The count shows only once every case has a verdict. Hover lists the failing joints, a click opens the editor on the first.
+- Hits: a panel drawn over others puts its hits first, then a no-op `BLOCK` hit over its box (`raise`, `blockerAt`): clicks,
+  wheel and tooltips stop there. The line panel does so over the queue panel, the Pieces panel, the joint menu, the coach tip
+  and the large preview likewise.
+- Set-up screen (`client/PieceSetScreen`): rows grouped by role now (`current`), items scroll by item; the picker's arrows /
+  value button call `stepRole` (the same the dev bridge's `setupstep` calls); the right panel is a 2-column role tile grid
+  (`PieceSets.slots` of the family's tool) with a rich tooltip (`drawRich`), the 3D preview and More / Cancel / Save. Edits stay
+  in `changes` until Save (`PieceCatalog.setSetup`), as before. Bridge: `/open setup road|wall`, `setupstate`, `setupstep`, `anchor`
+  (tile_ROLE, row_i, row_prev_i / row_next_i, save, cancel, more) work on this screen too.
+- Dev bridge for the panels: `anchor <name>|list` (boxes of the drawn controls), `tip` (the 3D tooltip's text),
+  `panelstate picks|preview|layout|dragging|has|role|setrole`, `jointcount` (ref / probe / panel counts and timing), `jointmenu open|type|set`.
 - Preview (`client/PieceView`): Structurize has no GUI blueprint renderer (its `BlueprintRenderer` draws in the
   world stage only), so each piece is baked once into vertex buffers (one per entity render type, the block models
   the world uses, full-bright, at most 6000 blocks; animated / entity-model blocks such as chests are left out) and

@@ -2,6 +2,7 @@ package com.volcanicmg.mccitybuilder.client;
 
 import com.ldtteam.structurize.blueprints.v1.Blueprint;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.volcanicmg.mccitybuilder.planner.JointCount;
 import com.volcanicmg.mccitybuilder.planner.PieceLayout;
 import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import java.util.ArrayList;
@@ -36,6 +37,8 @@ final class JointEditorScreen extends Screen {
     private static final int[][] OUTS = {{2, 3}, {2, 1}, {2, 0, 1}, {2, 0, 1, 3}, {2}};
 
     private String pack, fam;
+    // The level the layout takes (the line panel's, for the joint count), or -1 = the line tool's.
+    private int lvl = -1;
     // turn: the joint piece's orientation chosen here (PieceLayout orientation, mirrored with PieceLayout.MIRROR), -1 = auto
     private int role, kase, turn = -1, runSel;
     // The hovered button's tooltip this frame, or null.
@@ -624,7 +627,7 @@ final class JointEditorScreen extends Screen {
         if (f == null) return null;
         List<PieceSets.Group> st = PieceCatalog.groups(pack, f, PieceSets.Role.STRAIGHT), js = PieceCatalog.groups(pack, f, ROLES[role]);
         if (st.isEmpty() || js.isEmpty()) return null;
-        int level = Math.max(1, LineView.level);
+        int level = Math.max(1, lvl >= 0 ? lvl : LineView.level);
         PieceSets.Piece sp = st.get(0).pick(st.get(0).levels() ? level : 0, 0), jp = js.get(0).pickAs(sp, level, 0);
         int[] outs = OUTS[kase], c = {0, 0};
         int width = sp.across(), run = sp.run();
@@ -918,6 +921,94 @@ final class JointEditorScreen extends Screen {
             statusAt = System.currentTimeMillis();
         }
         return status;
+    }
+
+    /**
+     * The joint check as a count, for the Pieces panel: headless, one case per {@link #step}, using this editor's own
+     * layout and verdict code (so the count is the check list's, see {@link JointCount}).
+     */
+    static final class Probe {
+        private final JointEditorScreen s;
+        private List<Case> cs;
+        private int[] states;
+        private int next;
+        /** Time spent in {@link #step} (total and the slowest call, ns) and the calls that did work. */
+        long nanos, maxNanos;
+        int steps;
+
+        Probe(String pack, String fam, int level) {
+            s = new JointEditorScreen(pack, fam, PieceSets.Role.CORNER, -1);
+            s.lvl = level;
+        }
+
+        /** @return whether every case has been tried */
+        boolean finished() {
+            return cs != null && next >= cs.size();
+        }
+
+        /** Tries one more case (none once finished). @return the tally so far, or null while the family's pieces are still loading */
+        JointCount.Result step() {
+            if (cs == null) {
+                if (PieceCatalog.families(s.pack) == null || PieceCatalog.familyOf(s.pack, s.fam) == null) return null;
+                cs = s.cases();
+                states = new int[cs.size()];
+                java.util.Arrays.fill(states, JointCount.LOADING);
+            }
+            if (next < cs.size()) {
+                long t0 = System.nanoTime();
+                int i = next++;
+                Layout l = s.layout(cs.get(i).role(), cs.get(i).kase(), false, -1);
+                states[i] = l == null ? (s.failedPiece(cs.get(i)) ? JointCount.SETTLED : JointCount.LOADING) : s.issues(l).isEmpty() ? JointCount.OK : JointCount.BAD;
+                long dt = System.nanoTime() - t0;
+                nanos += dt;
+                maxNanos = Math.max(maxNanos, dt);
+                steps++;
+            }
+            List<String> names = new ArrayList<>();
+            for (Case c : cs) names.add(s.caseLabel(c));
+            return JointCount.tally(names, states);
+        }
+
+        /** Opens the joint editor on the first case with a problem. */
+        void openFirstBad() {
+            for (int i = 0; cs != null && i < cs.size(); i++)
+                if (states[i] == JointCount.BAD) {
+                    JointEditorScreen e = new JointEditorScreen(s.pack, s.fam, ROLES[cs.get(i).role()], -1);
+                    e.lvl = s.lvl;
+                    e.select(cs.get(i));
+                    Minecraft.getInstance().setScreen(e);
+                    return;
+                }
+        }
+    }
+
+    /** @return the count as the check list itself works it out (its {@code verdicts}, all cases at once); the reference the {@link Probe} must match */
+    static JointCount.Result reference(String pack, String fam, int lvl) {
+        JointEditorScreen s = new JointEditorScreen(pack, fam, PieceSets.Role.CORNER, -1);
+        s.lvl = lvl;
+        List<Case> cs = s.cases();
+        Map<Case, Verdict> vs = s.verdicts(cs);
+        int[] st = new int[cs.size()];
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < st.length; i++) {
+            Verdict v = vs.get(cs.get(i));
+            st[i] = v == null || v.loading() ? (s.failedPiece(cs.get(i)) ? JointCount.SETTLED : JointCount.LOADING) : v.ok() ? JointCount.OK : JointCount.BAD;
+            names.add(s.caseLabel(cs.get(i)));
+        }
+        return JointCount.tally(names, st);
+    }
+
+    /** @return whether a piece the case needs (its straight or joint group) failed to load for good */
+    private boolean failedPiece(Case c) {
+        PieceSets.Family f = PieceCatalog.familyOf(pack, fam);
+        if (f == null) return false;
+        // The pieces layout() picks: the main straight and the joint piece of its level.
+        var st = PieceCatalog.groups(pack, f, PieceSets.Role.STRAIGHT);
+        var js = PieceCatalog.groups(pack, f, ROLES[c.role()]);
+        if (st.isEmpty() || js.isEmpty()) return false;
+        int level = Math.max(1, lvl >= 0 ? lvl : LineView.level);
+        PieceSets.Piece sp = st.get(0).pick(st.get(0).levels() ? level : 0, 0), jp = js.get(0).pickAs(sp, level, 0);
+        return PieceCatalog.failed(pack, sp.path()) || PieceCatalog.failed(pack, jp.path());
     }
 
     /** @return the problems a laid-out case has: overlap (a run would clear or replace joint blocks), nofit (no contact or a poor match), offcentre (a run more than a cell off the joint's centre) */

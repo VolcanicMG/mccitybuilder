@@ -811,6 +811,7 @@ final class LineView {
         jointMenu = false;
         menuPreview = -1;
         jointOptions = List.of();
+        PlannerScreen.menuAt = null;
     }
 
     /** An option clicked: the joint takes the type (refused with a flash when a run can't fit); the menu closes. */

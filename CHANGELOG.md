@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- The road / wall panel is rebuilt in three sections. PIECES: the set picker, a level / variant picker only when the
+  set has more than one, a 3D preview and a row of piece-type tiles (road: straight, corner, T, cross, end; wall: its
+  parts, with a Gate toggle). The preview's arrows browse the pieces of the selected part; the tiles pick which part it
+  shows (parts the set lacks are dimmed). SHAPE: Height and Joints with labels, then Flip and Fill gaps side by side.
+  BUILD: mode, builder and the footer (Undo icon, Remove, Clear, Done, Build with a hammer). Buttons carry pixel icons.
+- Hovering a piece-type tile, or the preview's arrows, shows that piece in 3D in a tooltip beside the panel.
+- The Pieces button (replacing the gear) opens the Pieces panel: one row per part with its icon and a green check when
+  the set has a piece for it, the piece and arrows (hover them to see the piece they would switch to, in 3D), and
+  Set up pieces... / Fix joints.
+- Edit mode: the "Picks: Segment / Whole road (wall)" row shows only while editing, with the hint "Tab switches.
+  Double-click: whole road."; the Edit button is full width and green while on. Gate is on the wall panel only.
+- The Pieces panel's Fix joints shows how many of the set's joints don't fit, "Fix joints (2)", with a small amber badge
+  on the Pieces button (nothing when they all fit). Hover lists them; a click opens the joint editor on the first one.
+  It uses the joint check's own verdicts, worked out a joint per frame in the background of the panel and again when
+  the set-up, an alignment or the level changes.
+- Panels drawn over others (the Pieces panel, the edit-mode joint menu, the coach tip, the large preview) now take the
+  clicks, wheel and tooltips over them; the Pieces panel's rows shrink a little on very short screens.
+- Set up pieces is redesigned. Left: the folder's pieces under captions by their role now (Straight (8), Corner, Tower,
+  Gate, Not used ...), each with a role icon, its real name, its size in grey and a compact < role > picker; click a row
+  to preview it, and the list scrolls. Right: "This set has" as a grid of role tiles with a green check or an amber "!"
+  and the chosen piece or "Not set" (hover a tile for what the part is for, and for a missing one what it costs and how
+  to fix it), a larger 3D preview with < > stepping through the pieces, and a footer of More..., Cancel and a green
+  "Looks good: save". Everything it did before is kept.
+- A short screen shrinks the preview first (down to a minimum), then drops it, instead of running off the screen.
+
 ## 0.3.2
 
 - Joint pieces can be mirrored as well as turned. Joint editor: "Mirror (M)" next to "Turn (R)" (both with hover
