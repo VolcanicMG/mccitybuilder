@@ -195,7 +195,8 @@ for pack in "${PACKS[@]}"; do
     if [ -z "$role" ]; then step "$pack: tile click selects the preview role (set has only straights: skipped)" ok
     else
       aclick "tile_$role"; sleep 1; pr=$(B panelstate preview)
-      ahover "tile_$role"; sleep 1; tp=$(B tip)
+      # (the families rebuild after the role-pick step saved its override: wait for the piece, up to 10 s, re-aiming each time)
+      tp=""; for _ in $(seq 10); do ahover "tile_$role"; sleep 1; tp=$(B tip); [ -n "$tp" ] && break; done
       [ "$pr" = "$role" ] && step "$pack: tile click selects the preview role ($pr)" ok || step "$pack: tile click selects the preview role" fail "preview is '$pr', wanted $role"
       [ -n "$tp" ] && step "$pack: tile hover shows a 3D tooltip ($tp)" ok || step "$pack: tile hover shows a 3D tooltip" fail "empty"
       aclick tile_STRAIGHT; sleep 0.5
