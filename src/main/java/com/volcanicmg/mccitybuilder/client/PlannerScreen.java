@@ -424,7 +424,7 @@ final class PlannerScreen extends Screen {
             int ry = y + PAD + i * rowH, rx = x + PAD, rw = w - 2 * PAD;
             boolean over = mx >= rx && mx < rx + rw && my >= ry && my < ry + rowH - 2;
             if (over) hovered = o.type();
-            int current = PlanView.jointTypes.getOrDefault(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1]), com.volcanicmg.mccitybuilder.planner.Plan.J_AUTO);
+            int current = com.volcanicmg.mccitybuilder.planner.Plan.jointType(PlanView.jointTypes.get(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1])));
             VanillaUi.button(g, rx, ry, rw, rowH - 2, o.type() == current, o.lacks() > 0, over);
             if (o.piece() != null) {
                 var bp = PieceCatalog.rotated(pack(), o.piece().path(), 0);
@@ -441,8 +441,23 @@ final class PlannerScreen extends Screen {
             }, Component.translatable("mccitybuilder.edit.menu.tip")));
         }
         LineView.previewJoint(hovered);
-        // Below the menu: the alignment editor for this joint (its style, family, piece role and turn pre-selected).
-        int ay = y + h + 2;
+        // Below the menu: this joint's piece turned or mirrored (kept for this joint only).
+        int oy = y + h + 2, ow = (w - 2) / 2;
+        panels.add(new int[]{x, oy, w, 18});
+        String[] ol = {Component.translatable("mccitybuilder.edit.joint_turn").getString(), Component.translatable("mccitybuilder.edit.joint_mirror").getString()};
+        for (int b = 0; b < 2; b++) {
+            int bx = x + b * (ow + 2);
+            boolean mirror = b == 1;
+            VanillaUi.button(g, bx, oy, ow, 18, false, false, mx >= bx && mx < bx + ow && my >= oy && my < oy + 18);
+            g.drawString(font, ol[b], bx + (ow - font.width(ol[b])) / 2, oy + 5, VanillaUi.INK, false);
+            hits.add(new Hit(bx, oy, ow, 18, () -> {
+                click();
+                String why = LineView.orientSelectedJoint(mirror);
+                if (why != null) toast(Component.translatable(why));
+            }, Component.translatable(mirror ? "mccitybuilder.edit.joint_mirror.tip" : "mccitybuilder.edit.joint_turn.tip")));
+        }
+        // Below that: the alignment editor for this joint (its style, family, piece role and turn pre-selected).
+        int ay = oy + 20;
         boolean overA = mx >= x && mx < x + w && my >= ay && my < ay + 18;
         panels.add(new int[]{x, ay, w, 18});
         VanillaUi.button(g, x, ay, w, 18, false, false, overA);
@@ -461,7 +476,7 @@ final class PlannerScreen extends Screen {
             for (var p : PlanView.linePieces.get(i)) {
                 int[] b = p.box();
                 if (!p.joint() || c[0] < b[0] || c[0] > b[2] || c[1] < b[1] || c[1] > b[3]) continue;
-                minecraft.setScreen(new JointEditorScreen(l.pack(), l.family(), p.role(), Math.floorMod(p.turns(), 4)));
+                minecraft.setScreen(new JointEditorScreen(l.pack(), l.family(), p.role(), com.volcanicmg.mccitybuilder.planner.PieceLayout.normOrient(p.turns())));
                 return;
             }
         }
@@ -594,8 +609,8 @@ final class PlannerScreen extends Screen {
             click();
         }, Component.translatable("mccitybuilder.line.height.tip"));
         // Joints: the selected joint's type (edit mode), else the default for new joints.
-        int jt = LineView.selectedJoint != null ? PlanView.jointTypes.getOrDefault(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1]),
-                com.volcanicmg.mccitybuilder.planner.Plan.J_AUTO) : LineView.jointDefault;
+        int jt = LineView.selectedJoint != null ? com.volcanicmg.mccitybuilder.planner.Plan.jointType(PlanView.jointTypes.get(com.volcanicmg.mccitybuilder.planner.Plan.cell(LineView.selectedJoint[0], LineView.selectedJoint[1])))
+                : LineView.jointDefault;
         iy = picker(g, ix, iy, iw, Component.translatable(LineView.selectedJoint != null ? LineView.selectedIsEnd() ? "mccitybuilder.line.joint.this_end" : "mccitybuilder.line.joint.this" : "mccitybuilder.line.joint.new",
                 Component.translatable("mccitybuilder.line.joint." + jt)).getString(), mx, my, d -> {
             LineView.cycleJoint(d);

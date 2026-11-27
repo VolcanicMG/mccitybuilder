@@ -51,8 +51,9 @@ public final class WallJoints {
         for (int[] t : top) java.util.Arrays.fill(t, Integer.MIN_VALUE);
         paint(top, name, cs.joint(), cs.jointBox()[0], cs.jointBox()[1]);
         for (var r : cs.runs()) {
-            for (int[] b : PieceLayout.boxes(new int[]{0, 0}, r.out(), r.fit().off(), List.of(Math.max(r.straight().sx(), r.straight().sz()),
-                    Math.max(r.straight().sx(), r.straight().sz())), Math.min(r.straight().sx(), r.straight().sz()), r.fit().shift()))
+            // The straight as placed runs along x on an east / west run (its run need not be its longer side).
+            int len = r.out() % 2 == 0 ? r.straight().sx() : r.straight().sz(), across = r.out() % 2 == 0 ? r.straight().sz() : r.straight().sx();
+            for (int[] b : PieceLayout.boxes(new int[]{0, 0}, r.out(), r.fit().off(), List.of(len, len), across, r.fit().shift()))
                 paint(top, name, r.straight(), b[0], b[1]);
         }
         for (int x = 0; x <= 2 * R; x++)

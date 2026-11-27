@@ -888,6 +888,13 @@ final class PlanView {
         linesDirty = true;
     }
 
+    /** Sets (-1 clears) the joint piece orientation chosen at a cell, keeping its type, and saves. */
+    static void setJointOrient(int x, int z, int orient) {
+        jointTypes = new HashMap<>(Plan.withOrient(jointTypes, Plan.cell(x, z), orient));
+        save();
+        linesDirty = true;
+    }
+
     /** Replaces the whole set of lines (an edit-mode move) and saves. */
     /** Replaces the hut / decoration entries (an undo of a clear); the caller saves. */
     static void setEntries(List<Plan.Entry> es) {

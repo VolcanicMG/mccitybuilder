@@ -36,7 +36,10 @@ final class JointEditorScreen extends Screen {
     private static final int[][] OUTS = {{2, 3}, {2, 1}, {2, 0, 1}, {2, 0, 1, 3}, {2}};
 
     private String pack, fam;
+    // turn: the joint piece's orientation chosen here (PieceLayout orientation, mirrored with PieceLayout.MIRROR), -1 = auto
     private int role, kase, turn = -1, runSel;
+    // The hovered button's tooltip this frame, or null.
+    private String hoverTip;
     private boolean flipped;
     // Unsaved adjustments: override key -> {shift, depth}.
     private final Map<String, int[]> drafts = new HashMap<>();
@@ -142,12 +145,14 @@ final class JointEditorScreen extends Screen {
     @Override
     public void render(GuiGraphics g, int mx, int my, float partial) {
         Planner.guard(() -> drawMain(g, mx, my));
+        if (hoverTip != null && !modal.open()) g.renderTooltip(font, font.split(Component.literal(hoverTip), 200), mx, my);
         // Its own guard: a failing draw above can't leave an invisible box that swallows every click.
         Planner.guard(() -> modal.draw(g, font, width, height, mx, my));
     }
 
     private void drawMain(GuiGraphics g, int mx, int my) {
         hits.clear();
+        hoverTip = null;
         renderBackground(g, mx, my, 0);
         if (checking) {
             drawCheck(g, mx, my);
@@ -195,9 +200,10 @@ final class JointEditorScreen extends Screen {
             dropDrafts();
         }));
         Layout lay = layout();
-        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.turn", turn < 0 ? "auto (" + (lay == null ? "-" : lay.turn) + ")" : "" + turn).getString(), mx, my,
+        iy = picker(g, ix, iy, iw, Component.translatable("mccitybuilder.align.turn", turn < 0 ? "auto (" + (lay == null ? "-" : turnLabel(lay.turn)) + ")" : turnLabel(turn)).getString(), mx, my,
                 d -> confirm(() -> {
-                    turn = Math.floorMod(turn + 1 + d, 5) - 1;
+                    int i = Math.floorMod((turn < 0 ? -1 : PieceLayout.ordinal(turn)) + 1 + d, 9) - 1;
+                    turn = i < 0 ? -1 : PieceLayout.fromOrdinal(i);
                     dropDrafts();
                 }));
         if (lay == null) {
@@ -383,10 +389,10 @@ final class JointEditorScreen extends Screen {
         bigButton(g, ix, iy, half, Component.translatable("mccitybuilder.fix.closer").getString(), mx, my, () -> adjust(sel, 0, 1));
         bigButton(g, ix + half + 2, iy, half, Component.translatable("mccitybuilder.fix.further").getString(), mx, my, () -> adjust(sel, 0, -1));
         iy += 22;
-        bigButton(g, ix, iy, iw, Component.translatable("mccitybuilder.fix.turn").getString(), mx, my, () -> confirm(() -> {
-            turn = ((turn < 0 ? lay.turn : turn) + 1) % 4;
-            dropDrafts();
-        }));
+        bigButton(g, ix, iy, half, Component.translatable("mccitybuilder.fix.turn").getString(), mx, my, () -> confirm(() -> turnJoint(lay)));
+        if (in(mx, my, ix, iy, half, 20)) hoverTip = Component.translatable("mccitybuilder.fix.turn.tip").getString();
+        bigButton(g, ix + half + 2, iy, half, Component.translatable("mccitybuilder.fix.mirror").getString(), mx, my, () -> confirm(() -> mirrorJoint(lay)));
+        if (in(mx, my, ix + half + 2, iy, half, 20)) hoverTip = Component.translatable("mccitybuilder.fix.mirror.tip").getString();
         iy += 24;
         if (note != null && System.currentTimeMillis() < noteUntil)
             for (var line : font.split(Component.literal(note), iw)) {
@@ -460,6 +466,23 @@ final class JointEditorScreen extends Screen {
         if (!PieceView.DEBUG || k.equals(sceneLogged)) return;
         sceneLogged = k;
         com.volcanicmg.mccitybuilder.CityBuilder.LOGGER.info("City Builder: joint view{}", k);
+    }
+
+    /** Turn joint piece (R): a quarter turn on from what shows (a mirror stays). */
+    private void turnJoint(Layout lay) {
+        turn = PieceLayout.orient(turn < 0 ? lay.turn : turn, 1);
+        dropDrafts();
+    }
+
+    /** Mirror joint piece (M): the piece as shown, mirrored (or back). */
+    private void mirrorJoint(Layout lay) {
+        turn = (turn < 0 ? lay.turn : turn) ^ PieceLayout.MIRROR;
+        dropDrafts();
+    }
+
+    /** @return a joint orientation for the turn picker: "2", or "2, mirrored" */
+    private static String turnLabel(int o) {
+        return PieceLayout.mirrorOf(o) ? Component.translatable("mccitybuilder.align.turn.mirrored", o & 3).getString() : String.valueOf(o & 3);
     }
 
     private void bigButton(GuiGraphics g, int x, int y, int w, String label, int mx, int my, Runnable run) {
@@ -660,7 +683,7 @@ final class JointEditorScreen extends Screen {
     /** @return the straight's turns on line q (the first arrives at the joint, the rest leave; +2 when flipped) */
     private static int sturn(PieceSets.Piece sp, int[] outs, int q, boolean flipped) {
         int dir = q == 0 ? (outs[0] + 2) % 4 : outs[q];
-        return Math.floorMod(dir - sp.nativeDir() + (flipped ? 2 : 0), 4);
+        return PieceLayout.straightTurns(sp.nativeDir(), dir, flipped);
     }
 
     /** Shift / depth of the selected run, starting from what it has now; non-destructive drafts show in the world too. */
@@ -704,7 +727,7 @@ final class JointEditorScreen extends Screen {
         if (turn >= 0) {
             List<String> others = new ArrayList<>();
             for (Run r : lay.runs)
-                for (int t = 0; t < 4; t++) if (t != turn) others.add(PieceLayout.alignKey(lay.jointPath(), t, r.path(), r.turns(), r.out()));
+                for (int t : PieceLayout.ORIENTS) if (t != turn) others.add(PieceLayout.alignKey(lay.jointPath(), t, r.path(), r.turns(), r.out()));
             PieceCatalog.clearAlignments(pack, com.volcanicmg.mccitybuilder.planner.JointHelp.clearable(others, usedByOtherCases()));
             PieceCatalog.setOverride(pack, lay.jkey(), PieceLayout.jointValue(turn, lay.jrot()));
         }
@@ -728,7 +751,7 @@ final class JointEditorScreen extends Screen {
     private void autoAlign(Layout lay) {
         // Every joint turn's keys (and drafts): a setting saved while the joint stood another way would come back.
         List<String> runKeys = new ArrayList<>();
-        for (Run r : lay.runs) for (int t = 0; t < 4; t++) runKeys.add(PieceLayout.alignKey(lay.jointPath(), t, r.path(), r.turns(), r.out()));
+        for (Run r : lay.runs) for (int t : PieceLayout.ORIENTS) runKeys.add(PieceLayout.alignKey(lay.jointPath(), t, r.path(), r.turns(), r.out()));
         List<String> keys = new ArrayList<>(List.of(lay.jkey()));
         keys.addAll(com.volcanicmg.mccitybuilder.planner.JointHelp.clearable(runKeys, usedByOtherCases()));
         drafts.keySet().removeAll(keys);
@@ -1015,10 +1038,11 @@ final class JointEditorScreen extends Screen {
                     return true;
                 }
                 if (key == InputConstants.KEY_R) {
-                    confirm(() -> {
-                        turn = ((turn < 0 ? lay.turn : turn) + 1) % 4;
-                        dropDrafts();
-                    });
+                    confirm(() -> turnJoint(lay));
+                    return true;
+                }
+                if (key == InputConstants.KEY_M) {
+                    confirm(() -> mirrorJoint(lay));
                     return true;
                 }
             }

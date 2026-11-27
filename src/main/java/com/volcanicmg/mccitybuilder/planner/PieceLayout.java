@@ -23,6 +23,50 @@ public final class PieceLayout {
     private PieceLayout() {
     }
 
+    /**
+     * The flag of a mirrored piece orientation: {@code MIRROR | t} = mirrored, then t quarter turns. Far from the turns on
+     * purpose: any other int is plain turns modulo 4, so turn arithmetic on straights ({@code sturn + 2}, {@code - rot})
+     * can never land on a mirror; only an orientation built with this flag is one (not a RotationMirror ordinal:
+     * {@link #ordinal}).
+     */
+    public static final int MIRROR = 1 << 16;
+    /** Every orientation: the four turns, then the four mirrored ones (RotationMirror order). */
+    public static final int[] ORIENTS = {0, 1, 2, 3, MIRROR, MIRROR | 1, MIRROR | 2, MIRROR | 3};
+
+    /** @return true when orientation {@code o} is mirrored */
+    public static boolean mirrorOf(int o) {
+        return (o & ~3) == MIRROR;
+    }
+
+    /** @return an orientation as stored: a mirrored one as it is, anything else plain quarter turns modulo 4 */
+    public static int normOrient(int o) {
+        return mirrorOf(o) ? o : Math.floorMod(o, 4);
+    }
+
+    /** @return orientation {@code o} turned {@code k} more quarter turns (a mirror stays) */
+    public static int orient(int o, int k) {
+        return (mirrorOf(o) ? MIRROR : 0) | Math.floorMod((o & 3) + k, 4);
+    }
+
+    /**
+     * @param nativeDir the direction the piece runs in its blueprint; @param dir the line's; @param flip the line's flip
+     * @return a straight's or gate's quarter turns 0-3 (never mirrored: the planner's {@code sturn})
+     */
+    public static int straightTurns(int nativeDir, int dir, boolean flip) {
+        return Math.floorMod(dir - nativeDir + (flip ? 2 : 0), 4);
+    }
+
+    /** @return the Structurize RotationMirror ordinal of an orientation (0-3 turned, 4-7 mirrored then turned) */
+    public static int ordinal(int o) {
+        o = normOrient(o);
+        return (mirrorOf(o) ? 4 : 0) + (o & 3);
+    }
+
+    /** @return the orientation of a RotationMirror ordinal 0-7 ({@link #ordinal} back) */
+    public static int fromOrdinal(int r) {
+        return r >= 4 ? MIRROR | (r & 3) : r & 3;
+    }
+
     /** @return the direction from a to b (axis-aligned segments; the dominant axis otherwise) */
     public static int dir(int[] a, int[] b) {
         int dx = b[0] - a[0], dz = b[1] - a[1];
@@ -529,6 +573,23 @@ public final class PieceLayout {
             return g;
         }
 
+        /** @return this piece mirrored like Structurize's mirror (Mirror.FRONT_BACK: x to sx-1-x) */
+        public Grid mirrored() {
+            int[] o = new int[ids.length];
+            for (int y = 0; y < sy; y++)
+                for (int z = 0; z < sz; z++)
+                    for (int x = 0; x < sx; x++) o[(y * sz + z) * sx + (sx - 1 - x)] = id(x, y, z);
+            return new Grid(sx, sy, sz, o, ground, hidden);
+        }
+
+        /**
+         * @param o an orientation: quarter turns, with {@link #MIRROR} when mirrored
+         * @return this piece in that orientation (mirrored first, then turned, as Structurize places it)
+         */
+        public Grid oriented(int o) {
+            return (mirrorOf(o) ? mirrored() : this).turned(o & 3);
+        }
+
         /** @return solid cells in slice {@code i} from the given face inward (0 = the face's own layer) */
         int slice(int face, int i) {
             int n = 0;
@@ -721,7 +782,8 @@ public final class PieceLayout {
      * shape is turned
      */
     public static String alignKey(String jointPath, int jointTurns, String straightPath, int straightTurns, int d) {
-        return "align|" + jointPath + "|" + Math.floorMod(jointTurns - d, 4) + "|" + straightPath + "|" + Math.floorMod(straightTurns - d, 4);
+        int o = normOrient(jointTurns);
+        return "align|" + jointPath + "|" + Math.floorMod((o & 3) - d, 4) + (mirrorOf(o) ? "m" : "") + "|" + straightPath + "|" + Math.floorMod(straightTurns - d, 4);
     }
 
     /** A joint configuration's override key and the quarter turns taking the shape to the key's (least) rotation. */
@@ -751,7 +813,7 @@ public final class PieceLayout {
         return new JointKey(best, rot);
     }
 
-    /** A joint set by hand for one configuration: its turn, and per line (as given) {shift, depth} ({@link #fit}) or null. */
+    /** A joint set by hand for one configuration: its orientation (turn, {@link #MIRROR} when mirrored), and per line (as given) {shift, depth} ({@link #fit}) or null. */
     public record JointFix(int turn, int[][] runs) {
     }
 
@@ -773,11 +835,11 @@ public final class PieceLayout {
         String[] only = v.trim().split("\\s+");
         if (only.length == 1)
             try {
-                return new JointFix(Math.floorMod(Integer.parseInt(only[0]) + k.rot(), 4), new int[outs.length][]);
+                return new JointFix(orient(parseTurn(only[0]), k.rot()), new int[outs.length][]);
             } catch (NumberFormatException e) {
                 return null;
             }
-        for (int t = 0; t < 4; t++)
+        for (int t : ORIENTS)
             for (int q = 0; q < outs.length; q++)
                 if (playerAligned.test(alignKey(jointPath, t, straightPaths[q], straightTurns[q], outs[q]))) return new JointFix(t, new int[outs.length][]);
         try {
@@ -787,15 +849,27 @@ public final class PieceLayout {
                 int o = Math.floorMod(Integer.parseInt(f[i].substring(0, f[i].indexOf(':'))) + k.rot(), 4);
                 for (int q = 0; q < outs.length; q++) if (outs[q] == o) runs[q] = parseAlign(f[i].substring(f[i].indexOf(':') + 1));
             }
-            return new JointFix(Math.floorMod(Integer.parseInt(f[0]) + k.rot(), 4), runs);
+            return new JointFix(orient(parseTurn(f[0]), k.rot()), runs);
         } catch (RuntimeException e) {
             return null;
         }
     }
 
-    /** @return a joint setting's value for a turn chosen by hand: the turn in the key's rotation ({@link #jointFix} reads it back) */
+    /**
+     * @param turn an orientation chosen by hand (quarter turns, {@link #MIRROR} when mirrored)
+     * @return a joint setting's value for it: the turn in the key's rotation, "m" after it when mirrored ({@link #jointFix} reads it back)
+     */
     public static String jointValue(int turn, int keyRot) {
-        return String.valueOf(Math.floorMod(turn - keyRot, 4));
+        int o = orient(normOrient(turn), -keyRot);
+        return (o & 3) + (mirrorOf(o) ? "m" : "");
+    }
+
+    /** @return a joint setting's turn ("2", or "2m" mirrored) as an orientation; NumberFormatException when damaged */
+    static int parseTurn(String v) {
+        boolean m = v.endsWith("m");
+        int t = Integer.parseInt(m ? v.substring(0, v.length() - 1) : v);
+        if (t < 0 || t > 3) throw new NumberFormatException(v);
+        return t | (m ? MIRROR : 0);
     }
 
     /**

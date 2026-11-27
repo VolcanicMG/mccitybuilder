@@ -38,7 +38,7 @@ expect_screen "planner opens" PlannerScreen
 # Kingdom's 5-lane roads need 15+ cells), short first since longer ones reach into the colony's buildings.
 crossing() {
   local px=$1 py=$2 pz=$3 h=$4 pt
-  B camera "$px $pz 45 0 80" >/dev/null; sleep 1
+  B camera "$px $pz $((py + 45)) 0 80" >/dev/null; sleep 1
   for seg in "-$h 0 $h 0" "0 -$h 0 $h"; do
     set -- $seg
     for pt in "$1 $2" "$3 $4"; do
@@ -50,6 +50,18 @@ crossing() {
     done
     B key escape >/dev/null; sleep 0.5
   done
+}
+
+# chain <x y z> <dx dz>...: one chain through the points (offsets from x z), clicked at their ground points, then ended.
+chain() {
+  local px=$1 py=$2 pz=$3 cx cz s g; shift 3
+  B camera "$px $pz $((py + 45)) 0 80" >/dev/null; sleep 1
+  while [ $# -ge 2 ]; do
+    cx=$(echo "$px + $1 + 0.5" | bc); cz=$(echo "$pz + $2 + 0.5" | bc); shift 2
+    s=$(B project "$cx $py $cz"); g=$(B pick "$s" | awk -F', ' '{print $2}')
+    s=$(B project "$cx $((g + 1)) $cz"); B mouse "move $s" >/dev/null; sleep 0.4; B mouse "click $s" >/dev/null; sleep 0.6
+  done
+  B key escape >/dev/null; sleep 0.5
 }
 
 # recover <step>: back to the planner when a step left another screen (its question box answered Discard, then
@@ -106,6 +118,15 @@ for pack in "${PACKS[@]}"; do
   retry open joint
   if [[ "$ans" == ok* ]]; then
     sleep 1; expect_screen "$pack: joint editor opens" JointEditorScreen
+    # Mirror joint piece (M): the chosen orientation gains the mirror bit (4-7); M again takes it off.
+    retry editorturn ""
+    if [[ "$ans" == *layout=true ]]; then
+      B key key.keyboard.m >/dev/null; sleep 0.5; m1=$(B editorturn)
+      B key key.keyboard.m >/dev/null; sleep 0.5; m2=$(B editorturn)
+      t1=${m1#turn=}; t1=${t1%% *}; t2=${m2#turn=}; t2=${t2%% *}
+      [ "${t1:--1}" -ge 4 ] && [ "${t2:--1}" -ge 0 ] && [ "${t2:-9}" -lt 4 ] && [ $((t1 - 4)) -eq "$t2" ] \
+        && step "$pack: joint editor Mirror (M: $t1, again: $t2)" ok || step "$pack: joint editor Mirror" fail "$m1 / $m2"
+    else step "$pack: joint editor Mirror (no case lays out: skipped)" ok; fi
     retry autofix ""
     fixed="$ans"
     [[ "$ans" == ok* ]] && step "$pack: Auto-fix ($ans)" ok || step "$pack: Auto-fix" fail "$ans"
@@ -139,9 +160,34 @@ for pack in "${PACKS[@]}"; do
     done
     B screenshot "smoke-${pack// /_}" >/dev/null
     [ "${after:-0}" -ge $((before + 2)) ] && step "$pack: crossing drawn ($before -> $after lines)" ok || step "$pack: crossing drawn" fail "lines $before -> $after"
+    # The joint menu's Mirror, then Turn, on the crossing's joint: kept for that joint, and the piece is laid out so.
+    set -- $pos
+    r=none
+    [ "${after:-0}" -ge $((before + 2)) ] && r=$(B jointorient "mirror $1 $3")
+    if [ "${after:-0}" -lt $((before + 2)) ]; then step "$pack: per-joint Mirror (no crossing: skipped)" ok
+    elif [[ "$r" == none* ]]; then step "$pack: per-joint Mirror (no joint piece at the crossing: skipped)" ok
+    else
+      # settled <x> <z>: the joint's state once its (mirrored) piece has loaded and laid out, up to 15 s; in $s.
+      settled() { for _ in $(seq 15); do sleep 1; s=$(B jointorient "show $1 $2"); local o=${s#*orient=}; [ "${s##*piece=}" = "${o%% *}" ] && return; done; }
+      settled "$1" "$3"; o=${s#*orient=}; o=${o%% *}; pc=${s##*piece=}
+      [ "${o:--1}" -ge 4 ] && [ "$pc" = "$o" ] && step "$pack: per-joint Mirror ($s)" ok || step "$pack: per-joint Mirror" fail "$r / $s"
+      B jointorient "turn $1 $3" >/dev/null; settled "$1" "$3"; s2=$s; o2=${s2#*orient=}; o2=${o2%% *}; pc2=${s2##*piece=}
+      [ "${o2:--1}" -ge 4 ] && [ "$o2" != "$o" ] && [ "$pc2" = "$o2" ] && step "$pack: per-joint Turn keeps the mirror ($s2)" ok || step "$pack: per-joint Turn" fail "$s -> $s2"
+    fi
     ans=$(B clearlines); sleep 1
     [ "$ans" = "lines=$before" ] && step "$pack: Clear" ok || step "$pack: Clear" fail "$ans, wanted lines=$before"
     [ "$(screen)" = PlannerScreen ] && step "$pack: planner after crossing" ok || step "$pack: planner after crossing" fail "screen $(screen)"
+    # Flipped segments heading west, then north: their straights / gates go out plain (RotationMirror ordinal < 4).
+    for t in road wall; do
+      B tool off >/dev/null; B tool "$t" >/dev/null; sleep 1
+      [ "$(B rolepanel off)" = "rolepanel=off family=null" ] && { step "$pack: flipped $t straights plain (no $t set: skipped)" ok; continue; }
+      B key key.keyboard.r >/dev/null
+      chain $pos 14 0 0 0 0 -14
+      lt=$(B lineturns); B key key.keyboard.r >/dev/null
+      if [[ "$lt" == *flip=true* ]] && [[ "$lt" == *rot=[0-9]* ]] && ! grep -qE 'rot=([0-9]+/)*[4-7]/' <<< "$lt"; then step "$pack: flipped $t straights plain ($lt)" ok
+      else step "$pack: flipped $t straights plain" fail "${lt:-no segments}"; fi
+      B clearlines >/dev/null; sleep 1
+    done
   else step "$pack: crossing drawn" fail "no player position in state"; fi
   B tool off >/dev/null
 

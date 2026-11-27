@@ -445,7 +445,13 @@ public final class PieceSets {
             Piece longest = null;
             if (sts != null) for (Group g : sts) for (Piece p : g.pieces()) if (p.sx() != p.sz() && (longest == null || Math.max(p.sx(), p.sz()) > Math.max(longest.sx(), longest.sz()))) longest = p;
             if (longest != null) {
-                int ax = longest.sx() >= longest.sz() ? 0 : 1, wide = longest.across();
+                int w = sharedWidth(sts);
+                // Only when a square corner / T / cross piece is at least that wide (the joint spans the road).
+                if (w > 0 && !jointWide(roles, w)) w = 0;
+                // The road's width is the one size every straight has (Byzantine avenues: 12x12 and a 6x12 short): the
+                // run is the other side, even when it is the shorter one. Else the longest straight's longer side.
+                int ax = w > 0 && longest.sx() != longest.sz() ? (longest.sz() == w ? 0 : 1) : longest.sx() >= longest.sz() ? 0 : 1;
+                int wide = ax == 0 ? longest.sz() : longest.sx();
                 for (Role r : List.of(Role.STRAIGHT, Role.GATE, Role.END)) {
                     if (!roles.containsKey(r)) continue;
                     List<Group> fixed = new ArrayList<>();
@@ -463,6 +469,33 @@ public final class PieceSets {
             out.put(en.getKey(), new Family(tool, en.getKey().substring(tool.length() + 1), roles));
         }
         return out;
+    }
+
+    /**
+     * A square straight is as long as the road is wide, so with one in the family the width is known: the side every
+     * straight shares with it. Without a square one the shared side may just as well be the run (birch's 4x10 and
+     * 5x10 paths, Byzantine's 12x7 / 12x5 small walls), so none is given.
+     *
+     * @return that width, or 0 (no square straight, or no single side all straights share)
+     */
+    static int sharedWidth(List<Group> straights) {
+        java.util.Set<Integer> common = null;
+        boolean square = false;
+        for (Group g : straights)
+            for (Piece p : g.pieces()) {
+                square |= p.sx() == p.sz();
+                java.util.Set<Integer> s = new java.util.HashSet<>(List.of(p.sx(), p.sz()));
+                if (common == null) common = s;
+                else common.retainAll(s);
+            }
+        return square && common.size() == 1 ? common.iterator().next() : 0;
+    }
+
+    /** @return true when a corner, T or cross piece of the family is a square at least w wide (original cobble walls: a 10x10 corner on 9-wide walls) */
+    static boolean jointWide(Map<Role, List<Group>> roles, int w) {
+        for (Role r : List.of(Role.CORNER, Role.TEE, Role.CROSS))
+            for (Group g : roles.getOrDefault(r, List.of())) for (Piece p : g.pieces()) if (p.sx() == p.sz() && p.sx() >= w) return true;
+        return false;
     }
 
     /** @return the group a variant ends up in: its target, followed while that is a variant itself (a loop stops) */

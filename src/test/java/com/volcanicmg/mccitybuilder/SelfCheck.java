@@ -1673,8 +1673,8 @@ public final class SelfCheck {
     /**
      * Every road family at every level: an L turning left and one turning right take their corner turned differently
      * (a road's cross-section is symmetric, so one turn can't serve both). Corners whose runs never touch them (lamp
-     * pieces whose air would clear each other) once fell back to one turn for both. Jungle levels 1-3 are the known
-     * exceptions (their corner meets the left and right L's runs equally well either way: a tie kept in order).
+     * pieces whose air would clear each other) once fell back to one turn for both. Jungle levels 1-3 were exceptions
+     * while the harness laid square straights along their x side; along the family's run axis (as the planner does) they turn too.
      */
     private static void cornerTurns() throws Exception {
         if (!new java.io.File(PackPieces.JAR).isFile()) return;
@@ -1690,7 +1690,7 @@ public final class SelfCheck {
             if (r != null && java.util.Arrays.equals(en.getValue().joint().ids(), r.joint().ids()) && en.getValue().joint().sx() == r.joint().sx()) same.add(en.getKey());
         }
         same.sort(null);
-        check(same.equals(List.of("jungle infrastructure/roads L1", "jungle infrastructure/roads L2", "jungle infrastructure/roads L3")),
+        check(same.isEmpty(),
                 "road corners turn both ways at every level: " + same);
     }
 
@@ -2434,6 +2434,7 @@ public final class SelfCheck {
         // A straight that is the same turned 180°: both its turns give one key.
         check(PieceLayout.jointKey("walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, new boolean[]{true, true}).key()
                 .equals(PieceLayout.jointKey("walls/c.blueprint", new int[]{2, 1}, sp, new int[]{2, 3}, new boolean[]{true, true}).key()), "symmetric straights share a key");
+        mirrorChecks(jk, sp, none);
         // A file saved before the version line holds world shifts: marked and used as saved; re-saved, the mark stays until the editor writes it.
         var legacy = com.volcanicmg.mccitybuilder.planner.PieceSets.loadOverrides("wall:walls|CORNER\tcorner\n" + key + "\t1,2\n");
         check("1,2,w".equals(legacy.get(key)) && "corner".equals(legacy.get("wall:walls|CORNER")) && java.util.Arrays.equals(PieceLayout.parseAlign("1,2,w"), new int[]{1, 2, 1})
@@ -2964,6 +2965,90 @@ public final class SelfCheck {
 
     private static boolean near2(double[] v, double x, double z) {
         return Math.abs(v[0] - x) < 1e-9 && Math.abs(v[1] - z) < 1e-9;
+    }
+
+    /**
+     * Mirrored joint pieces: grids (Structurize's order, mirrored first then turned), orientation arithmetic, mirrored
+     * joint settings ("1m") and alignment keys next to the old plain ones, and per-joint orientations in the plan's
+     * joint rows (old rows load unchanged).
+     */
+    private static void mirrorChecks(PieceLayout.JointKey jk, String[] sp, java.util.function.Predicate<String> none) {
+        // An asymmetric 3 x 2 x 2 piece: ids 1..12 by position.
+        int[] ids = new int[12];
+        for (int i = 0; i < 12; i++) ids[i] = i + 1;
+        PieceLayout.Grid g = new PieceLayout.Grid(3, 2, 2, ids, 0);
+        PieceLayout.Grid m = g.mirrored();
+        boolean flips = true;
+        for (int y = 0; y < 2; y++) for (int z = 0; z < 2; z++) for (int x = 0; x < 3; x++) flips &= m.id(x, y, z) == g.id(2 - x, y, z);
+        check(flips && java.util.Arrays.equals(m.mirrored().ids(), ids) && !java.util.Arrays.equals(m.ids(), ids), "mirror flips x (Mirror.FRONT_BACK), twice is the piece");
+        boolean comp = true;
+        for (int o : PieceLayout.ORIENTS)
+            for (int k = -4; k <= 4; k++) {
+                PieceLayout.Grid a = g.oriented(PieceLayout.orient(o, k)), b = g.oriented(o).turned(k);
+                comp &= a.sx() == b.sx() && java.util.Arrays.equals(a.ids(), b.ids());
+            }
+        check(comp && java.util.Arrays.equals(g.oriented(PieceLayout.MIRROR | 1).ids(), m.turned(1).ids()) && java.util.Arrays.equals(g.oriented(3).ids(), g.turned(3).ids()),
+                "orientations: mirrored then turned, more turns keep the mirror");
+        boolean ords = true;
+        for (int r = 0; r < 8; r++) ords &= PieceLayout.ordinal(PieceLayout.fromOrdinal(r)) == r && PieceLayout.mirrorOf(PieceLayout.fromOrdinal(r)) == r >= 4;
+        check(ords && PieceLayout.normOrient(5) == 1 && PieceLayout.normOrient(4) == 0 && PieceLayout.normOrient(-1) == 3 && PieceLayout.normOrient(PieceLayout.MIRROR | 1) == (PieceLayout.MIRROR | 1)
+                && !PieceLayout.mirrorOf(PieceLayout.normOrient(-3)), "stored orientations: only the mirror flag mirrors, plain ints are turns mod 4");
+        // The planner's straight / gate turns (sturn) never carry a mirror, nor any frame arithmetic on them (sturn - rot,
+        // turns + rot): a flipped line heading the back way gave 4 / 5, which read as mirrored before.
+        boolean plain = true;
+        for (int nd = 0; nd < 2; nd++)
+            for (int dir = 0; dir < 4; dir++)
+                for (boolean flip : new boolean[]{false, true}) {
+                    int st = PieceLayout.straightTurns(nd, dir, flip);
+                    plain &= st >= 0 && st < 4 && st == Math.floorMod(dir - nd + (flip ? 2 : 0), 4);
+                    for (int r = -7; r <= 7; r++)
+                        plain &= !PieceLayout.mirrorOf(PieceLayout.normOrient(st - r)) && !PieceLayout.mirrorOf(PieceLayout.normOrient(st + r)) && PieceLayout.ordinal(st + r) < 4
+                                && PieceLayout.ordinal(Math.floorMod(dir - nd, 4) + (flip ? 2 : 0) - r) < 4;
+                }
+        check(plain, "straights and gates are never mirrored, flipped or not, in any frame");
+        // Joint settings: the plain value is as before, a mirrored one carries "m"; both hold however the shape is turned.
+        boolean values = true;
+        for (int o : PieceLayout.ORIENTS) {
+            for (int r = 0; r < 4; r++) {
+                String v = PieceLayout.jointValue(o, r);
+                values &= v.endsWith("m") == PieceLayout.mirrorOf(o) && (PieceLayout.mirrorOf(o) || v.equals(String.valueOf(Math.floorMod(o - r, 4))));
+            }
+            String v = PieceLayout.jointValue(o, jk.rot());
+            var fx = PieceLayout.jointFix(k -> k.equals(jk.key()) ? v : null, none, "walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, null);
+            values &= fx != null && fx.turn() == o;
+        }
+        var fm = PieceLayout.jointFix(k -> k.equals(jk.key()) ? Math.floorMod(1 - jk.rot(), 4) + "m " + Math.floorMod(2 - jk.rot(), 4) + ":0,0" : null, none, "walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, null);
+        check(values && fm != null && fm.turn() == (PieceLayout.MIRROR | 1) && fm.runs()[0] != null
+                && PieceLayout.jointFix(k -> k.equals(jk.key()) ? "5" : null, none, "walls/c.blueprint", new int[]{2, 1}, sp, new int[]{0, 1}, null) == null, "mirrored joint settings");
+        check(PieceLayout.alignKey("j", 1, "s", 0, 2).equals("align|j|3|s|2") && PieceLayout.alignKey("j", PieceLayout.MIRROR | 1, "s", 0, 2).equals("align|j|3m|s|2"),
+                "a mirrored joint's alignments have their own keys, plain ones unchanged");
+        // Per joint in the plan: the type and an orientation in one value; old rows load as they were.
+        long c = Plan.cell(4, -7);
+        Map<Long, Integer> js = Plan.withOrient(Plan.withJoint(Map.of(), c, Plan.J_CORNER), c, PieceLayout.MIRROR | 2);
+        Map<Long, Integer> back = Plan.readJoints(Plan.write(List.of(), List.of(), js));
+        check(Plan.jointType(back.get(c)) == Plan.J_CORNER && Plan.jointOrient(back.get(c)) == (PieceLayout.MIRROR | 2)
+                        && Plan.jointOrient(Plan.readJoints("J\t4\t-7\t3\n").get(c)) == -1 && Plan.jointType(Plan.readJoints("J\t4\t-7\t3\n").get(c)) == Plan.J_INNER
+                        && Plan.jointType(Plan.withOrient(Map.of(), c, 1).get(c)) == Plan.J_AUTO && Plan.withOrient(Plan.withOrient(Map.of(), c, 1), c, -1).isEmpty()
+                        && Plan.jointOrient(Plan.withJoint(js, c, Plan.J_TOWER).get(c)) == -1 && Plan.readJoints("J\t0\t0\t300\n").isEmpty(),
+                "per-joint turn / mirror in the plan");
+        // Built pieces: a mirrored one is written "2m"; a plain number is turns mod 4 (0.3.1 wrote 4 / 5 for flipped straights).
+        var bp = new Plan.BuiltPiece(0, 0, 9, 0, "walls/c.blueprint", PieceLayout.MIRROR | 2, 1, 2, 3, 0, 0, 4, 4, "CORNER");
+        var bs = new Plan.BuiltPiece(0, 0, 9, 0, "walls/s.blueprint", 1, 1, 2, 3, 0, 0, 4, 4, "STRAIGHT");
+        String txt = Plan.write(List.of(), List.of(), Map.of(), Map.of(bp.key(), List.of(bp, bs)));
+        var rb = Plan.readBuilt(txt).get(bp.key());
+        var old = Plan.readBuilt(txt.replace("\twalls/s.blueprint\t1\t", "\twalls/s.blueprint\t5\t")).get(bp.key());
+        check(txt.contains("\t2m\t") && rb != null && rb.get(0).turns() == (PieceLayout.MIRROR | 2) && rb.get(1).turns() == 1 && old != null && old.get(1).turns() == 1,
+                "built pieces keep a mirror explicitly; old turns 4 / 5 load plain");
+        // Run axis: with a square straight and a square joint as wide, the shared side is the width (Byzantine avenues).
+        java.util.function.Function<Boolean, Integer> shortAxis = withTurn -> {
+            List<PieceSets.Piece> ps = new java.util.ArrayList<>(List.of(new PieceSets.Piece("infrastructure/roads/av/straight.blueprint", "straight", 1, 12, 5, 12),
+                    new PieceSets.Piece("infrastructure/roads/av/short.blueprint", "short", 1, 6, 5, 12)));
+            if (withTurn) ps.add(new PieceSets.Piece("infrastructure/roads/av/turn.blueprint", "turn", 1, 12, 5, 12));
+            for (var gr : PieceSets.classify(ps).get("road:infrastructure/roads/av").roles().get(PieceSets.Role.STRAIGHT))
+                for (var p : gr.pieces()) if (p.path().endsWith("short.blueprint")) return p.nativeDir();
+            return -1;
+        };
+        check(shortAxis.apply(true) == 0 && shortAxis.apply(false) == 1, "a 6x12 short beside 12x12 straights and a 12x12 turn runs along its 6 side");
     }
 
     private static void check(boolean ok, String what) {

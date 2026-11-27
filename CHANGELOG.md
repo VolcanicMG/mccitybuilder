@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.2
+
+- Joint pieces can be mirrored as well as turned. Joint editor: "Mirror (M)" next to "Turn (R)" (both with hover
+  tips); the turn picker shows "2, mirrored"; Save keeps it for that kind of joint in the style (the `joint|` value
+  takes an `m`: `2m`; old values read as before, alignments of a mirrored joint have their own keys).
+- Edit mode joint menu: "Turn ⟳" / "Mirror ⇋" turn or mirror that one joint's piece from how it stands now; saved with
+  the plan in the joint's row (old plans load unchanged), undoable, and picking a type in the menu goes back to
+  automatic. Ghosts, build (creative paste and survival orders), built records and removal carry the mirror.
+- Roads whose straights are shorter than they are wide run the right way: Byzantine's avenue and avenue_early were
+  laid 90° off (curbs across the road, not along it); also Ancient Athens' grand processional, Caledonia's avenues and
+  Original's cobble walls. A set with a square straight (and a square joint piece at least as wide) takes its width
+  from it. Plans and built lines of those sets already drawn lay out differently now: re-draw them.
+- Plans saved with a joint turned or mirrored by hand: opened in 0.3.1 or older, those joints go back to automatic
+  (the rest of the plan loads). Built pieces now write a mirrored turn as e.g. `2m`; older plans load as before.
+- The automatic turn is unchanged (every bundled joint lays out exactly as before: 1,584 pictures identical).
+
 ## 0.3.1
 
 - Joint editor: the joint piece is outlined in yellow in the 3D view (as on the map). Sword and Kingdom's

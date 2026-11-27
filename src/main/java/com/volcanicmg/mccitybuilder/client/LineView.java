@@ -640,7 +640,7 @@ final class LineView {
             return;
         }
         long k = Plan.cell(selectedJoint[0], selectedJoint[1]);
-        setJointType(Math.floorMod(PlanView.jointTypes.getOrDefault(k, Plan.J_AUTO) + d, Plan.J_TYPES));
+        setJointType(Math.floorMod(Plan.jointType(PlanView.jointTypes.get(k)) + d, Plan.J_TYPES));
     }
 
     /** A trial of a joint type at the selected joint: the types, the lines re-fitted (flipped where that aligns better), the blocks a fixed run would lack (0 = fits), the least run match there, and how many walls flip. */
@@ -710,6 +710,34 @@ final class LineView {
     }
 
     // ---- the joint menu (a click on a joint node) ----
+
+    /** @return the planned joint piece standing on cell c (its orientation is the one to turn or mirror), or null */
+    static PieceCatalog.Placed jointPieceAt(int[] c) {
+        for (int i = 0; i < PlanView.lines.size() && i < PlanView.linePieces.size(); i++)
+            for (PieceCatalog.Placed p : PlanView.linePieces.get(i)) {
+                int[] b = p.box();
+                if (p.joint() && c[0] >= b[0] && c[0] <= b[2] && c[1] >= b[1] && c[1] <= b[3]) return p;
+            }
+        return null;
+    }
+
+    /**
+     * The joint menu's Turn / Mirror: the selected joint's piece a quarter turn on, or mirrored, from how it stands now;
+     * kept for this joint only (saved with the plan; choosing a type in the menu goes back to automatic).
+     *
+     * @return null when done, else the message key saying why not: no joint piece stands there (a butt joint, or still
+     * loading), or a segment there is built or on its way (its joint stays as it was sent)
+     */
+    static String orientSelectedJoint(boolean mirror) {
+        if (selectedJoint == null) return "mccitybuilder.edit.joint_orient_none";
+        for (int i : linesAt(selectedJoint)) if (PlanView.locked(PlanView.lines.get(i))) return "mccitybuilder.edit.joint_orient_built";
+        PieceCatalog.Placed p = jointPieceAt(selectedJoint);
+        if (p == null) return "mccitybuilder.edit.joint_orient_none";
+        int o = com.volcanicmg.mccitybuilder.planner.PieceLayout.normOrient(p.turns());
+        checkpoint();
+        PlanView.setJointOrient(selectedJoint[0], selectedJoint[1], mirror ? o ^ com.volcanicmg.mccitybuilder.planner.PieceLayout.MIRROR : com.volcanicmg.mccitybuilder.planner.PieceLayout.orient(o, 1));
+        return null;
+    }
 
     /** One option of the joint menu: the type, the piece it would use (null for none), the blocks a fixed run would lack (0 fits), the run match (1 = continuous) and the walls that flip for it. */
     record JointOption(int type, PieceSets.Piece piece, int lacks, double match, int flips) {
@@ -1060,7 +1088,8 @@ final class LineView {
         if (idx < 0 || PlanView.locked(prev) || prev.x1() != start[0] || prev.z1() != start[1] || endCount(start) != 1 || idx >= PlanView.lineOffs.size()) return null;
         int pdir = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{prev.x0(), prev.z0()}, start), ldir = com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(start, e);
         if (ldir == pdir || ldir == (pdir + 2) % 4) return null;
-        int type = PlanView.jointTypes.getOrDefault(Plan.cell(start[0], start[1]), jointDefault);
+        Integer jv = PlanView.jointTypes.get(Plan.cell(start[0], start[1]));
+        int type = jv == null ? jointDefault : Plan.jointType(jv);
         List<PieceSets.Role> roles = com.volcanicmg.mccitybuilder.planner.PieceLayout.jointRoles(type, 2, false, prev.towers());
         PieceSets.Role role = roles.isEmpty() ? null : roles.get(0);
         int[] lens = PieceCatalog.runLengths(prev);

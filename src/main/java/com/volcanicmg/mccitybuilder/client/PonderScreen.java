@@ -264,7 +264,7 @@ final class PonderScreen extends Screen {
                     for (PieceCatalog.Placed p : ps) {
                         var bp = PieceCatalog.rotated(pack, p.path(), p.turns());
                         if (bp == null) return new Scene(List.of(), List.of(), List.of(), ground, false);
-                        int[] b = p.box(), sb = solid("ponder|" + pack + "|" + p.path() + "|" + Math.floorMod(p.turns(), 4), bp);
+                        int[] b = p.box(), sb = solid("ponder|" + pack + "|" + p.path() + "|" + com.volcanicmg.mccitybuilder.planner.PieceLayout.normOrient(p.turns()), bp);
                         boxes.add(new float[]{b[0] + sb[0], Math.max(p.y0() + sb[1], p.level()), b[1] + sb[2], b[0] + sb[3] + 1, p.y0() + sb[4] + 1, b[1] + sb[5] + 1, col, -2,
                                 ++gk / (float) ghosts});
                     }
@@ -273,7 +273,7 @@ final class PonderScreen extends Screen {
                 for (PieceCatalog.Placed p : lay.lines().get(i)) {
                     var bp = PieceCatalog.rotated(pack, p.path(), p.turns());
                     if (bp == null) return new Scene(List.of(), List.of(), List.of(), ground, false);
-                    parts.add(new PieceView.Part("ponder|" + pack + "|" + p.path() + "|" + Math.floorMod(p.turns(), 4), bp, p.box()[0], p.y0(), p.box()[1]));
+                    parts.add(new PieceView.Part("ponder|" + pack + "|" + p.path() + "|" + com.volcanicmg.mccitybuilder.planner.PieceLayout.normOrient(p.turns()), bp, p.box()[0], p.y0(), p.box()[1]));
                     int[] b = p.box();
                     // The outline round the blocks the piece really has, from the ground up (its buried rows are under the plate).
                     int[] sb = solid(parts.get(parts.size() - 1).key(), bp);

@@ -155,7 +155,7 @@ final class JointCases {
                 level = l0.level();
                 PieceSets.Piece st = pickTop(fam.straights().get(0));
                 boolean collinear = ls.size() == 2 && outs[0] % 2 == outs[1] % 2;
-                add(out, folder, l0.family(), xz, fam, PieceLayout.jointRoles(types.getOrDefault(Plan.cell(c[0], c[1]), Plan.J_AUTO), ls.size(), collinear, l0.towers()),
+                add(out, folder, l0.family(), xz, fam, PieceLayout.jointRoles(Plan.jointType(types.get(Plan.cell(c[0], c[1]))), ls.size(), collinear, l0.towers()),
                         PackPieces.grid(folder + "/" + st.path()), st, outs, dirs, l0.flip());
             }
         } finally {
@@ -239,12 +239,12 @@ final class JointCases {
         java.util.Arrays.fill(widths, width);
         int[] sq = PieceLayout.square(c, outs, widths);
         int owner = PieceLayout.owner(outs);
-        PieceLayout.Grid og = straight(sg, dirs[owner], flip);
+        PieceLayout.Grid og = straight(sg, st.nativeDir(), dirs[owner], flip);
         int[] ob = PieceLayout.boxes(c, outs[owner], PieceLayout.offset(c, outs[owner], sq, true), List.of(run), width, 0).get(0);
         List<Run> runs = new ArrayList<>();
         for (int q = 0; q < outs.length; q++) {
             if (q == owner) continue;
-            PieceLayout.Grid s = straight(sg, dirs[q], flip);
+            PieceLayout.Grid s = straight(sg, st.nativeDir(), dirs[q], flip);
             // The other half butts on the square; the branch meets the owner's body like a joint piece.
             PieceLayout.Fit f = outs[q] % 2 == outs[owner] % 2 ? new PieceLayout.Fit(PieceLayout.offset(c, outs[q], sq, false), 0, 0, 0)
                     : PieceLayout.fit(c, outs[q], ob, og, s, width, run, Math.max(3, width));
@@ -278,7 +278,7 @@ final class JointCases {
         int[] sts = new int[outs.length];
         String[] sps = new String[outs.length];
         for (int q = 0; q < outs.length; q++) {
-            sts[q] = Math.floorMod(PieceLayout.turns(sg.sx(), sg.sz(), dirs[q]) + (flip ? 2 : 0), 4);
+            sts[q] = Math.floorMod((dirs[q] - st.nativeDir()) + (flip ? 2 : 0), 4);
             sps[q] = st.path();
         }
         PieceLayout.Grid s2 = sg.turned(2);
@@ -314,8 +314,8 @@ final class JointCases {
                 double sc = 0, bm = 1;
                 for (int q = 0; q < outs.length; q++) {
                     int[] tb = box(c, ocf[0], t, role, jp);
-                    sc += PieceLayout.faceScore(c, ocf[q], tb, t, straight(sg, dcf[q], flip), width, run);
-                    bm = Math.min(bm, PieceLayout.fit(c, ocf[q], tb, t, straight(sg, dcf[q], flip), width, run, Math.max(3, width)).match());
+                    sc += PieceLayout.faceScore(c, ocf[q], tb, t, straight(sg, st.nativeDir(), dcf[q], flip), width, run);
+                    bm = Math.min(bm, PieceLayout.fit(c, ocf[q], tb, t, straight(sg, st.nativeDir(), dcf[q], flip), width, run, Math.max(3, width)).match());
                 }
                 // The floor judges wall corners only (towers, T's, crosses and roads keep their contact order).
                 bestMatch[ks.size()] = outs.length == 2 && famKey.startsWith("wall:") && (role == PieceSets.Role.CORNER || role == PieceSets.Role.INNER) ? bm : 1;
@@ -338,7 +338,7 @@ final class JointCases {
             List<int[]> bxs = new ArrayList<>();
             List<PieceLayout.Fit> fs = new ArrayList<>();
             for (int q = 0; q < outs.length; q++) {
-                PieceLayout.Fit f = PieceLayout.fit(c, ocf[q], tpb, tp, straight(sg, dcf[q], flip), width, run, Math.max(3, width));
+                PieceLayout.Fit f = PieceLayout.fit(c, ocf[q], tpb, tp, straight(sg, st.nativeDir(), dcf[q], flip), width, run, Math.max(3, width));
                 worst = Math.min(worst, f.match());
                 fs.add(f);
                 bxs.add(PieceLayout.boxes(c, ocf[q], f.off(), List.of(run), width, f.shift()).get(0));
@@ -348,7 +348,7 @@ final class JointCases {
             if (score > bestScore + 1e-9 || score > bestScore - 1e-9 && flush > bestFlush) {
                 bestScore = score;
                 bestFlush = flush;
-                best = ks.get(pick);
+                best = Math.floorMod(ks.get(pick), 4);
                 turned = fixTurn;
                 rot = fr;
                 oc = ocf;
@@ -359,17 +359,17 @@ final class JointCases {
         if (role != PieceSets.Role.END) {
             // The mod's built-in setting for this configuration, as the planner reads it.
             fix = PieceLayout.jointFix(PieceSets.builtIn(PackPieces.packName(pack))::get, k -> false, jp.path(), outs, sps, sts, sym);
-            if (fix != null) best = Math.floorMod(fix.turn() - rot, 4);
+            if (fix != null) best = PieceLayout.orient(fix.turn(), -rot);
         }
-        PieceLayout.Grid tc = jg.turned(best);
+        PieceLayout.Grid tc = jg.oriented(best);
         int[] jbc = box(c, oc[0], tc, role, jp);
-        PieceLayout.Grid t = jg.turned(best + rot);
+        PieceLayout.Grid t = jg.oriented(PieceLayout.orient(best, rot));
         int[] jb = PieceLayout.rotBox(c, jbc, rot);
         boolean move = turned && fix == null;
         PieceLayout.Fit[] fw = new PieceLayout.Fit[outs.length];
         for (int q = 0; q < outs.length; q++) {
-            PieceLayout.Fit fc = PieceLayout.fit(c, oc[q], jbc, tc, straight(sg, dc[q], flip), width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
-            if (move) fc = PieceLayout.outerFit(c, oc[q], oc[1 - q], jbc, tc, straight(sg, dc[q], flip), width, run, Math.max(3, width), fc);
+            PieceLayout.Fit fc = PieceLayout.fit(c, oc[q], jbc, tc, straight(sg, st.nativeDir(), dc[q], flip), width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
+            if (move) fc = PieceLayout.outerFit(c, oc[q], oc[1 - q], jbc, tc, straight(sg, st.nativeDir(), dc[q], flip), width, run, Math.max(3, width), fc);
             fw[q] = PieceLayout.fitBack(c, oc[q], fc, width, run, rot);
         }
         // A road corner turned off its pick moves so both its runs sit on their lines, as in the planner.
@@ -378,11 +378,11 @@ final class JointCases {
         List<Run> runs = new ArrayList<>();
         for (int q = 0; q < outs.length; q++) {
             int o = outs[q];
-            PieceLayout.Grid s = straight(sg, dirs[q], flip);
+            PieceLayout.Grid s = straight(sg, st.nativeDir(), dirs[q], flip);
             PieceLayout.Fit f = move ? PieceLayout.moved(c, o, fw[q], width, run, mv) : fw[q];
             runs.add(new Run(o, s, f, PieceLayout.boxes(c, o, f.off(), List.of(run), width, f.shift()).get(0)));
         }
-        best = Math.floorMod(best + rot, 4);
+        best = PieceLayout.orient(best, rot);
         Case cs = new Case(pack + " " + famKey.substring(famKey.indexOf(':') + 1), name, jp.path(), t, jb, runs, false, fix != null);
         if (fix == null && role != PieceSets.Role.END) PINS.put(cs, pin(pack, jp.path(), t, best, jb, runs, sg, st, dirs, flip));
         if (turned) TURNED.add(cs);
@@ -406,7 +406,7 @@ final class JointCases {
         PieceLayout.Grid s2 = sg.turned(2);
         for (int q = 0; q < n; q++) {
             outs[q] = runs.get(q).out();
-            sts[q] = Math.floorMod(PieceLayout.turns(sg.sx(), sg.sz(), dirs[q]) + (flip ? 2 : 0), 4);
+            sts[q] = Math.floorMod((dirs[q] - st.nativeDir()) + (flip ? 2 : 0), 4);
             sps[q] = st.path();
             sym[q] = s2.sx() == sg.sx() && java.util.Arrays.equals(s2.ids(), sg.ids());
         }
@@ -437,9 +437,13 @@ final class JointCases {
         return d;
     }
 
-    /** @return the straight as the planner places it on a line running in direction {@code dir} */
-    static PieceLayout.Grid straight(PieceLayout.Grid sg, int dir, boolean flip) {
-        return sg.turned(PieceLayout.turns(sg.sx(), sg.sz(), dir) + (flip ? 2 : 0));
+    /**
+     * @param nativeDir the direction the straight runs in its blueprint ({@link PieceSets.Piece#nativeDir}: its family's
+     *                  run axis, not always its longer side)
+     * @return the straight as the planner places it on a line running in direction {@code dir}
+     */
+    static PieceLayout.Grid straight(PieceLayout.Grid sg, int nativeDir, int dir, boolean flip) {
+        return sg.turned(dir - nativeDir + (flip ? 2 : 0));
     }
 
     // ---- world space: the placed blocks ----

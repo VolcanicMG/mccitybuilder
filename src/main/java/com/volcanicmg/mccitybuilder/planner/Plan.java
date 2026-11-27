@@ -71,6 +71,33 @@ public final class Plan {
         return (int) k;
     }
 
+    /**
+     * @param v a joint cell's value in the joint map (or null): its type ({@link #J_AUTO} ..), plus, from bit 4 up, a
+     *          piece orientation chosen for this joint, as its RotationMirror ordinal + 1 ({@link #withOrient}; old builds
+     *          read only types under 8, so such a row is new-only: opened in 0.3.1 the joint goes back to auto)
+     * @return its type
+     */
+    public static int jointType(Integer v) {
+        return v == null ? J_AUTO : v & 15;
+    }
+
+    /** @return a joint cell's chosen piece orientation in the world ({@link PieceLayout#ORIENTS}), or -1 = automatic */
+    public static int jointOrient(Integer v) {
+        return v == null || v >> 4 == 0 ? -1 : PieceLayout.fromOrdinal((v >> 4) - 1);
+    }
+
+    /**
+     * @param orient a piece orientation ({@link PieceLayout#ORIENTS}), or -1 = automatic
+     * @return a copy of the joint map with the cell's orientation set and its type kept; the given map is untouched
+     */
+    public static java.util.Map<Long, Integer> withOrient(java.util.Map<Long, Integer> joints, long cell, int orient) {
+        java.util.Map<Long, Integer> out = new java.util.HashMap<>(joints);
+        int v = jointType(joints.get(cell)) | (orient < 0 ? 0 : (PieceLayout.ordinal(orient) + 1) << 4);
+        if (v == J_AUTO) out.remove(cell);
+        else out.put(cell, v);
+        return out;
+    }
+
     /** @return the joint types in {@code text} (rows {@code J x z type}); damaged rows and unknown types are skipped */
     public static java.util.Map<Long, Integer> readJoints(String text) {
         java.util.Map<Long, Integer> out = new java.util.HashMap<>();
@@ -80,7 +107,7 @@ public final class Plan {
             if (f.length != 4 || !f[0].equals("J")) continue;
             try {
                 int t = Integer.parseInt(f[3].trim());
-                if (t > J_AUTO && t < J_TYPES) out.put(cell(Integer.parseInt(f[1]), Integer.parseInt(f[2])), t);
+                if (t > J_AUTO && (t & 15) < J_TYPES && t >> 4 <= 8) out.put(cell(Integer.parseInt(f[1]), Integer.parseInt(f[2])), t);
             } catch (NumberFormatException ignored) {
                 // A damaged row: skip it.
             }
@@ -260,7 +287,7 @@ public final class Plan {
         }
         for (var en : new java.util.TreeMap<>(built).entrySet())
             for (BuiltPiece b : en.getValue())
-                sb.append(String.join("\t", "P", "" + b.x0(), "" + b.z0(), "" + b.x1(), "" + b.z1(), b.path(), "" + b.turns(), "" + b.ax(), "" + b.ay(), "" + b.az(),
+                sb.append(String.join("\t", "P", "" + b.x0(), "" + b.z0(), "" + b.x1(), "" + b.z1(), b.path(), (b.turns() & 3) + (PieceLayout.mirrorOf(b.turns()) ? "m" : ""), "" + b.ax(), "" + b.ay(), "" + b.az(),
                         "" + b.bx0(), "" + b.bz0(), "" + b.bx1(), "" + b.bz1(), b.role())).append('\n');
         for (var en : new java.util.TreeMap<>(joints).entrySet())
             if (en.getValue() != J_AUTO) sb.append("J\t").append(cellX(en.getKey())).append('\t').append(cellZ(en.getKey())).append('\t').append(en.getValue()).append('\n');
@@ -383,8 +410,12 @@ public final class Plan {
             try {
                 int[] n = new int[12];
                 int[] at = {1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13};
+                // The turns: "2m" is mirrored; a plain number is quarter turns modulo 4 (0.3.1 wrote 4 / 5 for flipped straights).
+                boolean mir = f[6].trim().endsWith("m");
+                if (mir) f[6] = f[6].trim().substring(0, f[6].trim().length() - 1);
                 for (int k = 0; k < 12; k++) n[k] = Integer.parseInt(f[at[k]].trim());
-                BuiltPiece b = new BuiltPiece(n[0], n[1], n[2], n[3], f[5], Math.floorMod(n[4], 4), n[5], n[6], n[7], n[8], n[9], n[10], n[11], f[14].trim());
+                int turns = Math.floorMod(n[4], 4) | (mir ? PieceLayout.MIRROR : 0);
+                BuiltPiece b = new BuiltPiece(n[0], n[1], n[2], n[3], f[5], turns, n[5], n[6], n[7], n[8], n[9], n[10], n[11], f[14].trim());
                 out.computeIfAbsent(b.key(), k -> new ArrayList<>()).add(b);
             } catch (NumberFormatException ignored) {
                 // A damaged row: skip it.
@@ -393,7 +424,7 @@ public final class Plan {
         return out;
     }
 
-    /** @return a copy of the joint types with one cell set ({@link #J_AUTO} clears it); the given map is untouched */
+    /** @return a copy of the joint types with one cell set ({@link #J_AUTO} clears it, a chosen orientation goes too); the given map is untouched */
     public static java.util.Map<Long, Integer> withJoint(java.util.Map<Long, Integer> types, long cell, int type) {
         java.util.Map<Long, Integer> out = new java.util.HashMap<>(types);
         if (type == J_AUTO) out.remove(cell);

@@ -499,9 +499,9 @@ public final class Planner {
         return o == null ? mc.hasSingleplayerServer() : mc.player != null && o.equals(mc.player.getUUID());
     }
 
-    /** @return a piece's quarter turns for its RotationMirror ordinal, or -1 (mirrored: pieces never are) */
+    /** @return a piece's orientation for its RotationMirror ordinal (4-7 mirrored, as {@link PieceCatalog#rotation} makes them), or -1 */
     static int turns(int rot) {
-        for (int t = 0; t < 4; t++) if (PieceCatalog.rotation(t).ordinal() == rot) return t;
+        for (int t : com.volcanicmg.mccitybuilder.planner.PieceLayout.ORIENTS) if (PieceCatalog.rotation(t).ordinal() == rot) return t;
         return -1;
     }
 

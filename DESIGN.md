@@ -433,6 +433,21 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   wall; a shape-only wall crossing that is a square wider than the wall is a tower ([■] bastions). Hut blueprints
   (anchor on a hut block, S&K's guardtower1-5) are no decorations (`Blueprints.decorations`), so never pieces; the
   scan skips them too. `tee` is a whole-word keyword (not "street"), which made caledonia's and pagoda's tees T pieces in 0.3.
+- Run axis (`PieceSets.classify`, `sharedWidth`): a family's straights all run along one axis, from its longest
+  non-square straight. Its longer side was taken as the run, but with a square straight in the family the width is
+  known (a square one is as long as the road is wide): the one side every straight shares, so the run is the other
+  side even when it is the shorter one (Byzantine avenues: 12x12 straights and a 6x12 short were laid 90° off, curbs
+  across their ends, Ethan's "the black should line up with the corner's"). Without a square straight the old rule
+  stays: a shared side can as well be the run (birch's 4x10 / 5x10 paths, Byzantine's 12x7 / 12x5 small walls).
+  Guarded: only when a square corner / T / cross piece of the family is at least that wide (the joint spans the road;
+  original cobble walls have a 10x10 corner on 9-wide walls: an exact-width guard kept them on the old axis, where 41 of
+  their joint runs touch nothing against 10). Checked against a slice-similarity measure (consecutive cross-sections alike along the run): it agrees on every family
+  the rule changes. Changed: Byzantine avenue (z to x) and avenue_early (x to z); bundled ancientathens
+  grand_processional, caledonia avenues, original walls/cobble (z to x; cobble_gate now follows). openSides can't tell
+  (a full block reads as running along its long side). The test harness (`JointCases.straight`, `WallJoints`) now turns
+  straights by the piece's axis like the planner (`sturn`), not by their longer side: jungle's square walks and
+  caledonia / colonial streets lay out as the game does (road-layouts.tsv, no-contact.tsv rewritten; jungle's corners
+  now turn both ways).
 - Third-party pack fixtures (`src/test/resources/packs/<pack>.txt`, checked by SelfCheck): we can't ship other mods'
   blueprints, so each file holds only what `PieceSets.classify` reads: a `P` line per road / wall piece (path, size,
   `openSides` of its top-down body; the body itself is not stored, `openSides`/`body` have their own cases) followed by
@@ -444,11 +459,12 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   `sword_and_kingdom_zh.txt`, rename after regenerating).
 - In-game smoke suite (`tools/smoke.sh [checkout|--no-launch]`; dev bridge only, never shipped): launches the dev
   client through `~/mcdev/tools/splaunch.sh`, then per pack (Byzantine_for_1.20, Sword and Kingdom, Colonial) switches
-  the palette tabs, opens the road / wall tools, role panel, Set up pieces, joint editor + Auto-fix (Cancel each),
-  draws a crossing and clears it, searches Huts for "quarr", and finally scans `logs/latest.log` for `CityBuilder
-  failed`, `baked no blocks` and exceptions mentioning mccitybuilder. PASS / FAIL per step; non-zero exit on any.
-  Bridge commands it uses (DevBridge): `tab`, `search`, `palette`, `tool`, `rolepanel`, `open setup|joint`, `close`,
-  `autofix`, `clearlines`.
+  the palette tabs, opens the road / wall tools, role panel, Set up pieces, joint editor + Mirror (M twice) +
+  Auto-fix (Cancel each), draws a crossing, mirrors then turns its joint piece (joint menu), clears it, searches Huts
+  for "quarr", and finally scans `logs/latest.log` for `CityBuilder failed`, `baked no blocks` and exceptions
+  mentioning mccitybuilder. PASS / FAIL per step; non-zero exit on any. Bridge commands it uses (DevBridge): `tab`,
+  `search`, `palette`, `tool`, `rolepanel`, `open setup|joint`, `close`, `autofix`, `editorturn`, `jointorient
+  turn|mirror|show x z`, `clearlines`.
 - Set-up (`client/PieceSetScreen`, keys in the per-pack overrides file next to the role picks and alignments; the
   mod's `alignments/<pack>.txt` built-ins use the same keys, the player's win): `tool|<folder or blueprint>` = road /
   wall / none (the nearest key up the path wins, `PieceSets.toolOf`), `piece|<blueprint>` = a role, `variant:<base>`
@@ -679,6 +695,35 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   outer face clearly continues the straight's end elsewhere; a corner's turn goes by contact first, and only when no
   turn touches any run by how much its arms (against its closed sides) look like the straight's end. The test reader (`PackPieces`) takes the ground layer like the game: primary offset y minus the
   `groundlevel` tag's depth below the anchor (1 without one).
+- Mirrored joint pieces (after 0.3.1): a piece orientation is quarter turns 0-3, or `PieceLayout.MIRROR | t` (mirrored,
+  then t turns). The flag is far from the turns (1 << 16) on purpose: any other int is plain turns modulo 4
+  (`normOrient`), so turn arithmetic on straights (`sturn` + 2 for a flip, `- rot` into a joint's frame) can never land
+  on a mirror. A first cut used the RotationMirror ordinal itself (4-7 = mirrored) and every flipped line heading the
+  back way (sturn 4 / 5) laid out, ghosted and pasted mirrored straights (review); `sturn` now also wraps to 0-3
+  (`PieceLayout.straightTurns`, SelfCheck drives it for both axes x 4 directions x flip x frame turns). `orient` adds
+  turns keeping the mirror; `ordinal` / `fromOrdinal` convert at the edges (`PieceCatalog.rotation`, `Planner.turns`,
+  the joint editor's picker). `Grid.mirrored` / `oriented` = Mirror.FRONT_BACK, x to sx-1-x, then the turns.
+  `PieceCatalog.rotation / rotated / grid`, `Placed.turns`, ghosts, batches and the server carry it (the wire takes the
+  RotationMirror ordinal 0-7, as before). Built records (`P` rows) write a mirrored turn as `2m`; a plain number reads
+  modulo 4 (0.3.1 wrote 4 / 5 for flipped straights; the server recorded their ordinal 0 / 1, which removal still
+  sends). Straights and gates are never mirrored (the smoke suite draws flipped lines west and north and reads the
+  ordinals, `/lineturns`).
+  The automatic search still tries the four plain turns only; a mirror comes from a setting: per style, the joint
+  editor's Mirror (M) saves `joint|` values like `2m` (`jointValue` / `jointFix`; plain values unchanged, a damaged or
+  out-of-range turn ignores the line) and a mirrored joint's run alignments use `align|..|<turn>m|..` keys; per joint,
+  the joint menu's Turn ⟳ / Mirror ⇋ (refused at a built or sending joint) store an orientation in the plan's joint
+  map value (`Plan.jointType` = low 4 bits, `jointOrient` = the RotationMirror ordinal + 1 from bit 4, `withOrient`; a
+  `J` row with a plain type reads as before; 0.3.1 skips rows of 8 and up, so such a joint opens there as auto; a type
+  picked in the menu clears it), which `PieceCatalog.joint` uses over the search and over the style's setting (whose run
+  alignments then step aside). End caps take neither (they follow their run).
+  Why not an automatic "outside" rule: Ethan's palisade-style complaint ("posts on the outside, not inward") was
+  checked against Minecolonies Original walls/palisade, the family the earlier repro named: with its main straight
+  (`palisade_platform`) no orientation of `palisade_corner`, mirrored or not, meets both runs (one arm always "Gap";
+  4 of 8 orientations tie on the arm that touches), so the pick there is a tie broken by order, and the straight's two
+  long sides score nearly alike (a side-profile "outside" score gave the same numbers flipped or not), so it can't
+  tell outside from inside. A rule that can't see the outside would change ties arbitrarily; the turn / mirror
+  settings let the player decide instead. Straights get no mirror: Flip already puts a wall's other side out, and a
+  lengthwise mirror only moves end details along a tiled run (87 of 116 bundled wall straights differ end to end).
 - Auto is from the topology only (`PieceLayout.autoRole`): every L gets the plain corner, turned to fit either way
   round (Ethan: a left turn giving a tower-like outer corner and a right turn a plain inner corner read as
   inconsistent), three = T, four = cross; the inner corner and the tower only when chosen per joint. Stand-ins

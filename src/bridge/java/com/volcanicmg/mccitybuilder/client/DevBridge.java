@@ -221,6 +221,50 @@ public final class DevBridge {
                 tf.setAccessible(true);
                 return "ok turn=" + tf.get(s);
             });
+            // The joint editor's chosen orientation ("turn=-1" auto, 4-7 mirrored) and whether its case lays out.
+            case "/editorturn" -> client(() -> {
+                if (!(Minecraft.getInstance().screen instanceof JointEditorScreen s)) return "not the joint editor";
+                var lm = JointEditorScreen.class.getDeclaredMethod("layout");
+                lm.setAccessible(true);
+                var tf = JointEditorScreen.class.getDeclaredField("turn");
+                tf.setAccessible(true);
+                int t = (int) tf.get(s);
+                return "turn=" + (t < 0 ? -1 : com.volcanicmg.mccitybuilder.planner.PieceLayout.ordinal(t)) + " layout=" + (lm.invoke(s) != null);
+            });
+            // turn|mirror|show x z: the joint menu's Turn / Mirror on the planned joint at x z (show: nothing changed);
+            // answers the stored per-joint orientation and the joint piece's orientation as laid out now.
+            case "/jointorient" -> client(() -> {
+                int[] c = {Integer.parseInt(a[1]), Integer.parseInt(a[2])};
+                // The nearest segment end within 4 cells (a click snaps): the joint node the menu acts on.
+                int best = 5;
+                for (var l : PlanView.lines)
+                    for (int[] e : l.ends()) {
+                        int dd = Math.max(Math.abs(e[0] - Integer.parseInt(a[1])), Math.abs(e[1] - Integer.parseInt(a[2])));
+                        if (dd < best) {
+                            best = dd;
+                            c = e.clone();
+                        }
+                    }
+                LineView.selectedJoint = c;
+                boolean ok = a[0].equals("show") || LineView.orientSelectedJoint(a[0].equals("mirror")) == null;
+                var p = LineView.jointPieceAt(c);
+                return (ok ? "ok" : "none") + " at=" + c[0] + "," + c[1] + " orient=" + ord(com.volcanicmg.mccitybuilder.planner.Plan.jointOrient(PlanView.jointTypes.get(com.volcanicmg.mccitybuilder.planner.Plan.cell(c[0], c[1]))))
+                        + " piece=" + (p == null ? "none" : ord(p.turns()));
+            });
+            // Per planned segment: flip, direction and the RotationMirror ordinals its straights / gates are sent with.
+            case "/lineturns" -> client(() -> {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < PlanView.lines.size() && i < PlanView.linePieces.size(); i++) {
+                    var l = PlanView.lines.get(i);
+                    sb.append(i).append(":flip=").append(l.flip()).append(",dir=")
+                            .append(com.volcanicmg.mccitybuilder.planner.PieceLayout.dir(new int[]{l.x0(), l.z0()}, new int[]{l.x1(), l.z1()})).append(",rot=");
+                    for (var p : PlanView.linePieces.get(i))
+                        if (p.role() == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT || p.role() == com.volcanicmg.mccitybuilder.planner.PieceSets.Role.GATE)
+                            sb.append(PieceCatalog.rotation(p.turns()).ordinal()).append('/');
+                    sb.append(' ');
+                }
+                return sb.toString().trim();
+            });
             // The tool's Clear (armed, then confirmed); answers the planned segment count.
             case "/clearlines" -> client(() -> {
                 LineView.clearTool();
@@ -751,6 +795,11 @@ public final class DevBridge {
     }
 
     /** {@code x z altitude [yaw pitch]}: puts the planner camera there (world coords, altitude is the camera's y). */
+    /** @return an orientation as its RotationMirror ordinal (4-7 mirrored), -1 stays */
+    private static int ord(int o) {
+        return o < 0 ? -1 : com.volcanicmg.mccitybuilder.planner.PieceLayout.ordinal(o);
+    }
+
     private static String camera(String[] a) {
         var d = Planner.drone;
         if (!Planner.active() || d == null) return "planner is off";

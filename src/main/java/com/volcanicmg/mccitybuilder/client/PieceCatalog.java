@@ -78,7 +78,7 @@ final class PieceCatalog {
     /** @return a fresh copy of the blueprint turned {@code turns} quarter turns, or null while it loads */
     static Blueprint rotated(String pack, String path, int turns) {
         Minecraft mc = Minecraft.getInstance();
-        turns = Math.floorMod(turns, 4);
+        turns = PieceLayout.normOrient(turns);
         String key = pack + "|" + path + "|" + turns;
         Blueprint done = rotated.get(key);
         if (done != null || mc.level == null) return done;
@@ -95,9 +95,7 @@ final class PieceCatalog {
             }
             return null;
         }
-        RotationMirror rm = RotationMirror.NONE;
-        for (int i = 0; i < turns; i++) rm = rm.rotate(Rotation.CLOCKWISE_90);
-        bp.setRotationMirror(rm, mc.level);
+        bp.setRotationMirror(rotation(turns), mc.level);
         rotated.put(key, bp);
         loadVersion++;
         return bp;
@@ -108,9 +106,11 @@ final class PieceCatalog {
         return failed.contains(pack + "|" + path);
     }
 
+    /** @return a piece orientation's RotationMirror (mirrored first when it carries {@link PieceLayout#MIRROR}, then turned) */
     static RotationMirror rotation(int turns) {
-        RotationMirror rm = RotationMirror.NONE;
-        for (int i = 0; i < Math.floorMod(turns, 4); i++) rm = rm.rotate(Rotation.CLOCKWISE_90);
+        int o = PieceLayout.normOrient(turns);
+        RotationMirror rm = PieceLayout.mirrorOf(o) ? RotationMirror.NONE.mirrorate() : RotationMirror.NONE;
+        for (int i = 0; i < (o & 3); i++) rm = rm.rotate(Rotation.CLOCKWISE_90);
         return rm;
     }
 
@@ -437,7 +437,8 @@ final class PieceCatalog {
 
     /** @return the piece's blocks as placed (turned), for face matching; null while it loads */
     static PieceLayout.Grid grid(String pack, String path, int turns) {
-        String key = pack + "|" + path + "|" + Math.floorMod(turns, 4);
+        turns = PieceLayout.normOrient(turns);
+        String key = pack + "|" + path + "|" + turns;
         PieceLayout.Grid done = grids.get(key);
         if (done != null) return done;
         Blueprint bp = rotated(pack, path, turns);
@@ -451,7 +452,7 @@ final class PieceCatalog {
         PieceLayout.Grid g = new PieceLayout.Grid(bp.getSizeX(), bp.getSizeY(), bp.getSizeZ(), ids, bp.getPrimaryBlockOffset().getY() - gao,
                 gao - BlueprintTagUtils.getGroundAnchorOffset(tagged, 1));
         grids.put(key, g);
-        gridOf.put(g, new Object[]{pack, path, Math.floorMod(turns, 4)});
+        gridOf.put(g, new Object[]{pack, path, turns});
         return g;
     }
 
@@ -677,7 +678,7 @@ final class PieceCatalog {
                 if (meet.isEmpty()) {
                     free[end] = true;
                     // A free end: its cap, a tower when chosen (laid out like a joint with one run), or nothing.
-                    int endType = jointTypes.getOrDefault(Plan.cell(c[0], c[1]), Plan.J_AUTO);
+                    int endType = Plan.jointType(jointTypes.get(Plan.cell(c[0], c[1])));
                     List<PieceSets.Role> endRoles = PieceLayout.jointRoles(endType, 1, false, l.towers());
                     PieceSets.Role endRole = null;
                     for (PieceSets.Role r : endRoles) if (!groups(l.pack(), f, r).isEmpty()) {
@@ -686,7 +687,7 @@ final class PieceCatalog {
                     }
                     if (endRole == PieceSets.Role.TOWER && !joints.containsKey(k)) {
                         jointLoading = false;
-                        Placed tower = joint(l, f, c, d, meet, lines, i, primary, width, endType);
+                        Placed tower = joint(l, f, c, d, meet, lines, i, primary, width, endType, Plan.jointOrient(jointTypes.get(Plan.cell(c[0], c[1]))));
                         if (tower != null) {
                             joints.put(k, tower);
                             jointAt.put(k, new int[]{i, placed.size()});
@@ -745,7 +746,8 @@ final class PieceCatalog {
                 if (defer && joint == null && !butts.containsKey(k)) continue;
                 if (joint == null && !butts.containsKey(k)) {
                     jointLoading = false;
-                    joint = joint(l, f, c, d, meet, lines, i, primary, width, jointTypes.getOrDefault(Plan.cell(c[0], c[1]), Plan.J_AUTO));
+                    Integer jv = jointTypes.get(Plan.cell(c[0], c[1]));
+                    joint = joint(l, f, c, d, meet, lines, i, primary, width, Plan.jointType(jv), Plan.jointOrient(jv));
                     if (joint != null) {
                         joints.put(k, joint);
                         jointAt.put(k, new int[]{i, placed.size()});
@@ -778,7 +780,7 @@ final class PieceCatalog {
                     if (jg != null && sg != null) {
                         // In the joint's own frame (as it was chosen), turned back.
                         int rot = jointRots.getOrDefault(Plan.cell(c[0], c[1]), 0), dC = Math.floorMod(d - rot, 4);
-                        PieceLayout.Grid jgC = grid(l.pack(), joint.path(), joint.turns() - rot), sgC = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()) - rot);
+                        PieceLayout.Grid jgC = grid(l.pack(), joint.path(), PieceLayout.orient(joint.turns(), -rot)), sgC = grid(l.pack(), primary.path(), sturn(primary, dir, l.flip()) - rot);
                         PieceLayout.Fit ft = jgC == null || sgC == null ? PieceLayout.fit(c, d, jb, jg, sg, width, primary.run(), Math.max(3, width), jointFixes.getOrDefault(Plan.cell(c[0], c[1]), Map.of()).get(d))
                                 : PieceLayout.fitBack(c, dC, roadRun(c, d, dC, rot, PieceLayout.rotBox(c, jb, -rot), jgC, sgC, width, primary.run(),
                                 PieceLayout.fitWith(c, dC, PieceLayout.rotBox(c, jb, -rot), jgC, sgC, width, primary.run(), Math.max(3, width),
@@ -1226,10 +1228,11 @@ final class PieceCatalog {
      * the runs whole straights a tower keeps. Among the role's variants and turns: the turn whose faces best match a
      * straight's end; the variant leaving the runs the least uncovered cells ({@link PieceLayout#pickJoint}).
      *
+     * @param orient the piece orientation chosen for this joint in edit mode (RotationMirror ordinal), or -1 = automatic
      * @return the piece, or null for a butt joint (none / no piece) or while pieces load ({@link #jointLoading})
      */
     private static Placed joint(Plan.Line l, PieceSets.Family f, int[] c, int d, List<int[]> meet, List<Plan.Line> lines, int i, PieceSets.Piece straight,
-                                int width, int type) {
+                                int width, int type, int orient) {
         boolean collinear = collinear(l, d, meet, lines);
         int degree = meet.size() + 1;
         // Directions out of the joint along each line, and the lines.
@@ -1376,10 +1379,21 @@ final class PieceCatalog {
             }
             rots[q] = rot;
             fixes[q] = jointFix(l.pack(), p.path(), outs, at);
-            if (fixes[q] != null) best = Math.floorMod(fixes[q].turn() - rot, 4);
+            // A turn / mirror chosen for this joint wins over the style's setting (whose run alignments hold for its own turn only).
+            if (orient >= 0 && fixes[q] != null && fixes[q].turn() != orient) fixes[q] = null;
+            if (fixes[q] != null) best = PieceLayout.orient(fixes[q].turn(), -rot);
+            if (orient >= 0) {
+                best = PieceLayout.orient(orient, -rot);
+                turned[q] = false;
+            }
             turns[q] = best;
             // What the meeting runs keep with this piece: whole straights and uncovered cells (other ends taken as free).
             PieceLayout.Grid jg = grid(l.pack(), p.path(), best);
+            // A chosen mirror wasn't among the turns searched: it may still be loading.
+            if (jg == null) {
+                jointLoading = !failed(l.pack(), p.path());
+                return null;
+            }
             int[] jb = PieceLayout.centred(c, jg.sx(), jg.sz());
             int pieces = 0, left = 0;
             for (int o = 0; o < at.size(); o++) {
@@ -1409,8 +1423,11 @@ final class PieceCatalog {
         int rot = rots[q];
         jointRots.put(Plan.cell(c[0], c[1]), rot);
         PieceLayout.Grid jc = grid(l.pack(), cands.get(q).path(), turns[q]);
-        Blueprint jbp = rotated(l.pack(), cands.get(q).path(), turns[q] + rot);
-        if (jbp == null || jc == null) return null;
+        Blueprint jbp = rotated(l.pack(), cands.get(q).path(), PieceLayout.orient(turns[q], rot));
+        if (jbp == null || jc == null) {
+            jointLoading = !failed(l.pack(), cands.get(q).path());
+            return null;
+        }
         int[] box = PieceLayout.rotBox(c, PieceLayout.centred(c, jc.sx(), jc.sz()), rot);
         // A road corner turned off its pick also moves so both its runs sit on their lines, flush with its outer edge.
         int[] mv = turned[q] && fixes[q] == null ? roadMove(c, outs, at, l.pack(), cands.get(q).path(), turns[q], rot) : null;
@@ -1420,7 +1437,7 @@ final class PieceCatalog {
             box = new int[]{box[0] + mv[0], box[1] + mv[1], box[2] + mv[0], box[3] + mv[1]};
             jointOuts.put(Plan.cell(c[0], c[1]), new int[]{outs.get(0), outs.get(1)});
         }
-        return place(l.pack(), cands.get(q).path(), Math.floorMod(turns[q] + rot, 4), box, roles.get(q));
+        return place(l.pack(), cands.get(q).path(), PieceLayout.orient(turns[q], rot), box, roles.get(q));
     }
 
     private static final int[] MOVE_LOADING = new int[0];
@@ -1540,7 +1557,7 @@ final class PieceCatalog {
 
     /** @return the quarter turns of a straight or gate running along {@code dir} (+2 when the segment is flipped) */
     static int sturn(PieceSets.Piece p, int dir, boolean flip) {
-        return Math.floorMod(dir - p.nativeDir(), 4) + (flip ? 2 : 0);
+        return PieceLayout.straightTurns(p.nativeDir(), dir, flip);
     }
 
     /** @return the piece with its anchor on the ground at the box's centre (stepped per piece), or null while it loads */
