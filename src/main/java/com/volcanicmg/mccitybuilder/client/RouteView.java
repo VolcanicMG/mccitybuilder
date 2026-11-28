@@ -6,6 +6,7 @@ import com.volcanicmg.mccitybuilder.CityBuilder;
 import com.volcanicmg.mccitybuilder.Config;
 import com.volcanicmg.mccitybuilder.planner.ColonyGeometry;
 import com.volcanicmg.mccitybuilder.planner.LineSnap;
+import com.volcanicmg.mccitybuilder.planner.PieceLayout;
 import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import com.volcanicmg.mccitybuilder.planner.Plan;
 import com.volcanicmg.mccitybuilder.planner.Roads;
@@ -59,7 +60,9 @@ final class RouteView {
     private static Future<Route.Result> job;
     private static AtomicBoolean cancel = new AtomicBoolean();
     private static long laidAt;
-    private static boolean laidComplete;
+    private static boolean laidComplete, anyBad;
+    // The route's shared level in Flat chain mode (Plan.NO_BASE otherwise); what the plan and the options were when the snapshot began.
+    private static int base = Plan.NO_BASE, stamp;
 
     private RouteView() {
     }
@@ -147,8 +150,14 @@ final class RouteView {
     static boolean accept() {
         if (phase != Phase.PREVIEW || points.size() < 2) return false;
         List<int[]> pts = points;
+        // A piece outside the claims or into a building (a corner wider than the road, say): refused, it would be built red.
+        if (anyBad) {
+            LineView.flash = "mccitybuilder.route.bad";
+            LineView.flashUntil = System.currentTimeMillis() + 2500;
+            return false;
+        }
         LineView.clearLive();
-        if (!LineView.dropRoute(pts)) {
+        if (!LineView.dropRoute(pts, base)) {
             layPreview();
             return false;
         }
@@ -166,6 +175,12 @@ final class RouteView {
 
     // ---- snapshot and search ----
 
+    /** @return a hash of what a search depends on besides the terrain: the plan's lines and entries, the road family and options */
+    private static int stamp() {
+        return java.util.Objects.hash(PlanView.lines, PlanView.entries.size(), PlannerScreen.pack(), LineView.family(), LineView.level, LineView.variant,
+                LineView.jointDefault, LineView.heightMode);
+    }
+
     private static void begin() {
         int max = Config.ROUTE_MAX_LENGTH.get();
         if (Math.abs(from[0] - to[0]) + Math.abs(from[1] - to[1]) > max) {
@@ -176,6 +191,7 @@ final class RouteView {
         ground = new int[box[2] * box[3]];
         flags = new byte[box[2] * box[3]];
         next = 0;
+        stamp = stamp();
         markObstacles();
         phase = Phase.SAMPLING;
     }
@@ -269,6 +285,12 @@ final class RouteView {
             return;
         }
         job = null;
+        // The plan or the road options changed while it searched: the snapshot is stale, sample and search again.
+        if (stamp != stamp()) {
+            tried.clear();
+            begin();
+            return;
+        }
         if (r.fail() != null) {
             failed(r.fail());
             return;
@@ -292,12 +314,9 @@ final class RouteView {
      */
     private static List<int[]> fitEnds(List<int[]> pts) {
         for (int pass = 0; pass < 3; pass++) {
-            List<Plan.Line> all = new ArrayList<>(PlanView.lines);
-            Plan.split(all, pts.get(0), PlanView::locked);
-            Plan.split(all, pts.get(pts.size() - 1), PlanView::locked);
-            int first = all.size(), n = pts.size() - 1;
-            for (int k = 0; k < n; k++) all.add(LineView.next(pts.get(k), pts.get(k + 1)));
-            PieceCatalog.Layout lay = PieceCatalog.layout(all, PlanView.jointTypes);
+            Laid l = laid(pts);
+            PieceCatalog.Layout lay = l.lay();
+            int first = l.first(), n = pts.size() - 1;
             if (!lay.complete()) return pts;
             boolean moved = false;
             // The end first (a lone segment with both ends free keeps its start), then the start.
@@ -325,12 +344,10 @@ final class RouteView {
 
     /** The route laid out with the plan (the ends split as the drop will): its pieces as the live ghosts. */
     private static void layPreview() {
-        List<Plan.Line> all = new ArrayList<>(PlanView.lines);
-        Plan.split(all, points.get(0), PlanView::locked);
-        Plan.split(all, points.get(points.size() - 1), PlanView::locked);
-        int first = all.size();
-        for (int k = 0; k + 1 < points.size(); k++) all.add(LineView.next(points.get(k), points.get(k + 1)));
-        PieceCatalog.Layout lay = PieceCatalog.layout(all, PlanView.jointTypes);
+        Laid l = laid(points);
+        List<Plan.Line> all = l.all();
+        PieceCatalog.Layout lay = l.lay();
+        int first = l.first();
         List<PieceCatalog.Placed> ps = new ArrayList<>();
         gaps = 0;
         for (int k = first; k < all.size(); k++) {
@@ -342,10 +359,41 @@ final class RouteView {
             if (onLine(all.get(k), a) || onLine(all.get(k), b)) for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
         List<int[]> buildings = PlanView.buildingBoxes();
         List<Boolean> bad = new ArrayList<>();
-        for (PieceCatalog.Placed p : ps) bad.add(PlanView.bad(p, buildings));
+        anyBad = false;
+        for (PieceCatalog.Placed p : ps) {
+            boolean b0 = PlanView.bad(p, buildings);
+            bad.add(b0);
+            anyBad |= b0;
+        }
         LineView.showPreview(ps, bad, a, b);
         laidAt = System.currentTimeMillis();
         laidComplete = lay.complete();
+    }
+
+    /** The plan with a route's segments added (its ends split as the drop will), laid out; {@code first}: the first route segment's index. */
+    private record Laid(List<Plan.Line> all, int first, PieceCatalog.Layout lay) {
+    }
+
+    /**
+     * Lays the route out with the plan. In Flat chain mode its segments share one level, the highest ground under any
+     * of them ({@link #base}, what Accept drops them at), as a chain drawn by hand would end up.
+     */
+    private static Laid laid(List<int[]> pts) {
+        List<Plan.Line> all = new ArrayList<>(PlanView.lines);
+        Plan.split(all, pts.get(0), PlanView::locked);
+        Plan.split(all, pts.get(pts.size() - 1), PlanView::locked);
+        int first = all.size();
+        for (int k = 0; k + 1 < pts.size(); k++) all.add(LineView.next(pts.get(k), pts.get(k + 1)));
+        PieceCatalog.Layout lay = PieceCatalog.layout(all, PlanView.jointTypes);
+        base = Plan.NO_BASE;
+        if (LineView.heightMode != Plan.CHAIN) return new Laid(all, first, lay);
+        for (int k = first; k < all.size(); k++) {
+            int m = lay.heights().get(k)[1];
+            if (m != Integer.MIN_VALUE) base = PieceLayout.chainBase(base, m);
+        }
+        if (base == Plan.NO_BASE) return new Laid(all, first, lay);
+        for (int k = first; k < all.size(); k++) all.set(k, all.get(k).withHeight(Plan.CHAIN, all.get(k).dy(), base));
+        return new Laid(all, first, PieceCatalog.layout(all, PlanView.jointTypes));
     }
 
     private static boolean onLine(Plan.Line l, int[] c) {

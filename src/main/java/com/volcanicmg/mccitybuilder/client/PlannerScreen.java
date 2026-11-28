@@ -935,11 +935,13 @@ final class PlannerScreen extends Screen {
         int nb = "road".equals(tool) ? 3 : 2, hw = (iw - 2 * (nb - 1)) / nb;
         String[] bIcon = {"flip", "fill", "route"}, bKey = {"mccitybuilder.line.flip", "mccitybuilder.line.fill.btn", "mccitybuilder.route.btn"},
                 bTip = {"mccitybuilder.line.flip.tip", "mccitybuilder.line.fill.tip", "mccitybuilder.route.tip"};
+        // Labels on all of them, or (too narrow for any one) icons only on all of them.
+        boolean labels = true;
+        for (int i = 0; i < nb; i++) labels &= font.width(Component.translatable(bKey[i]).getString()) + 16 + 4 + 12 <= hw;
         for (int i = 0; i < nb; i++) {
             int bx = ix + i * (hw + 2), bwid = i == nb - 1 ? iw - (nb - 1) * (hw + 2) : hw;
             boolean off = i == 1 && !canFill;
-            String label = Component.translatable(bKey[i]).getString();
-            if (nb == 3 && font.width(label) + 16 + 4 + 12 > bwid) label = "";
+            String label = labels ? Component.translatable(bKey[i]).getString() : "";
             iconButton(g, bx, iy, bwid, 20, bIcon[i], label, i == 0 && flipOn || i == 2 && RouteView.on, off, mx >= bx && mx < bx + bwid && my >= iy && my < iy + 20, 0);
             anchor(bIcon[i], bx, iy, bwid, 20);
             int fi = i;
@@ -2094,8 +2096,8 @@ final class PlannerScreen extends Screen {
         for (int i = 0; i < n; i++) {
             int bx = x + 4 + i * (bw + 2), by = y + 4;
             boolean off = i == 0 && !found || i == 1 && !other, over = mx >= bx && mx < bx + bw && my >= by && my < by + 20;
-            VanillaUi.button(g, bx, by, bw, 20, false, off, over);
-            VanillaUi.buttonLabel(g, font, Component.translatable("mccitybuilder.route." + keys[i]).getString(), bx, by, bw, 20, off ? VanillaUi.INK_DISABLED : VanillaUi.INK);
+            // The panel's button look: white label with shadow (grey when off); Accept green, the primary action like Build.
+            iconButton(g, bx, by, bw, 20, null, Component.translatable("mccitybuilder.route." + keys[i]).getString(), i == 0 && found, off, over, 0);
             anchor("route_" + keys[i], bx, by, bw, 20);
             Runnable r = run[i];
             hits.add(new Hit(bx, by, bw, 20, () -> {

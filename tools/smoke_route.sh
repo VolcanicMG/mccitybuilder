@@ -57,6 +57,12 @@ else
   # Undo: one step takes the whole route back.
   B route undo >/dev/null; sleep 1
   [ "$(route_count)" = "$before" ] && step "route: one Undo removes the route" ok || step "route: one Undo removes the route" fail "$(route_count) roads, wanted $before"
+  # Flat chain height: the accepted roads stand where the preview showed them (one shared level, not a stale one).
+  B route height 2 >/dev/null
+  B route "at $ax $az" >/dev/null; B route "at $bx $bz" >/dev/null; route_wait; sleep 2
+  pys=$(B route ys); B route accept >/dev/null; sleep 2; ays=$(B route planys)
+  [ -n "$pys" ] && [ "$pys" = "$ays" ] && step "route: Flat chain levels as previewed ($(wc -w <<< "$ays") pieces)" ok || step "route: Flat chain levels as previewed" fail "preview $pys / accepted $ays"
+  B route undo >/dev/null; B route height 0 >/dev/null; sleep 1
   # Around an obstacle: a planned wall across the straight way between two points; the route goes round it.
   B route off >/dev/null
   B tool off >/dev/null; B tool wall >/dev/null; sleep 1

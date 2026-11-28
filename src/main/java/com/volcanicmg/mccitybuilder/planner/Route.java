@@ -126,6 +126,7 @@ public final class Route {
         cost[startS] = 0;
         q.push(0, startS);
         int polls = 0;
+        boolean pruned = false, lengthOnly = p.turnCost() == 0 && p.slopeCost() == 0 && p.steepCost() == 0 && p.bridgeCost() == 0 && p.avoidCost() == 0;
         while (!q.empty()) {
             int st = q.pop();
             if (done[st]) continue;
@@ -147,7 +148,11 @@ public final class Route {
                 if (isStart && p.banStart().contains(d)) continue;
                 double c = cost[st] + (isStart ? 0 : p.turnCost());
                 int run = 0, x = cx, z = cz, prevH = g.ground()[g.at(cx, cz)];
-                for (int m = 1; len[st] + m <= p.maxLen(); m++) {
+                for (int m = 1; ; m++) {
+                    if (len[st] + m > p.maxLen()) {
+                        pruned = true;
+                        break;
+                    }
                     x += D[d][0];
                     z += D[d][1];
                     if (!g.in(x, z)) break;
@@ -169,7 +174,7 @@ public final class Route {
                             // A free end is trimmed afterwards: its leftover cells cost nothing.
                             boolean trims = p.freeEnd() || isStart && p.freeStart();
                             int gap = trims ? 0 : uncovered(m + 1, isStart ? p.offStart() : p.corner(), p.offEnd(), p.lens());
-                            relax(q, cost, len, from, done, goal, st, c + GAP * gap, len[st] + m, 0);
+                            relax(q, cost, len, from, done, goal, st, c + (lengthOnly ? 0 : GAP) * gap, len[st] + m, 0);
                         }
                         break;
                     }
@@ -180,7 +185,14 @@ public final class Route {
                 }
             }
         }
-        if (!done[goal]) return Result.failed("no_route");
+        if (!done[goal]) {
+            // Each state keeps only its cheapest way in, so a dearer but shorter one could be lost to the length limit:
+            // when the limit cut moves, a search by length alone (exact: cheapest = shortest) settles whether any route fits.
+            if (pruned && !lengthOnly)
+                return find(g, new Params(s, t, p.half(), p.lens(), p.offStart(), p.offEnd(), p.corner(), p.maxLen(), 0, 0, 0, p.bridges(), p.bridgeMax(), 0,
+                        p.avoid(), 0, p.banStart(), p.banEnd(), p.freeStart(), p.freeEnd()), cancelled);
+            return Result.failed("no_route");
+        }
         List<int[]> pts = new ArrayList<>();
         pts.add(t.clone());
         for (int st = from[goal]; st != -1 && st != startS; st = from[st]) pts.add(0, new int[]{g.x0() + (st >> 1) % w, g.z0() + (st >> 1) / w});

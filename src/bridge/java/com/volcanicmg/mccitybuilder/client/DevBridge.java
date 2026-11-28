@@ -358,13 +358,25 @@ public final class DevBridge {
                     case "another" -> RouteView.another();
                     case "cancel" -> RouteView.back();
                     case "undo" -> LineView.undo();
+                    case "height" -> LineView.heightMode = Integer.parseInt(a[1]);
+                    // The preview's pieces (ys) or the planned roads' pieces (planys) as sorted "x,y,z" anchors.
+                    case "ys", "planys" -> {
+                        java.util.List<String> out = new java.util.ArrayList<>();
+                        if (a[0].equals("ys")) for (var p : LineView.live) out.add(p.anchor().getX() + "," + p.anchor().getY() + "," + p.anchor().getZ());
+                        else
+                            for (int i = 0; i < PlanView.lines.size() && i < PlanView.linePieces.size(); i++)
+                                if (PlanView.lines.get(i).tool().equals("road"))
+                                    for (var p : PlanView.linePieces.get(i)) out.add(p.anchor().getX() + "," + p.anchor().getY() + "," + p.anchor().getZ());
+                        java.util.Collections.sort(out);
+                        return String.join(" ", out);
+                    }
                     case "lines" -> {
                         StringBuilder sb = new StringBuilder();
                         for (var l : PlanView.lines) if (l.tool().equals("road")) sb.append(l.x0()).append(',').append(l.z0()).append('>').append(l.x1()).append(',').append(l.z1()).append(' ');
                         return sb.toString().trim();
                     }
                     default -> {
-                        return "usage: route [on|off|at x z|accept|another|cancel|undo|lines]";
+                        return "usage: route [on|off|at x z|accept|another|cancel|undo|lines|height n|ys|planys]";
                     }
                 }
                 return RouteView.describe();

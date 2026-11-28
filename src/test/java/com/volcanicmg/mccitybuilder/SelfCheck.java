@@ -3364,6 +3364,18 @@ public final class SelfCheck {
         check("too_far".equals(Route.find(flat, routeParams(s, t, 40, false, List.of(), java.util.Set.of()), () -> false).fail()), "route over the max length is refused");
         check(around.length() > 46 && Route.find(wall, routeParams(s, t, 50, false, List.of(), java.util.Set.of()), () -> false).fail() != null,
                 "route: a detour longer than the max length isn't found");
+        // Near the length limit a dearer but shorter way into a corner wins: only row 5 (bumpy, dear) reaches (20, 5) short
+        // enough; the cheap way in round row 0 is 10 longer and leaves no room for the last leg (the length-only retry finds it).
+        int[] lg = new int[30 * 20];
+        java.util.Arrays.fill(lg, 64);
+        Route.Grid tight = new Route.Grid(0, 0, 30, 20, lg, new byte[30 * 20]);
+        for (int x = 1; x <= 9; x++) lg[tight.at(x, 5)] = x % 2 == 0 ? 66 : 64;
+        for (int x = 0; x <= 19; x++) for (int z = 6; z <= 15; z++) tight.flags()[tight.at(x, z)] = Route.BLOCKED;
+        Route.Params tp = new Route.Params(new int[]{0, 5}, new int[]{20, 15}, 0, new int[]{1}, 0, 0, 0, 30, Route.TURN, Route.SLOPE, Route.STEEP, false, 0,
+                Route.BRIDGE, List.of(), Route.AVOID, java.util.Set.of(), java.util.Set.of());
+        Route.Result tr = Route.find(tight, tp, () -> false);
+        check(tr.fail() == null && tr.length() == 30 && tr.points().size() == 3 && java.util.Arrays.equals(tr.points().get(1), new int[]{20, 5}),
+                "route near the length limit: the shorter, dearer way is found (" + tr.fail() + " " + tr.length() + ")");
         // No route: a wall all the way across; an end on an obstacle.
         Route.Grid shut = routeGrid();
         for (int z = 0; z < 30; z++) shut.flags()[shut.at(27, z)] = Route.BLOCKED;

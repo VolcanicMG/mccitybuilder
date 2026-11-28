@@ -451,15 +451,19 @@ final class LineView {
      * Accept of a route: its segments dropped like a chain drawn through its points (the start and the end split a
      * road's body there: a T), in one undo step, then the chain ends.
      *
+     * @param base the route's shared level in Flat chain mode (its highest ground, as previewed; {@link Plan#NO_BASE} otherwise)
      * @return false (a hint flashes) when a segment may not be dropped (outside, through built, along an arm)
      */
-    static boolean dropRoute(List<int[]> pts) {
+    static boolean dropRoute(List<int[]> pts, int base) {
         for (int k = 0; k + 1 < pts.size(); k++) if (refused(pts.get(k), pts.get(k + 1))) return false;
         endChain();
         checkpoint();
         start = pts.get(0).clone();
         PlanView.splitAt(start);
+        // Chain mode: drop() lifts the chain to liveSegMax, which only the live segment's layout sets: the route's level instead.
+        chainBase = base;
         for (int k = 1; k < pts.size(); k++) {
+            liveSegMax = base;
             end = pts.get(k).clone();
             merge = false;
             grow = null;
