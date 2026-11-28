@@ -90,6 +90,14 @@ public final class Route {
      * (an end on an obstacle), {@code no_route}, {@code cancelled}
      */
     public static Result find(Grid g, Params p, BooleanSupplier cancelled) {
+        return find(g, p, cancelled, 0);
+    }
+
+    // The retry's weight per block: far above any route's real cost, so length decides first and the real cost breaks ties.
+    private static final double LENGTH_FIRST = 1e6;
+
+    /** @param lengthWeight added per block of road (0: the real costs only; {@link #LENGTH_FIRST}: length first) */
+    private static Result find(Grid g, Params p, BooleanSupplier cancelled, double lengthWeight) {
         int[] s = p.start(), t = p.end();
         if (Math.abs(s[0] - t[0]) + Math.abs(s[1] - t[1]) > p.maxLen()) return Result.failed("too_far");
         if (!g.in(s[0], s[1]) || !g.in(t[0], t[1]) || s[0] == t[0] && s[1] == t[1]) return Result.failed("no_route");
@@ -126,7 +134,7 @@ public final class Route {
         cost[startS] = 0;
         q.push(0, startS);
         int polls = 0;
-        boolean pruned = false, lengthOnly = p.turnCost() == 0 && p.slopeCost() == 0 && p.steepCost() == 0 && p.bridgeCost() == 0 && p.avoidCost() == 0;
+        boolean pruned = false;
         while (!q.empty()) {
             int st = q.pop();
             if (done[st]) continue;
@@ -168,29 +176,28 @@ public final class Route {
                         c += p.slopeCost() * dh + p.steepCost() * Math.max(0, dh - 1);
                         prevH = hh;
                     }
-                    c += 1 + p.avoidCost() * avoid[i];
+                    c += 1 + lengthWeight + p.avoidCost() * avoid[i];
                     if (x == t[0] && z == t[1]) {
                         if (!p.banEnd().contains(d) && m + 1 >= (isStart ? needOne : needLast)) {
                             // A free end is trimmed afterwards: its leftover cells cost nothing.
                             boolean trims = p.freeEnd() || isStart && p.freeStart();
                             int gap = trims ? 0 : uncovered(m + 1, isStart ? p.offStart() : p.corner(), p.offEnd(), p.lens());
-                            relax(q, cost, len, from, done, goal, st, c + (lengthOnly ? 0 : GAP) * gap, len[st] + m, 0);
+                            relax(q, cost, len, from, done, goal, st, c + GAP * gap, len[st] + m, 0);
                         }
                         break;
                     }
                     // A corner here: on land, and the segment so far tiles exactly.
                     if (wet[i] || !(isStart ? first[m] : interior[m])) continue;
                     int ns = 2 * i + axis;
-                    relax(q, cost, len, from, done, ns, st, c, len[st] + m, Math.abs(x - t[0]) + Math.abs(z - t[1]));
+                    relax(q, cost, len, from, done, ns, st, c, len[st] + m, (1 + lengthWeight) * (Math.abs(x - t[0]) + Math.abs(z - t[1])));
                 }
             }
         }
         if (!done[goal]) {
             // Each state keeps only its cheapest way in, so a dearer but shorter one could be lost to the length limit:
-            // when the limit cut moves, a search by length alone (exact: cheapest = shortest) settles whether any route fits.
-            if (pruned && !lengthOnly)
-                return find(g, new Params(s, t, p.half(), p.lens(), p.offStart(), p.offEnd(), p.corner(), p.maxLen(), 0, 0, 0, p.bridges(), p.bridgeMax(), 0,
-                        p.avoid(), 0, p.banStart(), p.banEnd(), p.freeStart(), p.freeEnd()), cancelled);
+            // when the limit cut moves, search again ranked by (length, then the real cost): exact about whether any
+            // route fits, and among the shortest the one with the fewest turns, gentlest slopes, avoiding earlier routes.
+            if (pruned && lengthWeight == 0) return find(g, p, cancelled, LENGTH_FIRST);
             return Result.failed("no_route");
         }
         List<int[]> pts = new ArrayList<>();
@@ -215,7 +222,7 @@ public final class Route {
     }
 
     /** A* relax: {@code c} is the cost so far, {@code h} the distance left (every block costs at least 1, so it never overestimates). */
-    private static void relax(Heap q, double[] cost, int[] len, int[] from, boolean[] done, int ns, int st, double c, int l, int h) {
+    private static void relax(Heap q, double[] cost, int[] len, int[] from, boolean[] done, int ns, int st, double c, int l, double h) {
         if (done[ns] || c >= cost[ns]) return;
         cost[ns] = c;
         len[ns] = l;

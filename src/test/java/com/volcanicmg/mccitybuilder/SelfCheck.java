@@ -3376,6 +3376,12 @@ public final class SelfCheck {
         Route.Result tr = Route.find(tight, tp, () -> false);
         check(tr.fail() == null && tr.length() == 30 && tr.points().size() == 3 && java.util.Arrays.equals(tr.points().get(1), new int[]{20, 5}),
                 "route near the length limit: the shorter, dearer way is found (" + tr.fail() + " " + tr.length() + ")");
+        // The same with room to turn south from x = 15 on: several routes fit the limit; the retry shows the one with the fewest turns.
+        Route.Grid roomy = new Route.Grid(0, 0, 30, 20, lg.clone(), new byte[30 * 20]);
+        for (int x = 0; x <= 14; x++) for (int z = 6; z <= 15; z++) roomy.flags()[roomy.at(x, z)] = Route.BLOCKED;
+        Route.Result rr = Route.find(roomy, tp, () -> false);
+        check(rr.fail() == null && rr.length() == 30 && rr.points().size() == 3, "route near the length limit: the fewest turns among the routes that fit ("
+                + rr.fail() + " " + rr.points().size() + " points)");
         // No route: a wall all the way across; an end on an obstacle.
         Route.Grid shut = routeGrid();
         for (int z = 0; z < 30; z++) shut.flags()[shut.at(27, z)] = Route.BLOCKED;

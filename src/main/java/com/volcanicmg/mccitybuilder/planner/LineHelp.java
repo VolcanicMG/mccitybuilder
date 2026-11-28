@@ -43,7 +43,7 @@ public final class LineHelp {
         // Route mode: its tip, button, statuses, failures and the floating bar.
         out.addAll(List.of("mccitybuilder.tip.route", "mccitybuilder.tip.route_title", "mccitybuilder.route.btn", "mccitybuilder.route.tip",
                 "mccitybuilder.route.pick_start", "mccitybuilder.route.pick_end", "mccitybuilder.route.busy", "mccitybuilder.route.found",
-                "mccitybuilder.route.found_gap", "mccitybuilder.route.accepted", "mccitybuilder.route.bad"));
+                "mccitybuilder.route.found_gap", "mccitybuilder.route.accepted", "mccitybuilder.route.bad", "mccitybuilder.route.changed"));
         for (String f : new String[]{"too_far", "no_route", "blocked", "no_other", "no_pieces", "cancelled"}) out.add("mccitybuilder.route.fail." + f);
         for (String b : new String[]{"accept", "another", "cancel"}) {
             out.add("mccitybuilder.route." + b);

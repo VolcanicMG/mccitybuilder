@@ -191,6 +191,7 @@
   "mccitybuilder.route.fail.no_pieces": "This style's road pieces are still loading: try again",
   "mccitybuilder.route.fail.cancelled": "Cancelled",
   "mccitybuilder.route.bad": "A piece is outside the colony or runs into a building (red): Try another",
+  "mccitybuilder.route.changed": "The plan changed since this route was found: routing again",
   "mccitybuilder.route.accept": "Accept",
   "mccitybuilder.route.another": "Try another",
   "mccitybuilder.route.cancel": "Cancel",

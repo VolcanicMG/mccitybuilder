@@ -62,7 +62,7 @@ final class RouteView {
     private static long laidAt;
     private static boolean laidComplete, anyBad;
     // The route's shared level in Flat chain mode (Plan.NO_BASE otherwise); what the plan and the options were when the snapshot began.
-    private static int base = Plan.NO_BASE, stamp;
+    private static int base = Plan.NO_BASE, stamp, restarts;
 
     private RouteView() {
     }
@@ -133,6 +133,7 @@ final class RouteView {
             int[] c = pickCell(hit);
             if (c[0] == from[0] && c[1] == from[1]) return false;
             to = c;
+            restarts = 0;
             begin();
             return true;
         }
@@ -151,6 +152,15 @@ final class RouteView {
         if (phase != Phase.PREVIEW || points.size() < 2) return false;
         List<int[]> pts = points;
         // A piece outside the claims or into a building (a corner wider than the road, say): refused, it would be built red.
+        // The plan or the options changed since the search began: search again rather than drop a stale route.
+        if (stamp != stamp()) {
+            restarts = 0;
+            tried.clear();
+            begin();
+            LineView.flash = "mccitybuilder.route.changed";
+            LineView.flashUntil = System.currentTimeMillis() + 2500;
+            return false;
+        }
         if (anyBad) {
             LineView.flash = "mccitybuilder.route.bad";
             LineView.flashUntil = System.currentTimeMillis() + 2500;
@@ -175,10 +185,16 @@ final class RouteView {
 
     // ---- snapshot and search ----
 
-    /** @return a hash of what a search depends on besides the terrain: the plan's lines and entries, the road family and options */
+    /**
+     * @return a hash of what a search depends on besides the terrain: the planned lines' geometry and set (not their
+     * built / sending state, which a Build changes), the entries, the joint types at the route's ends, the road options
+     */
     private static int stamp() {
-        return java.util.Objects.hash(PlanView.lines, PlanView.entries.size(), PlannerScreen.pack(), LineView.family(), LineView.level, LineView.variant,
-                LineView.jointDefault, LineView.heightMode);
+        int h = java.util.Objects.hash(PlanView.entries, PlannerScreen.pack(), LineView.family(), LineView.level, LineView.variant, LineView.jointDefault,
+                LineView.heightMode, LineView.dy);
+        for (Plan.Line l : PlanView.lines) h = 31 * h + java.util.Objects.hash(l.tool(), l.x0(), l.z0(), l.x1(), l.z1(), l.pack(), l.family(), l.level(), l.variant());
+        for (int[] c : new int[][]{from, to}) if (c != null) h = 31 * h + java.util.Objects.hashCode(PlanView.jointTypes.get(Plan.cell(c[0], c[1])));
+        return h;
     }
 
     private static void begin() {
@@ -285,8 +301,9 @@ final class RouteView {
             return;
         }
         job = null;
-        // The plan or the road options changed while it searched: the snapshot is stale, sample and search again.
-        if (stamp != stamp()) {
+        // The plan or the road options changed while it searched: the snapshot is stale, sample and search again, once
+        // (then the result shows; Accept checks again).
+        if (stamp != stamp() && restarts++ == 0) {
             tried.clear();
             begin();
             return;
@@ -354,16 +371,19 @@ final class RouteView {
             ps.addAll(lay.lines().get(k));
             gaps += lay.shortened().get(k);
         }
+        int own = ps.size();
         int[] a = points.get(0), b = points.get(points.size() - 1);
         for (int k = 0; k < first; k++)
             if (onLine(all.get(k), a) || onLine(all.get(k), b)) for (PieceCatalog.Placed p : lay.lines().get(k)) if (!ps.contains(p)) ps.add(p);
         List<int[]> buildings = PlanView.buildingBoxes();
         List<Boolean> bad = new ArrayList<>();
         anyBad = false;
-        for (PieceCatalog.Placed p : ps) {
+        for (int i = 0; i < ps.size(); i++) {
+            PieceCatalog.Placed p = ps.get(i);
             boolean b0 = PlanView.bad(p, buildings);
             bad.add(b0);
-            anyBad |= b0;
+            // Blocks Accept: the route's own pieces, and of the roads it joins only the pieces at its ends (the re-laid joint).
+            if (b0 && (i < own || near(p.box(), a) || near(p.box(), b))) anyBad = true;
         }
         LineView.showPreview(ps, bad, a, b);
         laidAt = System.currentTimeMillis();
@@ -394,6 +414,11 @@ final class RouteView {
         if (base == Plan.NO_BASE) return new Laid(all, first, lay);
         for (int k = first; k < all.size(); k++) all.set(k, all.get(k).withHeight(Plan.CHAIN, all.get(k).dy(), base));
         return new Laid(all, first, PieceCatalog.layout(all, PlanView.jointTypes));
+    }
+
+    /** @return true when piece box {x0, z0, x1, z1} holds cell c or a cell next to it */
+    private static boolean near(int[] box, int[] c) {
+        return c[0] >= box[0] - 1 && c[0] <= box[2] + 1 && c[1] >= box[1] - 1 && c[1] <= box[3] + 1;
     }
 
     private static boolean onLine(Plan.Line l, int[] c) {
