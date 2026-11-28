@@ -172,8 +172,8 @@ public final class DevBridge {
                 for (int i = 0; i < 200 && !pr.finished(); i++) r = pr.step();
                 if (r == null) r = pr.step();
                 var pn = JointCheck.current();
-                return "ref=" + ref.bad() + "/" + ref.total() + (ref.done() ? "" : "+" + ref.pending()) + " probe=" + r.bad() + "/" + r.total() + (r.done() ? "" : "+" + r.pending())
-                        + " panel=" + (pn == null ? "none" : pn.bad() + "/" + pn.total() + (pn.done() ? "" : "+" + pn.pending())) + " failing=" + r.failing()
+                return "ref=" + ref.bad() + "/" + ref.total() + " minor=" + ref.minor() + (ref.done() ? "" : "+" + ref.pending()) + " probe=" + r.bad() + "/" + r.total() + (r.done() ? "" : "+" + r.pending())
+                        + " panel=" + (pn == null ? "none" : pn.bad() + "/" + pn.total() + (pn.done() ? "" : "+" + pn.pending())) + " badge=[" + (pn == null ? "" : pn.badge()) + "] failing=" + r.failing()
                         + String.format(" steps=%d totalMs=%.2f maxStepMs=%.2f", pr.steps, pr.nanos / 1e6, pr.maxNanos / 1e6);
             });
             // info | open|<family>|<level>|<case label part> | count|<family>|<level> | tune|<family>|<level>[|<min match, default 0.6>] (split on |): the current pack's families with their roles and levels, a family's
@@ -183,8 +183,9 @@ public final class DevBridge {
                 String[] p = body.split("\\|");
                 if (PieceCatalog.families(pk) == null) return "loading";
                 if (p[0].equals("count")) {
+                    // The strict count (real + minor problems) first: the ratchet keeps tuning from regressing on either; then the split.
                     var r = JointEditorScreen.reference(pk, p[1], Integer.parseInt(p[2]));
-                    return r.bad() + "/" + r.total() + (r.done() ? "" : "+" + r.pending()) + " " + r.failing();
+                    return (r.bad() + r.minor()) + "/" + r.total() + (r.done() ? "" : "+" + r.pending()) + " real=" + r.bad() + " minor=" + r.minor() + " oldreal=" + JointEditorScreen.legacyReal(pk, p[1], Integer.parseInt(p[2])) + " " + r.failing() + r.minorNames();
                 }
                 if (p[0].equals("open")) return JointEditorScreen.openOn(pk, p[1], Integer.parseInt(p[2]), p[3]) ? "ok" : "no such case";
                 if (p[0].equals("tune")) return String.join("\n", JointEditorScreen.tune(pk, p[1], Integer.parseInt(p[2]), p.length > 3 ? Double.parseDouble(p[3]) : 0.6));

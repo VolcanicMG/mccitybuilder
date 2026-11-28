@@ -1293,15 +1293,31 @@ final class PlannerScreen extends Screen {
         }, Component.translatable("mccitybuilder.sets.open.tip")));
         int jx = ix + hw + 2, jw = iw - hw - 2;
         // Fix joints (N): N = the joints that don't fit (hover lists them); a click opens the editor on the first, else on the corner.
-        boolean badJoints = jc != null && !jc.badge().isEmpty();
-        String fixLabel = badJoints ? Component.translatable("mccitybuilder.align.fix_n", jc.badge()).getString() : Component.translatable("mccitybuilder.align.fix").getString();
-        iconButton(g, jx, iy, jw, 20, "joint", fixLabel, false, false, mx >= jx && mx < jx + jw && my >= iy && my < iy + 20, badJoints ? 0xFFFFC040 : 0);
+        // Real problems (a gap, broken blocks) count in amber; minor ones (fit and touch, off-centre) only as a grey "(N minor)".
+        boolean badJoints = jc != null && !jc.badge().isEmpty(), minorJoints = jc != null && jc.done() && jc.minor() > 0;
+        String fixLabel = badJoints ? Component.translatable("mccitybuilder.align.fix_n", jc.badge()).getString()
+                : minorJoints ? Component.translatable("mccitybuilder.align.fix_minor", jc.minor()).getString() : Component.translatable("mccitybuilder.align.fix").getString();
+        iconButton(g, jx, iy, jw, 20, "joint", fixLabel, false, false, mx >= jx && mx < jx + jw && my >= iy && my < iy + 20, badJoints ? 0xFFFFC040 : minorJoints ? 0xFFB8B8B8 : 0);
+        Component fixTip = Component.translatable("mccitybuilder.align.open.tip");
+        if (badJoints || minorJoints) {
+            // Real ones first under an amber heading, the minor ones under a grey one.
+            net.minecraft.network.chat.MutableComponent t = Component.empty();
+            if (badJoints)
+                t.append(Component.translatable("mccitybuilder.align.fix.real").withStyle(net.minecraft.ChatFormatting.GOLD)).append(Component.literal("\n" + String.join(", ", jc.failing())));
+            if (minorJoints) {
+                if (badJoints) t.append(Component.literal("\n"));
+                t.append(Component.translatable("mccitybuilder.align.fix.minor").withStyle(net.minecraft.ChatFormatting.GRAY))
+                        .append(Component.literal("\n" + String.join(", ", jc.minorNames())).withStyle(net.minecraft.ChatFormatting.GRAY));
+            }
+            fixTip = t.append(Component.literal("\n")).append(Component.translatable("mccitybuilder.align.fix.click").withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
+        }
+        Component fixTipFinal = fixTip;
         anchor("fix_joints", jx, iy, jw, 20);
         hits.add(new Hit(jx, iy, jw, 20, () -> {
             click();
-            if (badJoints) JointCheck.openFirst();
+            if (badJoints || minorJoints) JointCheck.openFirst();
             else minecraft.setScreen(new JointEditorScreen(pk, fam, PieceSets.Role.CORNER, -1));
-        }, badJoints ? Component.translatable("mccitybuilder.align.fix.tip_n", String.join(", ", jc.failing())) : Component.translatable("mccitybuilder.align.open.tip")));
+        }, fixTipFinal));
         // Drawn over the line panel and the palette: its hits (and a blocker over the panel) go first.
         List<Hit> mine = new ArrayList<>(hits.subList(before, hits.size()));
         hits.subList(before, hits.size()).clear();

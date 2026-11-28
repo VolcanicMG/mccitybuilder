@@ -769,6 +769,49 @@ public final class PieceLayout {
         return new Fit(edge - depth - si, shift, m, depth);
     }
 
+    /**
+     * Whether a run placed by hand ({@link #fitAt}) leaves a through-opening between itself and the joint piece: a whole
+     * slice across the run's axis with no block at all, between where the joint ends and the run begins. For a wall
+     * that is air from the base to the top across its whole thickness (a hole you could see or walk through); for a
+     * road a break in the walkable surface across its whole width. A gap in trim, a berm, a kerb or a parapet only
+     * leaves blocks in every slice, so it is no opening.
+     */
+    public static boolean openingAt(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int shift, int depth, boolean road) {
+        Fit f = fitAt(c, d, jb, joint, straight, width, run, shift, depth);
+        int[] bx = boxes(c, d, f.off(), List.of(run), width, shift).get(0);
+        return opening(joint, jb[0], jb[1], straight, bx[0], bx[1], d, road);
+    }
+
+    /**
+     * @param jx the joint grid's world x, @param jz its z (its ground layer at world y 0); @param sx @param sz the same for the straight
+     * @param d  the run's direction from the joint (0 east, 1 south, 2 west, 3 north)
+     * @param road the band that counts is the road surface (y -2..1 around the ground) instead of everything above the ground
+     * @return whether at least one whole slice across the axis lies between the joint's last block toward the run and the run's first, empty
+     */
+    public static boolean opening(Grid joint, int jx, int jz, Grid straight, int sx, int sz, int d, boolean road) {
+        boolean alongX = d % 2 == 0, plus = d == 0 || d == 1;
+        int[] j = bandExtent(joint, alongX ? jx : jz, alongX, road), s = bandExtent(straight, alongX ? sx : sz, alongX, road);
+        if (j == null || s == null) return false;
+        return plus ? s[0] - j[1] > 1 : j[0] - s[1] > 1;
+    }
+
+    /** @return {min, max} along the axis of the blocks in the counted band (world y from the ground: all above it, or the road surface's), or null for none */
+    private static int[] bandExtent(Grid g, int origin, boolean alongX, boolean road) {
+        int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
+        for (int y = 0; y < g.sy(); y++) {
+            int wy = y - g.ground();
+            if (road ? wy < -2 || wy > 1 : wy < 0) continue;
+            for (int z = 0; z < g.sz(); z++)
+                for (int x = 0; x < g.sx(); x++)
+                    if (g.id(x, y, z) > 0) {
+                        int p = origin + (alongX ? x : z);
+                        lo = Math.min(lo, p);
+                        hi = Math.max(hi, p);
+                    }
+        }
+        return lo > hi ? null : new int[]{lo, hi};
+    }
+
     /** @return true when a run placed by hand ({@link #fitAt}) would clear or replace a block of the joint in either build order */
     public static boolean destructiveAt(int[] c, int d, int[] jb, Grid joint, Grid straight, int width, int run, int shift, int depth) {
         Fit f = fitAt(c, d, jb, joint, straight, width, run, shift, depth);

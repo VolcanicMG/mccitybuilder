@@ -20,10 +20,14 @@
   Set up pieces... / Fix joints.
 - Edit mode: the "Picks: Segment / Whole road (wall)" row shows only while editing, with the hint "Tab switches.
   Double-click: whole road."; the Edit button is full width and green while on. Gate is on the wall panel only.
-- The Pieces panel's Fix joints shows how many of the set's joints don't fit, "Fix joints (2)", with a small amber badge
-  on the Pieces button (nothing when they all fit). Hover lists them; a click opens the joint editor on the first one.
-  It uses the joint check's own verdicts, worked out a joint per frame in the background of the panel and again when
-  the set-up, an alignment or the level changes.
+- The Pieces panel's Fix joints shows how many of the set's joints have a real problem, "Fix joints (2)", with a small amber
+  badge on the Pieces button (nothing when there are none). A real problem is what a player would notice: the joint
+  breaks or overlaps blocks of a wall or road, or leaves a hole straight through a wall (air from base to top across its
+  thickness) or a break in a road's surface. Everything else (a gap in trim, a berm, a kerb or a parapet only, a partial
+  mismatch, off-centre) is minor: no badge, a grey "(2 minor)" instead. Hover lists the real ones under an amber heading and
+  the minor ones under a grey "Minor (looks fine in game):"; a click opens the first real one, else the first minor one.
+  It uses the joint check's own layout, worked out a joint per frame in the background of the panel and again when the
+  set-up, an alignment or the level changes. The joint check list still names every case, with the hole / break wording.
 - Panels drawn over others (the Pieces panel, the edit-mode joint menu, the coach tip, the large preview) now take the
   clicks, wheel and tooltips over them; the Pieces panel's rows shrink a little on very short screens.
 - Set up pieces is redesigned. Left: the folder's pieces under captions by their role now (Straight (8), Corner, Tower,

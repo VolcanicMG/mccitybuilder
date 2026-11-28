@@ -873,10 +873,15 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   switches to, in 3D), and Set up pieces... / Fix joints. Picks are saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
   Anything drawn over the 3D views (arrows, captions) is lifted to z 500: the views draw at z 400 with depth.
 - Joint count (`client/JointCheck`, `JointEditorScreen.Probe`, pure tally in `planner/JointCount`): the Pieces button's amber badge and
-  "Fix joints (N)" show the family's cases with a problem (overlap / no fit / off-centre, the joint check list's verdicts). A
+  "Fix joints (N)" count the family's cases with a REAL problem: `overlap` (`PieceLayout.destructiveAt`: blocks would break) or
+  `opening` (`PieceLayout.openingAt`: a whole slice across the run's axis, between the joint's last block toward the run and the run's
+  first, with no block at all: for a wall air base to top across its thickness, for a road the surface band `y -2..1` around the ground).
+  `nofit` (a gap or poor match that leaves blocks in every slice: trim, berm, kerb, parapet) and `offcentre` are MINOR (`JointCount.stateOf`):
+  no badge, a grey "(N minor)" and a grey heading in the hover. The dev bridge's `inv count` still leads with the strict count (real +
+  minor), which the tuned-joint ratchet keeps; it also prints `real=`, `minor=` and `oldreal=` (the earlier overlap-or-nofit rule). A
   headless editor instance lays out one case per frame (`Probe.step`), so nothing stalls; the cache key is pack, family,
   `setupVersion`, `loadVersion`, the overrides' hash and the level; cases still loading are retried after a second.
-  The count shows only once every case has a verdict. Hover lists the failing joints, a click opens the editor on the first.
+  The count shows only once every case has a verdict. Hover lists the real joints (amber heading) then the minor ones (grey); a click opens the first real one, else the first minor one.
 - Hits: a panel drawn over others puts its hits first, then a no-op `BLOCK` hit over its box (`raise`, `blockerAt`): clicks,
   wheel and tooltips stop there. The line panel does so over the queue panel, the Pieces panel, the joint menu, the coach tip
   and the large preview likewise.

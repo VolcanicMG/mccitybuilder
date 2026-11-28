@@ -378,7 +378,12 @@ final class JointCases {
         boolean move = turned && fix == null;
         PieceLayout.Fit[] fw = new PieceLayout.Fit[outs.length];
         for (int q = 0; q < outs.length; q++) {
-            PieceLayout.Fit fc = PieceLayout.fit(c, oc[q], jbc, tc, straight(sg, st.nativeDir(), dc[q], flip), width, run, Math.max(3, width), fix == null ? null : fix.runs()[q]);
+            // The built-in alignment of this run (align| keys), read as the game does after the player's (none here).
+            String av = PieceSets.alignLookup(java.util.Map.of(), java.util.Map.of(), PieceSets.builtIn(PackPieces.packName(pack)),
+                    PieceLayout.alignKey(jp.path(), best, st.path(), PieceLayout.straightTurns(st.nativeDir(), dc[q], flip), oc[q]));
+            int[] al = av == null ? null : PieceLayout.parseAlign(av);
+            PieceLayout.Fit fc = PieceLayout.fitWith(c, oc[q], jbc, tc, straight(sg, st.nativeDir(), dc[q], flip), width, run, Math.max(3, width), al != null && al.length > 2 ? null : al,
+                    fix == null ? null : fix.runs()[q]);
             if (move) fc = PieceLayout.outerFit(c, oc[q], oc[1 - q], jbc, tc, straight(sg, st.nativeDir(), dc[q], flip), width, run, Math.max(3, width), fc);
             fw[q] = PieceLayout.fitBack(c, oc[q], fc, width, run, rot);
         }

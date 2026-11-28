@@ -697,10 +697,10 @@
   "mccitybuilder.jointcheck.loading": "(%s still loading)",
   "mccitybuilder.jointcheck.none": "This set has no joint pieces to check",
   "mccitybuilder.jointcheck.overlap.road": "The road cuts into the joint piece (would break blocks)",
-  "mccitybuilder.jointcheck.nofit.road": "The roads don't reach the joint piece (gap)",
+  "mccitybuilder.jointcheck.nofit.road": "The roads don't line up with the joint piece (a gap or mismatch, usually only in the kerb)",
   "mccitybuilder.jointcheck.offcentre.road": "Off-centre",
   "mccitybuilder.jointcheck.overlap": "The wall cuts into the joint piece (would break blocks)",
-  "mccitybuilder.jointcheck.nofit": "The walls don't reach the joint piece (gap)",
+  "mccitybuilder.jointcheck.nofit": "The walls don't line up with the joint piece (a gap or mismatch, usually only in trim)",
   "mccitybuilder.jointcheck.offcentre": "Off-centre",
   "mccitybuilder.jointcheck.fix": "Fix",
   "mccitybuilder.jointcheck.recheck": "Check again",
@@ -836,7 +836,6 @@
   "mccitybuilder.line.fix_set": "Fix the set",
   "mccitybuilder.align.fix": "Fix joints",
   "mccitybuilder.align.fix_n": "Fix joints (%s)",
-  "mccitybuilder.align.fix.tip_n": "These joints don't fit: %s. Click to open the first one",
   "mccitybuilder.sets.sub": "Pick what each piece is used for.",
   "mccitybuilder.sets.variants": "Variants",
   "mccitybuilder.sets.row_hint": "Click a row to preview it.",
@@ -850,5 +849,11 @@
   "mccitybuilder.sets.about.cross": "Where two lines cross.",
   "mccitybuilder.sets.about.end": "Closes the free end of a line.",
   "mccitybuilder.sets.about.gate": "A gate in the middle of a wall segment.",
-  "mccitybuilder.sets.about.tower": "Stands in at a T-junction or a crossing when there is none."
+  "mccitybuilder.sets.about.tower": "Stands in at a T-junction or a crossing when there is none.",
+  "mccitybuilder.align.fix_minor": "Fix joints (%s minor)",
+  "mccitybuilder.align.fix.real": "These joints don't fit:",
+  "mccitybuilder.align.fix.minor": "Minor (looks fine in game):",
+  "mccitybuilder.align.fix.click": "Click to open the first one",
+  "mccitybuilder.jointcheck.opening": "There is a hole through the wall at the joint",
+  "mccitybuilder.jointcheck.opening.road": "The road's surface is broken at the joint"
 }

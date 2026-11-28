@@ -328,7 +328,9 @@ final class PieceCatalog {
                 Path f = overridesFile(pack);
                 // A file saved under the old (unhashed) name is still read until the next save writes the new one.
                 Path old = f.resolveSibling(PieceSets.legacyFileName(pack) + ".txt");
-                if (!Files.exists(f) && Files.exists(old) && !old.equals(f)) f = old;
+                // (only when no other installed pack sanitises to that name, so a second non-Latin pack never adopts the first's file)
+                if (!Files.exists(f) && Files.exists(old) && !old.equals(f)
+                        && Blueprints.packs().stream().filter(o -> PieceSets.legacyFileName(o).equals(PieceSets.legacyFileName(pack))).count() <= 1) f = old;
                 if (Files.exists(f)) m.putAll(PieceSets.loadOverrides(Files.readString(f)));
             } catch (Exception e) {
                 CityBuilder.LOGGER.warn("City Builder: can't read piece set overrides for {}", pack, e);

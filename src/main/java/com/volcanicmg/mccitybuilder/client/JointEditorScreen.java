@@ -958,7 +958,7 @@ final class JointEditorScreen extends Screen {
                 long t0 = System.nanoTime();
                 int i = next++;
                 Layout l = s.layout(cs.get(i).role(), cs.get(i).kase(), false, -1);
-                states[i] = l == null ? (s.failedPiece(cs.get(i)) ? JointCount.SETTLED : JointCount.LOADING) : s.issues(l).isEmpty() ? JointCount.OK : JointCount.BAD;
+                states[i] = l == null ? (s.failedPiece(cs.get(i)) ? JointCount.SETTLED : JointCount.LOADING) : JointCount.stateOf(s.issues(l));
                 long dt = System.nanoTime() - t0;
                 nanos += dt;
                 maxNanos = Math.max(maxNanos, dt);
@@ -971,14 +971,16 @@ final class JointEditorScreen extends Screen {
 
         /** Opens the joint editor on the first case with a problem. */
         void openFirstBad() {
-            for (int i = 0; cs != null && i < cs.size(); i++)
-                if (states[i] == JointCount.BAD) {
-                    JointEditorScreen e = new JointEditorScreen(s.pack, s.fam, ROLES[cs.get(i).role()], -1);
-                    e.lvl = s.lvl;
-                    e.select(cs.get(i));
-                    Minecraft.getInstance().setScreen(e);
-                    return;
-                }
+            // The first real problem, else the first minor one.
+            for (int want : new int[]{JointCount.BAD, JointCount.MINOR})
+                for (int i = 0; cs != null && i < cs.size(); i++)
+                    if (states[i] == want) {
+                        JointEditorScreen e = new JointEditorScreen(s.pack, s.fam, ROLES[cs.get(i).role()], -1);
+                        e.lvl = s.lvl;
+                        e.select(cs.get(i));
+                        Minecraft.getInstance().setScreen(e);
+                        return;
+                    }
         }
     }
 
@@ -992,7 +994,7 @@ final class JointEditorScreen extends Screen {
         List<String> names = new ArrayList<>();
         for (int i = 0; i < st.length; i++) {
             Verdict v = vs.get(cs.get(i));
-            st[i] = v == null || v.loading() ? (s.failedPiece(cs.get(i)) ? JointCount.SETTLED : JointCount.LOADING) : v.ok() ? JointCount.OK : JointCount.BAD;
+            st[i] = v == null || v.loading() ? (s.failedPiece(cs.get(i)) ? JointCount.SETTLED : JointCount.LOADING) : v.ok() ? JointCount.OK : JointCount.stateOf(v.issues());
             names.add(s.caseLabel(cs.get(i)));
         }
         return JointCount.tally(names, st);
@@ -1125,10 +1127,11 @@ final class JointEditorScreen extends Screen {
 
     /** @return the problems a laid-out case has: overlap (a run would clear or replace joint blocks), nofit (no contact or a poor match), offcentre (a run more than a cell off the joint's centre) */
     private List<String> issues(Layout l) {
-        boolean overlap = false, nofit = false, off = false;
+        boolean overlap = false, nofit = false, off = false, opening = false, road = fam != null && fam.startsWith("road:");
         for (Run r : l.runs) {
             PieceLayout.Fit f = r.fit();
             overlap |= PieceLayout.destructiveAt(new int[]{0, 0}, r.out(), l.jb, l.joint, r.grid(), l.width, l.run, f.shift(), f.depth());
+            opening |= PieceLayout.openingAt(new int[]{0, 0}, r.out(), l.jb, l.joint, r.grid(), l.width, l.run, f.shift(), f.depth(), road);
             nofit |= f.depth() < 0 || f.match() < 0.3;
             int[] b = runBoxes(l, r).get(0);
             int lat = r.out() % 2 == 0 ? 1 : 0;
@@ -1136,9 +1139,20 @@ final class JointEditorScreen extends Screen {
         }
         List<String> out = new ArrayList<>();
         if (overlap) out.add("overlap");
+        if (opening) out.add("opening");
         if (nofit) out.add("nofit");
         if (off) out.add("offcentre");
         return out;
+    }
+
+    /** @return how many of a family's cases the previous definition called real (a gap or an overlap: "overlap" or "nofit"), for comparing (the dev bridge) */
+    static int legacyReal(String pack, String fam, int lvl) {
+        JointEditorScreen s = new JointEditorScreen(pack, fam, PieceSets.Role.CORNER, -1);
+        s.lvl = lvl;
+        List<Case> cs = s.cases();
+        int n = 0;
+        for (Verdict v : s.verdicts(cs).values()) if (!v.loading() && (v.issues().contains("overlap") || v.issues().contains("nofit"))) n++;
+        return n;
     }
 
     /** Jumps the editor to a case (auto turn, flat, the first run that has a problem selected). */

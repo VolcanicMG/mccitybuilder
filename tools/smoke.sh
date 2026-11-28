@@ -212,7 +212,10 @@ for pack in "${PACKS[@]}"; do
     else
       ref=${jc#ref=}; ref=${ref%% *}; pr=${jc#*probe=}; pr=${pr%% *}; pn=${jc#*panel=}; pn=${pn%% *}
       [ "$ref" = "$pr" ] && [ "$pr" = "$pn" ] && [[ "$ref" != *+* ]] && step "$pack: joint count, $t: panel = probe = check ($jc)" ok || step "$pack: joint count, $t" fail "$jc"
-      bad=${ref%%/*}; sleep 1
+      # The badge is the number of real problems (minor ones never badge): equal to the check's real count, empty for 0.
+      bad=${ref%%/*}; bd=${jc#*badge=[}; bd=${bd%%]*}; want=""; [ "$bad" -gt 0 ] 2>/dev/null && want=$bad
+      [ "$bd" = "$want" ] && step "$pack: joint count, $t: badge [$bd] = real problems ($bad; minor never badge)" ok || step "$pack: joint count, $t: badge = real problems" fail "badge [$bd], real $bad; $jc"
+      sleep 1
       if [ "$bad" -gt 0 ] 2>/dev/null; then [ "$(B anchor joints_badge)" != none ] && step "$pack: joint count, $t: badge shown for $bad" ok || step "$pack: joint count, $t: badge shown" fail "no badge for $bad"
       else [ "$(B anchor joints_badge)" = none ] && step "$pack: joint count, $t: no badge for 0" ok || step "$pack: joint count, $t: no badge for 0" fail "badge drawn"; fi
     fi

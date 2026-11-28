@@ -3310,9 +3310,47 @@ public final class SelfCheck {
         var failed = JointCount.tally(names, new int[]{0, 3, 1, 0, 3});
         check(failed.done() && failed.pending() == 0 && failed.bad() == 1 && failed.badge().equals("1") && JointCount.tally(names, new int[]{0, 3, 0, 0, 3}).badge().isEmpty(),
                 "joint count: a piece that failed to load for good settles its case (no waiting, not counted)");
+        // Real vs minor: only real problems badge and count in amber; a click opens the first real one, else the first minor one.
+        var mn = JointCount.tally(names, new int[]{0, 4, 0, 4, 0});
+        var mixed = JointCount.tally(names, new int[]{4, 0, 1, 4, 1});
+        check(mn.bad() == 0 && mn.minor() == 2 && mn.badge().isEmpty() && mn.minorNames().equals(List.of("Corner (right)", "Cross")) && mn.openIndex() == 1 && mn.done(),
+                "joint count: minor-only joints show no badge, are listed, and open the first minor one");
+        check(mixed.bad() == 2 && mixed.minor() == 2 && mixed.badge().equals("2") && mixed.failing().equals(List.of("T", "End")) && mixed.openIndex() == 2 && mixed.firstMinor() == 0,
+                "joint count: real ones count and open first, minor ones are listed apart");
+        check(JointCount.stateOf(List.of()) == JointCount.OK && JointCount.stateOf(List.of("offcentre")) == JointCount.MINOR && JointCount.stateOf(List.of("overlap")) == JointCount.BAD
+                        && JointCount.stateOf(List.of("opening")) == JointCount.BAD && JointCount.stateOf(List.of("nofit", "offcentre")) == JointCount.MINOR,
+                "joint count: broken blocks and a hole through the wall are real, a bare gap and off-centre are minor");
+        // Through-openings: a whole empty slice between the joint and the run is real; a gap that leaves blocks in every slice is minor.
+        PieceLayout.Grid wJoint = block(4, 4, 2, 1, 1, 3, 0, 1), wRun = block(4, 4, 2, 1, 1, 3, 0, 1);
+        check(PieceLayout.opening(wJoint, 0, 0, wRun, 5, 0, 0, false) && !PieceLayout.opening(wJoint, 0, 0, wRun, 4, 0, 0, false) && !PieceLayout.opening(wJoint, 0, 0, wRun, 3, 0, 0, false),
+                "through-opening: a full-height wall hole (an empty slice) is real, touching or overlapping runs have none");
+        // A berm (low earth) missing at the seam while the wall body continues: every slice still has blocks.
+        PieceLayout.Grid bJoint = blocks(6, 4, 3, new int[][]{{0, 1, 0, 3, 3, 1}, {0, 1, 2, 3, 1, 2}}, 1), bRun = blocks(6, 4, 3, new int[][]{{0, 1, 0, 3, 3, 1}}, 1);
+        check(!PieceLayout.opening(bJoint, 0, 0, bRun, 4, 0, 0, false), "through-opening: a gap in the berm only (the body is continuous) is minor");
+        // A road: the surface (ground -1) missing across the whole width at the seam is a break; a missing kerb at the edges only is not.
+        PieceLayout.Grid rJoint = blocks(6, 3, 5, new int[][]{{0, 0, 0, 3, 1, 4}}, 1), rRun = blocks(6, 3, 5, new int[][]{{0, 0, 0, 3, 1, 4}}, 1), rKerb = blocks(6, 3, 5, new int[][]{{0, 0, 1, 3, 1, 3}}, 1);
+        check(PieceLayout.opening(rJoint, 0, 0, rRun, 5, 0, 0, true) && !PieceLayout.opening(rJoint, 0, 0, rRun, 4, 0, 0, true) && !PieceLayout.opening(rJoint, 0, 0, rKerb, 4, 0, 0, true),
+                "through-opening: a break in the road's surface across its width is real, a missing kerb only is minor");
+        check(PieceLayout.opening(wJoint, 5, 0, wRun, 0, 0, 2, false) && !PieceLayout.opening(wJoint, 5, 0, wRun, 3, 0, 2, false), "through-opening: runs going west work the same");
+        check(JointCount.stateOf(List.of("opening", "nofit")) == JointCount.BAD && JointCount.stateOf(List.of("nofit")) == JointCount.MINOR && JointCount.stateOf(List.of("nofit", "offcentre")) == JointCount.MINOR
+                        && JointCount.stateOf(List.of("overlap")) == JointCount.BAD, "joint count: only overlap and opening are real; a bare gap (nofit) and off-centre are minor");
         int[] many = new int[120];
         java.util.Arrays.fill(many, JointCount.BAD);
         check(JointCount.tally(java.util.Collections.nCopies(120, "x"), many).badge().equals("99+"), "joint count: badge caps at 99+");
+    }
+
+    /** A grid of {@code sx x sy x sz} with one solid box {x0, y0, z0, x1, y1, z1} (inclusive) of block 1; {@code ground} is its ground layer. */
+    private static PieceLayout.Grid block(int sx, int sy, int sz, int x0, int y0, int y1, int z0, int ground) {
+        return blocks(sx, sy, sz, new int[][]{{0, y0, z0, sx - 1, y1, sz - 1}}, ground);
+    }
+
+    private static PieceLayout.Grid blocks(int sx, int sy, int sz, int[][] boxes, int ground) {
+        int[] ids = new int[sx * sy * sz];
+        for (int[] b : boxes)
+            for (int y = b[1]; y <= b[4]; y++)
+                for (int z = b[2]; z <= b[5]; z++)
+                    for (int x = b[0]; x <= b[3]; x++) ids[(y * sz + z) * sx + x] = 1;
+        return new PieceLayout.Grid(sx, sy, sz, ids, ground);
     }
 
     private static void check(boolean ok, String what) {
