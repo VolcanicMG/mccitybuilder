@@ -515,6 +515,9 @@ while IFS=$'\t' read -r tpack tfam tlvl tmax; do
   bad=${cnt%%/*}
   [[ "$bad" =~ ^[0-9]+$ ]] && [ "$bad" -le "$tmax" ] && step "tuned joints $tpack $tfam L$tlvl: $bad bad (max $tmax)" ok || step "tuned joints $tpack $tfam L$tlvl" fail "'$cnt' vs max $tmax"
 done < "$SELF/src/test/resources/joint-tuned.txt"
+# Route (auto-route): its own file, also runnable alone against a running client.
+recover "route: start on the planner"
+. "$SELF/tools/smoke_route.sh"
 
 # The game log: failures the mod reports itself, exceptions out of the mod, and baked pieces with no blocks.
 echo "== log $LOG"

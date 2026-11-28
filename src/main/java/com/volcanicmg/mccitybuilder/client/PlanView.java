@@ -461,6 +461,7 @@ final class PlanView {
     static void hide() {
         PieceCatalog.clearDrafts();
         LineView.closeJointMenu(false);
+        RouteView.reset();
         LineView.clearLive();
         for (int i = 0; i < linePreviews; i++) RenderingCache.removeBlueprint(Planner.PREVIEW_KEY + "_piece_" + i);
         linePreviews = 0;

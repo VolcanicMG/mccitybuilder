@@ -26,6 +26,10 @@ final class PanelIcons {
         art.put("joint", new String[]{"................", "......kkkk......", "......kddk......", "......kddk......", "......kddk......", "..kkkkkookkkkk..", "..kddddooddddk..", "..kddddooddddk..", "..kkkkkookkkkk..", "......kddk......", "......kddk......", "......kddk......", "......kkkk......", "................", "................", "................"});
         art.put("refresh", new String[]{"................", "................", "......kkkkk.....", "....kkWWWWWkk...", "...kWWkkkkkWWk..", "..kWWk.....kWWWk", "..kWk.......kWk.", "..kWk......kWWWk", "..kWk.......kWk.", "..kWk........k..", "...kWWk.....kWk.", "....kkWWkkkkWk..", ".....kkkWWWWk...", ".......kkkkk....", "................", "................"});
         art.put("hammer", new String[]{"............", ".kkkkkkkk...", ".kwwwwwwwk..", ".kwwwwwwwwk.", ".kkkkkkkkkk.", "....kBBk....", "....kBBk....", "....kBBk....", "....kBBk....", "....kBBk....", "....kkkk....", "............"});
+        // Route: a start (green) and an end (amber) joined by a road with turns.
+        art.put("route", new String[]{"................", ".kkkk...........", ".kGGk...........", ".kGGk...........", ".kkkk...........", "..kdk...........",
+                "..kyk...........", "..kdkkkkkkkk....", "..kddyddyddk....", "..kkkkkkkkdk....", ".........kdk....", ".........kyk....", "........koook...",
+                "........koook...", "........kkkkk...", "................"});
         art.put("r_straight", road(true, false, true, false, false));
         art.put("r_corner", road(false, true, true, false, false));
         art.put("r_tee", road(false, true, true, true, false));

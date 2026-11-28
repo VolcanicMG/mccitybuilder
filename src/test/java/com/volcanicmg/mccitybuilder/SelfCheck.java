@@ -17,6 +17,7 @@ import com.volcanicmg.mccitybuilder.planner.JointCount;
 import com.volcanicmg.mccitybuilder.planner.PieceLayout;
 import com.volcanicmg.mccitybuilder.planner.PieceSets;
 import com.volcanicmg.mccitybuilder.planner.Plan;
+import com.volcanicmg.mccitybuilder.planner.Route;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -47,6 +48,7 @@ public final class SelfCheck {
         hintsAndLang();
         pieceSetDetection();
         builtInSettings();
+        routes();
         System.out.println("CityBuilder self-check passed");
     }
 
@@ -3377,6 +3379,163 @@ public final class SelfCheck {
                 for (int z = b[2]; z <= b[5]; z++)
                     for (int x = b[0]; x <= b[3]; x++) ids[(y * sz + z) * sx + x] = 1;
         return new PieceLayout.Grid(sx, sy, sz, ids, ground);
+    }
+
+    /** A flat 60 x 30 grid (ground 64) for the route cases. */
+    private static Route.Grid routeGrid() {
+        int w = 60, h = 30;
+        int[] g = new int[w * h];
+        java.util.Arrays.fill(g, 64);
+        return new Route.Grid(0, 0, w, h, g, new byte[w * h]);
+    }
+
+    private static Route.Params routeParams(int[] s, int[] t, int maxLen, boolean bridges, List<List<int[]>> avoid, java.util.Set<Integer> banStart) {
+        return new Route.Params(s, t, 1, new int[]{4}, 0, 0, 2, maxLen, Route.TURN, Route.SLOPE, Route.STEEP, bridges, 8, Route.BRIDGE, avoid, Route.AVOID,
+                banStart, java.util.Set.of());
+    }
+
+    private static Route.Result route(Route.Grid g, int[] s, int[] t) {
+        return Route.find(g, routeParams(s, t, 256, false, List.of(), java.util.Set.of()), () -> false);
+    }
+
+    /** Every segment of a route is on an axis and droppable; between corners it tiles exactly (corner reach 2, straights 4). */
+    private static void routeValid(Route.Result r, Route.Params p, String what) {
+        check(r.fail() == null && r.points().size() >= 2, what + ": found (" + r.fail() + ")");
+        List<int[]> pts = r.points();
+        check(java.util.Arrays.equals(pts.get(0), p.start()) && java.util.Arrays.equals(pts.get(pts.size() - 1), p.end()), what + ": starts and ends where asked");
+        int total = 0;
+        for (int k = 0; k + 1 < pts.size(); k++) {
+            int[] a = pts.get(k), b = pts.get(k + 1);
+            check(a[0] == b[0] || a[1] == b[1], what + ": segment " + k + " on an axis");
+            int cells = LineSnap.length(a, b) + 1, o0 = k == 0 ? p.offStart() : p.corner(), o1 = k + 2 == pts.size() ? p.offEnd() : p.corner();
+            total += cells - 1;
+            check(LineSnap.canDrop(cells, PieceLayout.need(o0, o1, p.lens())), what + ": segment " + k + " long enough to drop (" + cells + ")");
+            if (k + 2 < pts.size()) check(LineSnap.exact(cells, o0, o1, p.lens()), what + ": segment " + k + " tiles exactly (" + cells + ")");
+            if (k > 0) {
+                int[] o = pts.get(k - 1);
+                check((o[0] == a[0]) != (a[0] == b[0]), what + ": point " + k + " is a turn");
+            }
+        }
+        check(total == r.length() && total <= p.maxLen(), what + ": length " + total + " = " + r.length());
+    }
+
+    private static boolean routeTouches(Route.Result r, Route.Grid g, byte flag, int half) {
+        for (int[] c : Route.cells(r.points()))
+            for (int dz = -half; dz <= half; dz++)
+                for (int dx = -half; dx <= half; dx++)
+                    if (g.in(c[0] + dx, c[1] + dz) && (g.flags()[g.at(c[0] + dx, c[1] + dz)] & flag) != 0) return true;
+        return false;
+    }
+
+    /** Auto-route ({@link Route}): the pure pathfinder over terrain snapshots. */
+    private static void routes() {
+        int[] s = {4, 15}, t = {50, 15};
+        Route.Grid flat = routeGrid();
+        Route.Result straight = route(flat, s, t);
+        routeValid(straight, routeParams(s, t, 256, false, List.of(), java.util.Set.of()), "route straight");
+        check(straight.points().size() == 2 && straight.length() == 46, "route straight: one segment on open ground");
+        // A wall across the way with a gap at the top: around it, never through it (the road's half width included).
+        Route.Grid wall = routeGrid();
+        for (int z = 6; z < 30; z++) wall.flags()[wall.at(27, z)] = Route.BLOCKED;
+        Route.Result around = route(wall, s, t);
+        routeValid(around, routeParams(s, t, 256, false, List.of(), java.util.Set.of()), "route around an obstacle");
+        check(!routeTouches(around, wall, Route.BLOCKED, 1) && around.points().size() >= 4, "route around an obstacle: clear of it, with turns");
+        // A steep ridge (6 blocks) across the straight line with low ground round its end: the detour wins over the climb.
+        Route.Grid ridge = routeGrid();
+        for (int z = 8; z < 30; z++) for (int x = 24; x <= 30; x++) ridge.ground()[ridge.at(x, z)] = 70;
+        Route.Result low = route(ridge, s, t);
+        routeValid(low, routeParams(s, t, 256, false, List.of(), java.util.Set.of()), "route slope avoidance");
+        boolean climbs = false;
+        for (int[] c : Route.cells(low.points())) climbs |= ridge.ground()[ridge.at(c[0], c[1])] > 64;
+        check(!climbs, "route slope avoidance: goes round the ridge");
+        // A gentle rise (1 block per 6) is simply climbed: no detour for small steps.
+        Route.Grid rise = routeGrid();
+        for (int x = 0; x < 60; x++) for (int z = 0; z < 30; z++) rise.ground()[rise.at(x, z)] = 64 + x / 6;
+        check(route(rise, s, t).points().size() == 2, "route slope: a gentle rise is climbed straight");
+        // A river with a ford at the top: without bridges the route keeps to land; with them it crosses straight.
+        Route.Grid river = routeGrid();
+        for (int z = 6; z < 30; z++) for (int x = 26; x <= 29; x++) river.flags()[river.at(x, z)] = Route.WATER;
+        Route.Result dry = route(river, s, t);
+        routeValid(dry, routeParams(s, t, 256, false, List.of(), java.util.Set.of()), "route water detour");
+        check(!routeTouches(dry, river, Route.WATER, 1), "route water detour: no cell over the river");
+        Route.Params bp = routeParams(s, t, 256, true, List.of(), java.util.Set.of());
+        Route.Result bridge = Route.find(river, bp, () -> false);
+        routeValid(bridge, bp, "route bridge crossing");
+        check(bridge.points().size() == 2 && routeTouches(bridge, river, Route.WATER, 0), "route bridge crossing: straight over the river");
+        for (int[] c : bridge.points()) check((river.flags()[river.at(c[0], c[1])] & Route.WATER) == 0, "route bridge: no corner on water");
+        Route.Params tooWide = new Route.Params(s, t, 1, new int[]{4}, 0, 0, 2, 256, Route.TURN, Route.SLOPE, Route.STEEP, true, 3, Route.BRIDGE, List.of(), Route.AVOID,
+                java.util.Set.of(), java.util.Set.of());
+        check(!routeTouches(Route.find(river, tooWide, () -> false), river, Route.WATER, 1), "route bridge: a river wider than the longest bridge is gone round");
+        // Joining an existing road with a T: the end lies on the road's body (its cells are free near the ends only).
+        Route.Grid roads = routeGrid();
+        for (int x = 0; x < 60; x++) for (int z = 21; z <= 23; z++) roads.flags()[roads.at(x, z)] = Route.ROAD;
+        int[] onRoad = {30, 22}, below = {30, 4};
+        Route.Result tee = route(roads, below, onRoad);
+        routeValid(tee, routeParams(below, onRoad, 256, false, List.of(), java.util.Set.of()), "route T onto a road");
+        check(tee.points().size() == 2, "route T onto a road: straight onto its body");
+        // Never along an existing road: between two cells beside it the route keeps off it.
+        Route.Result along = route(roads, new int[]{4, 18}, new int[]{50, 18});
+        check(along.fail() == null && !routeTouches(along, roads, Route.ROAD, 1), "route never runs along an existing road");
+        // Leaving a road's end: not back along its arm.
+        Route.Params ban = routeParams(new int[]{20, 10}, new int[]{4, 10}, 256, false, List.of(), java.util.Set.of(2));
+        Route.Result turned = Route.find(flat, ban, () -> false);
+        check(turned.fail() == null && turned.points().size() >= 3 && PieceLayout.dir(turned.points().get(0), turned.points().get(1)) != 2,
+                "route: the first segment never leaves along a banned arm");
+        // The maximum length: refused when the ends are farther apart; a detour that would need more is not found.
+        check("too_far".equals(Route.find(flat, routeParams(s, t, 40, false, List.of(), java.util.Set.of()), () -> false).fail()), "route over the max length is refused");
+        check(around.length() > 46 && Route.find(wall, routeParams(s, t, 50, false, List.of(), java.util.Set.of()), () -> false).fail() != null,
+                "route: a detour longer than the max length isn't found");
+        // Near the length limit a dearer but shorter way into a corner wins: only row 5 (bumpy, dear) reaches (20, 5) short
+        // enough; the cheap way in round row 0 is 10 longer and leaves no room for the last leg (the length-only retry finds it).
+        int[] lg = new int[30 * 20];
+        java.util.Arrays.fill(lg, 64);
+        Route.Grid tight = new Route.Grid(0, 0, 30, 20, lg, new byte[30 * 20]);
+        for (int x = 1; x <= 9; x++) lg[tight.at(x, 5)] = x % 2 == 0 ? 66 : 64;
+        for (int x = 0; x <= 19; x++) for (int z = 6; z <= 15; z++) tight.flags()[tight.at(x, z)] = Route.BLOCKED;
+        Route.Params tp = new Route.Params(new int[]{0, 5}, new int[]{20, 15}, 0, new int[]{1}, 0, 0, 0, 30, Route.TURN, Route.SLOPE, Route.STEEP, false, 0,
+                Route.BRIDGE, List.of(), Route.AVOID, java.util.Set.of(), java.util.Set.of());
+        Route.Result tr = Route.find(tight, tp, () -> false);
+        check(tr.fail() == null && tr.length() == 30 && tr.points().size() == 3 && java.util.Arrays.equals(tr.points().get(1), new int[]{20, 5}),
+                "route near the length limit: the shorter, dearer way is found (" + tr.fail() + " " + tr.length() + ")");
+        // The same with room to turn south from x = 15 on: several routes fit the limit; the retry shows the one with the fewest turns.
+        Route.Grid roomy = new Route.Grid(0, 0, 30, 20, lg.clone(), new byte[30 * 20]);
+        for (int x = 0; x <= 14; x++) for (int z = 6; z <= 15; z++) roomy.flags()[roomy.at(x, z)] = Route.BLOCKED;
+        Route.Result rr = Route.find(roomy, tp, () -> false);
+        check(rr.fail() == null && rr.length() == 30 && rr.points().size() == 3, "route near the length limit: the fewest turns among the routes that fit ("
+                + rr.fail() + " " + rr.points().size() + " points)");
+        // No route: a wall all the way across; an end on an obstacle.
+        Route.Grid shut = routeGrid();
+        for (int z = 0; z < 30; z++) shut.flags()[shut.at(27, z)] = Route.BLOCKED;
+        check("no_route".equals(route(shut, s, t).fail()), "route: no way through");
+        check("blocked".equals(route(wall, s, new int[]{27, 20}).fail()), "route: an end on an obstacle");
+        // Try another: the earlier route's cells cost more, so a different one comes back.
+        Route.Grid open = routeGrid();
+        int[] a = {6, 4}, b = {46, 24};
+        Route.Result one = route(open, a, b);
+        Route.Params again = routeParams(a, b, 256, false, List.of(one.points()), java.util.Set.of());
+        Route.Result two = Route.find(open, again, () -> false);
+        routeValid(one, routeParams(a, b, 256, false, List.of(), java.util.Set.of()), "route L");
+        routeValid(two, again, "route try another");
+        check(!Route.same(one.points(), two.points()), "route try another gives a different path");
+        // Free ends (a click on open ground): the end segments needn't tile, the route's ends move in by what is left over,
+        // so every segment tiles exactly and the ends stay within a straight of the clicks.
+        Route.Params free = new Route.Params(a, new int[]{47, 25}, 1, new int[]{4}, 1, 1, 2, 256, Route.TURN, Route.SLOPE, Route.STEEP, false, 8, Route.BRIDGE,
+                List.of(), Route.AVOID, java.util.Set.of(), java.util.Set.of(), true, true);
+        Route.Result fr = Route.find(open, free, () -> false);
+        check(fr.fail() == null && fr.points().size() <= 3, "route free ends: found, at most one turn (" + fr.points().size() + ")");
+        List<int[]> fp = fr.points();
+        for (int k = 0; k + 1 < fp.size(); k++)
+            check(LineSnap.exact(LineSnap.length(fp.get(k), fp.get(k + 1)) + 1, k == 0 ? 1 : 2, k + 2 == fp.size() ? 1 : 2, new int[]{4}), "route free ends: segment " + k + " tiles exactly");
+        check(LineSnap.length(fp.get(0), a) < 4 && LineSnap.length(fp.get(fp.size() - 1), new int[]{47, 25}) < 4, "route free ends: within a straight of the clicks");
+        // Cancel: the search stops.
+        int[] big = new int[400 * 400];
+        java.util.Arrays.fill(big, 64);
+        Route.Grid huge = new Route.Grid(0, 0, 400, 400, big, new byte[400 * 400]);
+        for (int z = 0; z < 399; z++) huge.flags()[huge.at(200, z)] = Route.BLOCKED;
+        check("cancelled".equals(Route.find(huge, routeParams(new int[]{10, 10}, new int[]{390, 10}, 1024, false, List.of(), java.util.Set.of()), () -> true).fail()),
+                "route: a cancelled search stops");
+        check(java.util.Arrays.equals(Route.box(new int[]{10, 5}, new int[]{0, 20}, 4), new int[]{-4, 1, 19, 24}), "route box");
+        check(Route.margin(new int[]{0, 0}, new int[]{200, 0}, 256, 48) == 32 && Route.margin(new int[]{0, 0}, new int[]{10, 0}, 256, 48) == 48, "route margin");
     }
 
     private static void check(boolean ok, String what) {

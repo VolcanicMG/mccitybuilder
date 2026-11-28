@@ -373,6 +373,49 @@ public final class DevBridge {
                 }
                 return sb.toString().trim();
             });
+            // Route mode: (no args) its state; on | off; at x z (a click on that column's ground); accept | another | cancel | undo; lines (the planned roads).
+            case "/route" -> client(() -> {
+                if (a.length == 0) return RouteView.describe();
+                switch (a[0]) {
+                    case "on", "off" -> {
+                        if (RouteView.on != a[0].equals("on")) RouteView.toggle();
+                        PlannerScreen.routeTip = false;
+                    }
+                    case "at" -> {
+                        int x = Integer.parseInt(a[1]), z = Integer.parseInt(a[2]), y = LineView.groundY(x, z);
+                        var hit = new net.minecraft.world.phys.BlockHitResult(new net.minecraft.world.phys.Vec3(x + 0.5, y, z + 0.5), net.minecraft.core.Direction.UP,
+                                new net.minecraft.core.BlockPos(x, y - 1, z), false);
+                        if (!RouteView.click(hit)) return "ignored " + RouteView.describe();
+                    }
+                    case "accept" -> {
+                        if (!RouteView.accept()) return "refused flash=" + LineView.flash + " " + RouteView.describe();
+                    }
+                    case "another" -> RouteView.another();
+                    case "cancel" -> RouteView.back();
+                    case "undo" -> LineView.undo();
+                    case "height" -> LineView.heightMode = Integer.parseInt(a[1]);
+                    // The preview's pieces (ys) or the planned roads' pieces (planys) as sorted "x,y,z" anchors.
+                    case "ys", "planys" -> {
+                        java.util.List<String> out = new java.util.ArrayList<>();
+                        if (a[0].equals("ys")) for (var p : LineView.live) out.add(p.anchor().getX() + "," + p.anchor().getY() + "," + p.anchor().getZ());
+                        else
+                            for (int i = 0; i < PlanView.lines.size() && i < PlanView.linePieces.size(); i++)
+                                if (PlanView.lines.get(i).tool().equals("road"))
+                                    for (var p : PlanView.linePieces.get(i)) out.add(p.anchor().getX() + "," + p.anchor().getY() + "," + p.anchor().getZ());
+                        java.util.Collections.sort(out);
+                        return String.join(" ", out);
+                    }
+                    case "lines" -> {
+                        StringBuilder sb = new StringBuilder();
+                        for (var l : PlanView.lines) if (l.tool().equals("road")) sb.append(l.x0()).append(',').append(l.z0()).append('>').append(l.x1()).append(',').append(l.z1()).append(' ');
+                        return sb.toString().trim();
+                    }
+                    default -> {
+                        return "usage: route [on|off|at x z|accept|another|cancel|undo|lines|height n|ys|planys]";
+                    }
+                }
+                return RouteView.describe();
+            });
             // The tool's Clear (armed, then confirmed); answers the planned segment count.
             case "/clearlines" -> client(() -> {
                 LineView.clearTool();

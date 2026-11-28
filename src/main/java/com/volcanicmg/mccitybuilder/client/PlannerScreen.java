@@ -72,6 +72,8 @@ final class PlannerScreen extends Screen {
     private boolean rightDown, rightDragged;
     /** The road / wall tool's coach tip shown ({@link LineHelp#TIPS} index), or -1. */
     static int tipStep = -1;
+    // The Route tip is due (set when Route is first turned on).
+    static boolean routeTip;
     // The line panel's box this frame (coach tips anchor next to it), or null.
     private int[] linePanelBox;
     // Frames a hover survives pick misses (a ray that finds nothing for a frame while the camera moves).
@@ -196,6 +198,7 @@ final class PlannerScreen extends Screen {
         Others.labels(g, font, width, height);
         editOverlay(g, mouseX, mouseY);
         actionBar(g, mouseX, mouseY);
+        routeBar(g, mouseX, mouseY);
         guide(g, mouseX, mouseY);
         coachTip(g, mouseX, mouseY);
         status(g);
@@ -941,20 +944,27 @@ final class PlannerScreen extends Screen {
                     : "mccitybuilder.line.joint.new", jText).getString(), mx, my, stepJ, Component.translatable("mccitybuilder.line.joint.tip"));
         }
         boolean canFill = !LineView.fillTargets().isEmpty(), flipOn = LineView.flipShown();
-        int hw = (iw - 2) / 2;
-        for (int i = 0; i < 2; i++) {
-            int bx = ix + i * (hw + 2), bwid = i == 1 ? iw - hw - 2 : hw;
+        // Roads add Route (auto-route between two clicks) to the row: three buttons, icons only when narrow.
+        int nb = "road".equals(tool) ? 3 : 2, hw = (iw - 2 * (nb - 1)) / nb;
+        String[] bIcon = {"flip", "fill", "route"}, bKey = {"mccitybuilder.line.flip", "mccitybuilder.line.fill.btn", "mccitybuilder.route.btn"},
+                bTip = {"mccitybuilder.line.flip.tip", "mccitybuilder.line.fill.tip", "mccitybuilder.route.tip"};
+        // Labels on all of them, or (too narrow for any one) icons only on all of them.
+        boolean labels = true;
+        for (int i = 0; i < nb; i++) labels &= font.width(Component.translatable(bKey[i]).getString()) + 16 + 4 + 12 <= hw;
+        for (int i = 0; i < nb; i++) {
+            int bx = ix + i * (hw + 2), bwid = i == nb - 1 ? iw - (nb - 1) * (hw + 2) : hw;
             boolean off = i == 1 && !canFill;
-            iconButton(g, bx, iy, bwid, 20, i == 0 ? "flip" : "fill", Component.translatable(i == 0 ? "mccitybuilder.line.flip" : "mccitybuilder.line.fill.btn").getString(),
-                    i == 0 && flipOn, off, mx >= bx && mx < bx + bwid && my >= iy && my < iy + 20, 0);
-            anchor(i == 0 ? "flip" : "fill", bx, iy, bwid, 20);
+            String label = labels ? Component.translatable(bKey[i]).getString() : "";
+            iconButton(g, bx, iy, bwid, 20, bIcon[i], label, i == 0 && flipOn || i == 2 && RouteView.on, off, mx >= bx && mx < bx + bwid && my >= iy && my < iy + 20, 0);
+            anchor(bIcon[i], bx, iy, bwid, 20);
             int fi = i;
             hits.add(new Hit(bx, iy, bwid, 20, () -> {
                 if (off) return;
                 click();
                 if (fi == 0) LineView.toggleFlip();
-                else LineView.fillGaps();
-            }, Component.translatable(i == 0 ? "mccitybuilder.line.flip.tip" : "mccitybuilder.line.fill.tip")));
+                else if (fi == 1) LineView.fillGaps();
+                else RouteView.toggle();
+            }, Component.translatable(bTip[i])));
         }
         iy += 20 + gb;
         if (tier < 3) {
@@ -979,6 +989,7 @@ final class PlannerScreen extends Screen {
                 // The live segment's gap: why and how to fix it (the cursor label stays short).
                 if (LineView.liveShort > 0) info = Component.translatable("mccitybuilder.line.short_fix", LineView.liveShort).getString();
             }
+            if (RouteView.on) info = RouteView.status().getString();
             Component prog = PlanView.progress();
             if (prog != null) info = prog.getString();
             // Too long for one line: cut with an ellipsis, the whole text on hover.
@@ -1515,6 +1526,10 @@ final class PlannerScreen extends Screen {
         else if ("connect".equals(LineView.snap))
             warn = LineView.liveShort > 0 ? Component.translatable(LineView.liveShort == 1 ? "mccitybuilder.line.connect_gap_one" : "mccitybuilder.line.connect_gap", LineView.liveShort).getString()
                     : Component.translatable("mccitybuilder.line.snap.connect").getString() + " · " + warn;
+        if (RouteView.on) {
+            warn = RouteView.status().getString();
+            warnColour = RouteView.phase == RouteView.Phase.FAILED ? 0xFFFF8080 : 0xFF80E0FF;
+        }
         if (LineView.flash != null && System.currentTimeMillis() < LineView.flashUntil) {
             warn = Component.translatable(LineView.flash, LineView.flashArg).getString();
             warnColour = 0xFFFF8080;
@@ -2263,6 +2278,40 @@ final class PlannerScreen extends Screen {
     }
 
     /** ADJUST: a floating bar of vanilla buttons under the dropped ghost: place, rotate, mirror, move (camera-relative), raise, lower, cancel. */
+    /** Route mode: Accept / Try another / Cancel under the route's end once it is shown (Try another and Cancel when none was found). */
+    private void routeBar(GuiGraphics g, int mx, int my) {
+        int[] at = LineView.active() ? RouteView.barAnchor() : null;
+        if (at == null) return;
+        boolean found = RouteView.phase == RouteView.Phase.PREVIEW, other = found || "no_other".equals(RouteView.fail);
+        String[] keys = {"accept", "another", "cancel"};
+        int bw = 0, n = 3, h = 28;
+        for (String k : keys) bw = Math.max(bw, font.width(Component.translatable("mccitybuilder.route." + k).getString()) + 16);
+        int w = n * (bw + 2) + 6;
+        double[] ndc = Planner.project(at[0] + 0.5, LineView.groundY(at[0], at[1]) + 1, at[1] + 0.5);
+        int x = ndc == null ? (width - w) / 2 : (int) Math.round((ndc[0] + 1) / 2 * width) - w / 2;
+        int y = ndc == null ? height - 80 : (int) Math.round((1 - ndc[1]) / 2 * height) + 16;
+        x = Math.max(4, Math.min(width - w - 4, x));
+        y = Math.max(24, Math.min(height - h - 4, y));
+        panels.add(new int[]{x, y, w, h});
+        VanillaUi.panel(g, x, y, w, h);
+        Runnable[] run = {() -> {
+            if (RouteView.accept()) toast(Component.translatable("mccitybuilder.route.accepted"));
+        }, RouteView::another, RouteView::restart};
+        for (int i = 0; i < n; i++) {
+            int bx = x + 4 + i * (bw + 2), by = y + 4;
+            boolean off = i == 0 && !found || i == 1 && !other, over = mx >= bx && mx < bx + bw && my >= by && my < by + 20;
+            // The panel's button look: white label with shadow (grey when off); Accept green, the primary action like Build.
+            iconButton(g, bx, by, bw, 20, null, Component.translatable("mccitybuilder.route." + keys[i]).getString(), i == 0 && found, off, over, 0);
+            anchor("route_" + keys[i], bx, by, bw, 20);
+            Runnable r = run[i];
+            hits.add(new Hit(bx, by, bw, 20, () -> {
+                if (off) return;
+                click();
+                r.run();
+            }, Component.translatable("mccitybuilder.route." + keys[i] + ".tip")));
+        }
+    }
+
     private void actionBar(GuiGraphics g, int mx, int my) {
         BlockPos at = Planner.anchor();
         if (!Planner.adjusting() || at == null) return;
@@ -2750,11 +2799,13 @@ final class PlannerScreen extends Screen {
      * don't come back (the help screen's Replay tips does).
      */
     private void coachTip(GuiGraphics g, int mx, int my) {
-        if (tipStep < 0 || !LineView.active()) {
+        // The Route tip (once, the first time Route is turned on) waits for the line tips to finish.
+        boolean route = tipStep < 0 && routeTip && RouteView.on;
+        if (!route && tipStep < 0 || !LineView.active()) {
             if (!LineView.active()) linePanelBox = null;
             return;
         }
-        String[] tip = LineHelp.TIPS.get(tipStep);
+        String[] tip = route ? new String[]{"route", "panel"} : LineHelp.TIPS.get(tipStep);
         int tp = LineHelp.TIP_PAD, w = LineHelp.TIP_W;
         List<String> lines = LineHelp.wrap(Component.translatable("mccitybuilder.tip." + tip[0]).getString(), w - 2 * tp, font::width);
         int h = tp + 11 + lines.size() * 10 + 4 + 16 + tp;
@@ -2769,9 +2820,10 @@ final class PlannerScreen extends Screen {
         y = Math.max(4, Math.min(y, height - 4 - h));
         panels.add(new int[]{x, y, w, h});
         VanillaUi.panel(g, x, y, w, h);
-        g.drawString(font, Component.translatable("mccitybuilder.tip.step", tipStep + 1, LineHelp.TIPS.size()), x + tp, y + tp, 0xFF206080, false);
+        g.drawString(font, route ? Component.translatable("mccitybuilder.tip.route_title") : Component.translatable("mccitybuilder.tip.step", tipStep + 1, LineHelp.TIPS.size()),
+                x + tp, y + tp, 0xFF206080, false);
         for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), x + tp, y + tp + 11 + i * 10, VanillaUi.LABEL, false);
-        boolean last = tipStep == LineHelp.TIPS.size() - 1;
+        boolean last = route || tipStep == LineHelp.TIPS.size() - 1;
         String[] keys = last ? new String[]{"done"} : new String[]{"skip", "next"};
         int bw = 50, by = y + h - tp - 16;
         for (int i = 0; i < keys.length; i++) {
@@ -2783,7 +2835,11 @@ final class PlannerScreen extends Screen {
             // Before every other hit: the tip lies on top.
             hits.add(0, new Hit(bx, by, bw, 16, () -> {
                 if (next) tipStep++;
-                else {
+                else if (route) {
+                    routeTip = false;
+                    Config.ROUTE_TIP_SEEN.set(true);
+                    Config.ROUTE_TIP_SEEN.save();
+                } else {
                     tipStep = -1;
                     Config.LINE_TIPS_SEEN.set(true);
                     Config.LINE_TIPS_SEEN.save();
@@ -2982,6 +3038,10 @@ final class PlannerScreen extends Screen {
         BlockHitResult hit = Planner.pick(mx / width, my / height);
         // Road / wall tool: clicks start a chain or drop the live segment.
         if (LineView.active()) {
+            if (RouteView.on) {
+                if (RouteView.click(hit)) click();
+                return true;
+            }
             if (hit != null) {
                 if (LineView.edit) LineView.press(hit, hasAltDown());
                 else LineView.click(hit);
@@ -3046,7 +3106,9 @@ final class PlannerScreen extends Screen {
             else {
                 // A plain right-click backs out one step: adjust -> follow -> not placing; ends a road / wall chain; deselect too.
                 if (LineView.active()) {
-                    if (LineView.start != null) LineView.finishChain();
+                    if (RouteView.on) {
+                        if (!RouteView.back()) RouteView.reset();
+                    } else if (LineView.start != null) LineView.finishChain();
                     // On a planned segment: remove it (Undo brings it back); a built one only by Del / Remove; elsewhere: leave the tool.
                     else if (LineView.hoverBuilt()) {
                         LineView.flash = "mccitybuilder.line.built_right_click";
@@ -3140,6 +3202,17 @@ final class PlannerScreen extends Screen {
         if (key == GLFW.GLFW_KEY_TAB && LineView.active() && LineView.edit) {
             LineView.wholeMode = !LineView.wholeMode;
             return true;
+        }
+        if (LineView.active() && RouteView.on) {
+            // Route mode: Esc backs out (a search or preview is cancelled; at the start the mode ends), Enter accepts.
+            if (key == GLFW.GLFW_KEY_ESCAPE) {
+                if (!RouteView.back()) RouteView.reset();
+                return true;
+            }
+            if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER) {
+                if (RouteView.accept()) toast(Component.translatable("mccitybuilder.route.accepted"));
+                return true;
+            }
         }
         if (key == GLFW.GLFW_KEY_ESCAPE) {
             if (Planner.isPlacing()) Planner.back();

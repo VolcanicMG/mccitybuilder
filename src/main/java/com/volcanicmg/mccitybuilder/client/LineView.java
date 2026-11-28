@@ -119,6 +119,7 @@ final class LineView {
 
     static void use(String t) {
         tool = t.equals(tool) ? null : t;
+        RouteView.reset();
         endChain();
     }
 
@@ -241,6 +242,12 @@ final class LineView {
         guide = null;
         cursor = null;
         snapPoints = List.of();
+        if (RouteView.on) {
+            // Route mode draws its own preview (showPreview), not the chain's live segment.
+            end = hover = null;
+            if (fam != null) RouteView.aim(hit);
+            return;
+        }
         if (edit) {
             // Edit mode draws nothing: the cursor finds a joint (a segment end) or a segment.
             if (liveKey != null || ghosts > 0 || !live.isEmpty()) clearLive();
@@ -425,6 +432,51 @@ final class LineView {
         liveTouched = t;
     }
 
+    /**
+     * Route mode's preview as the live pieces: their ghosts and outlines, the segments touching its ends {@code a} /
+     * {@code b} drawn from it instead of the plan (as for a live segment).
+     */
+    static void showPreview(List<PieceCatalog.Placed> ps, List<Boolean> bad, int[] a, int[] b) {
+        live = ps;
+        liveBad = bad;
+        liveGap = null;
+        liveCross = List.of();
+        liveA = a.clone();
+        liveB = b.clone();
+        relayoutIfTouchedChanged();
+        showGhosts();
+    }
+
+    /**
+     * Accept of a route: its segments dropped like a chain drawn through its points (the start and the end split a
+     * road's body there: a T), in one undo step, then the chain ends.
+     *
+     * @param base the route's shared level in Flat chain mode (its highest ground, as previewed; {@link Plan#NO_BASE} otherwise)
+     * @return false (a hint flashes) when a segment may not be dropped (outside, through built, along an arm)
+     */
+    static boolean dropRoute(List<int[]> pts, int base) {
+        for (int k = 0; k + 1 < pts.size(); k++) if (refused(pts.get(k), pts.get(k + 1))) return false;
+        endChain();
+        checkpoint();
+        start = pts.get(0).clone();
+        PlanView.splitAt(start);
+        // Chain mode: drop() lifts the chain to liveSegMax, which only the live segment's layout sets: the route's level instead.
+        chainBase = base;
+        for (int k = 1; k < pts.size(); k++) {
+            liveSegMax = base;
+            end = pts.get(k).clone();
+            merge = false;
+            grow = null;
+            adjust = null;
+            teeCell = null;
+            connect = connectTo = null;
+            snap = null;
+            drop();
+        }
+        endChain();
+        return true;
+    }
+
     /** @return true when the live layout draws this planned segment's pieces instead of the plan */
     static boolean liveTouches(Plan.Line l) {
         return !live.isEmpty() && liveA != null && (onLine(l, liveA) || onLine(l, liveB) || crossed(l));
@@ -455,6 +507,7 @@ final class LineView {
 
     /** X / the Edit button: edit mode on or off (on: the chain ends; off: the selection clears). */
     static void toggleEdit() {
+        if (!edit && RouteView.on) RouteView.reset();
         edit = !edit;
         finishChain();
         select(List.of(), false);
@@ -1210,7 +1263,7 @@ final class LineView {
     }
 
     /** Structurize ghosts of the live pieces, one cache key each; stale keys removed. */
-    private static void showGhosts() {
+    static void showGhosts() {
         int n = 0;
         for (PieceCatalog.Placed p : live) {
             Blueprint bp = PieceCatalog.rotated(PlannerScreen.pack(), p.path(), p.turns());
@@ -1789,6 +1842,11 @@ final class LineView {
             return;
         }
         PlanView.outline(pose, lines, live, liveBad, false);
+        if (RouteView.on) {
+            RouteView.renderWorld(pose, lines);
+            PlanView.floating(pose, lines, live);
+            return;
+        }
         if (liveGap != null) PlanView.gap(pose, lines, liveGap, live.isEmpty() ? groundY(liveGap[0], liveGap[1]) : PlanView.gapY(live, liveGap));
         int[] c = start != null ? start : hover;
         if (c != null) {
@@ -1866,7 +1924,7 @@ final class LineView {
     }
 
     /** A thin cyan line on the ground from (x0, z0) to (x1, z1) at height y. */
-    private static void segment(PoseStack pose, VertexConsumer lines, float x0, float z0, float x1, float z1, float y, float alpha) {
+    static void segment(PoseStack pose, VertexConsumer lines, float x0, float z0, float x1, float z1, float y, float alpha) {
         var m = pose.last();
         float dx = x1 - x0, dz = z1 - z0, n = (float) Math.max(1e-4, Math.sqrt(dx * dx + dz * dz));
         lines.addVertex(m, x0, y, z0).setColor(0.3f, 0.9f, 1f, alpha).setNormal(m, dx / n, 0, dz / n);
@@ -1895,7 +1953,7 @@ final class LineView {
             }
     }
 
-    private static int groundY(int x, int z) {
+    static int groundY(int x, int z) {
         Integer g = Planner.groundAt(x, z);
         return g == null ? 64 : g;
     }

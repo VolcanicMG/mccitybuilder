@@ -327,6 +327,8 @@ public final class Planner {
         previousCameraType = mc.options.getCameraType();
         mc.options.setCameraType(CameraType.FIRST_PERSON);
         active = true;
+        // Each planner session logs its own first failure.
+        failed = false;
         plannerState(c.getID());
         updateCamera(1);
         mc.setCameraEntity(camera);
@@ -359,6 +361,8 @@ public final class Planner {
     static void exit(Component why) {
         if (!active) return;
         active = false;
+        // Why the planner closed (damage, leaving the colony, an error...): in the log, so an unexpected close can be traced.
+        if (why != null) com.volcanicmg.mccitybuilder.CityBuilder.LOGGER.info("CityBuilder: planner closed: {}", why.getString());
         Minecraft mc = Minecraft.getInstance();
         plannerState(0);
         stopPlacing();

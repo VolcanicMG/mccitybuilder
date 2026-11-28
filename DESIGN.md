@@ -931,6 +931,49 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   time-stamped, and a request releases only its own (a stuck piece finishing late can't clear a newer mark). Survival is checked when ordered: builders later replace what is there
   when they build.
 
+### Auto-route (`planner/Route`, `client/RouteView`)
+
+- The road panel's Route toggle (SHAPE row: Flip | Fill gaps | Route; icons only when the panel is narrow). Clicks then
+  go to `RouteView`: a start, then an end (`pickCell`: a planned road's end, else onto a road's body = a T, else the
+  clicked cell; inside a building's box it moves out to the box's nearest side, clear of the road's half width, since
+  the hut's door side isn't known). Esc / right-click back out (a search or preview is cancelled, the plan untouched;
+  at the start the mode ends); Enter accepts. Turning on edit mode, another tool or leaving the planner ends it.
+- Snapshot (client thread, `COLUMNS_PER_FRAME` = 3000 columns per frame, so no frame stalls): the ends' box widened by
+  `Route.margin` (what the remaining length allows, at most 48). Per column: ground (`Planner.groundAt`), water (fluid
+  under the ground block; lava, unloaded or unclaimed columns are blocked); boxes of buildings, plan entries and
+  planned walls are BLOCKED, planned roads' piece boxes ROAD. The search then runs on a single daemon thread; the
+  frame polls its future ("Routing…"), cancel flips an AtomicBoolean the search polls.
+- Search (`Route.find`, pure, SelfCheck `routes()`): A* over (cell, axis of the last segment); a move is a whole
+  segment along the other axis, so every route is straight runs with L turns. Lengths: a segment between two corners
+  tiles exactly (`LineSnap.exact` with the corner's `expectedReach` both ends); the first / last tile exactly too when
+  the end joins a road (its offset: the corner's, or the T's on a body), else (a free end) any droppable length and the
+  route's end moves in by what its pieces leave over (like Done trimming a chain), so no amber gap is left; an
+  uncovered tail at a joined end costs `GAP` per cell. Cost per block 1, per turn `routeTurnCost` (12), per block of
+  height step 1.5 and 12 more per block beyond 1 (steep grades are gone round, a gentle rise is climbed), routes shown
+  before 3 per cell (Try another; the same route again reads "no other route"). Obstacles and water are widened by
+  the road's half width; ROAD cells are free only near the two ends (a route never runs along another road), and the
+  first / last segment never leave / arrive along an arm already there (`Plan.arms`). Refused: ends farther apart than
+  `routeMaxLength` (Manhattan), an end on an obstacle, no way within the length.
+- Preview: the route's segments (`LineView.next`, the panel's options) laid out with the plan, its ends split as the
+  drop will, as the live ghosts (`LineView.showPreview`, so the roads it joins are drawn from the same layout), a cyan
+  centreline, the label "Route: N blocks · M turns" and a floating Accept / Try another / Cancel bar under its end.
+  Accept = `LineView.dropRoute`: each segment checked with the line tool's `refused` first, then one checkpoint, the
+  start split, every leg dropped through `drop` (T at the end, refit of joined roads), the chain ended; afterwards they
+  are ordinary planned roads.
+- Bridges (inventoried 0.3.x): the pathfinder can cross water straight (`Params.bridges`, at most `bridgeMax` cells,
+  no corner on water, level over the water; SelfCheck covers it), but the client never turns it on, because no style
+  has bridge pieces the road tool can lay. MineColonies 1.1.1403: lostcity's road families (plain / simple / nice /
+  fancy) each have a `*_bridge_segment` straight (5 x 6, the road is 5 wide), `*_bridge_start`, `*_bridge_pillars`,
+  `*_bridge_cross_pillars`, but the layout uses one straight group per line, so a bridge span would need a per-segment
+  straight choice (a `Plan.Line` field, saved, and `PieceCatalog.primary` / `runLengths` reading it) and its look over
+  water / joins at the banks are unchecked; jungle's `bridge1-4` (10 x 20, OTHER) don't match its 8-wide roads;
+  lostcity's wall bridges are walls. Byzantine 51.1: `infrastructure/bridge/{main,main_odd,road,wood}` (flat, spans,
+  ramps, piers; road kit 10 wide against 11 / 12-wide avenues) is a separate kit under a folder piece detection skips
+  (`bridge` names a non-piece). Sword and Kingdom 1.6: `Small bridge【1】/【2】` (7 x 5, 10 x 5 decorations of one
+  length). Fixture packs (Nile, Shogun): none. Water is therefore always gone round.
+- Smoke: `tools/smoke_route.sh` (sourced by smoke.sh, or alone against a running client) via the bridge's `/route`
+  (`on|off`, `at x z`, `accept`, `another`, `cancel`, `undo`, `lines`, no args = state).
+
 ### Opening and staying inside the colony
 
 - J opens only where the player stands in a chunk claimed by a colony (MineColonies' client claim data,
