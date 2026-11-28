@@ -1063,6 +1063,16 @@ final class JointEditorScreen extends Screen {
         return false;
     }
 
+    /** @return each case of a family with its issues ("label: [overlap, opening]"), one per line (the dev bridge) */
+    static String issuesDump(String pack, String fam, int lvl) {
+        JointEditorScreen e = new JointEditorScreen(pack, fam, PieceSets.Role.CORNER, -1);
+        e.lvl = lvl;
+        StringBuilder sb = new StringBuilder();
+        Map<Case, Verdict> vs = e.verdicts(e.cases());
+        for (var en : vs.entrySet()) sb.append(e.caseLabel(en.getKey())).append(": ").append(en.getValue().loading() ? "loading" : en.getValue().issues()).append('\n');
+        return sb.toString();
+    }
+
     /** @return the worst run's match in a laid-out case */
     private static double minMatch(Layout lay) {
         double min = 1;

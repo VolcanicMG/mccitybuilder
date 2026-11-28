@@ -187,6 +187,7 @@ public final class DevBridge {
                     var r = JointEditorScreen.reference(pk, p[1], Integer.parseInt(p[2]));
                     return (r.bad() + r.minor()) + "/" + r.total() + (r.done() ? "" : "+" + r.pending()) + " real=" + r.bad() + " minor=" + r.minor() + " oldreal=" + JointEditorScreen.legacyReal(pk, p[1], Integer.parseInt(p[2])) + " " + r.failing() + r.minorNames();
                 }
+                if (p[0].equals("issues")) return JointEditorScreen.issuesDump(pk, p[1], Integer.parseInt(p[2]));
                 if (p[0].equals("open")) return JointEditorScreen.openOn(pk, p[1], Integer.parseInt(p[2]), p[3]) ? "ok" : "no such case";
                 if (p[0].equals("tune")) return String.join("\n", JointEditorScreen.tune(pk, p[1], Integer.parseInt(p[2]), p.length > 3 ? Double.parseDouble(p[3]) : 0.6));
                 StringBuilder sb = new StringBuilder();
