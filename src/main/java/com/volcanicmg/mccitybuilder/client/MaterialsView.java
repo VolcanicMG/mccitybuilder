@@ -1,6 +1,7 @@
 package com.volcanicmg.mccitybuilder.client;
 
 import com.volcanicmg.mccitybuilder.planner.Costs;
+import com.volcanicmg.mccitybuilder.planner.HutCatalog;
 import com.volcanicmg.mccitybuilder.planner.Materials;
 import com.volcanicmg.mccitybuilder.planner.Plan;
 import com.volcanicmg.mccitybuilder.server.WarehouseStock;
@@ -20,7 +21,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
  */
 final class MaterialsView {
     /** Warehouse stock is asked for this often while the numbers are shown; the refresh button asks at most every {@link #MIN_GAP_MS}. */
-    static final long POLL_MS = 10_000, MIN_GAP_MS = 2000;
+    static final long POLL_MS = 10_000, MIN_GAP_MS = 2200;
     /** New blueprint material lists worked out per pass (each is a structure walk). */
     private static final int BUDGET = 3;
 
@@ -70,8 +71,10 @@ final class MaterialsView {
         }
         pending |= merge(r, counts, budget);
         counts.clear();
+        // A hut planned at level L is built through levels 1..L, each its own blueprint.
         for (Plan.Entry e : PlanView.entries)
-            if (!e.path().isEmpty()) counts.computeIfAbsent(e.pack() + "\n" + e.path(), x -> new int[1])[0]++;
+            if (!e.path().isEmpty())
+                for (String p : HutCatalog.levelPaths(e.path(), e.level(), e.isHut())) counts.computeIfAbsent(e.pack() + "\n" + p, x -> new int[1])[0]++;
         pending |= merge(h, counts, budget);
         roads = r;
         huts = h;
@@ -145,7 +148,8 @@ final class MaterialsView {
     /** The server's answer. */
     static void onStock(WarehouseStock.Stock s) {
         var c = Planner.colony();
-        if (c == null || c.getID() != s.colony()) return;
+        var lv = Minecraft.getInstance().level;
+        if (c == null || c.getID() != s.colony() || lv == null || !lv.dimension().location().toString().equals(s.dim())) return;
         stock = new HashMap<>(s.items());
         stockColony = s.colony();
         stockAt = System.currentTimeMillis();

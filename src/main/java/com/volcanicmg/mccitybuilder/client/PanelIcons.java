@@ -24,6 +24,7 @@ final class PanelIcons {
         art.put("okb", new String[]{"..kkkkk..", ".kGGGGGk.", "kGGGGGGWk", "kGGGGGWWk", "kGWGGWWGk", "kGWWWWGGk", "kGGWWGGGk", ".kGGGGGk.", "..kkkkk.."});
         art.put("warnb", new String[]{"..kkkkk..", ".k" + "ooooo" + "k.", "k" + "ooo" + "k" + "ooo" + "k", "k" + "ooo" + "k" + "ooo" + "k", "k" + "ooo" + "k" + "ooo" + "k", "k" + "ooooooo" + "k", "k" + "ooo" + "k" + "ooo" + "k", ".k" + "ooooo" + "k.", "..kkkkk.."});
         art.put("joint", new String[]{"................", "......kkkk......", "......kddk......", "......kddk......", "......kddk......", "..kkkkkookkkkk..", "..kddddooddddk..", "..kddddooddddk..", "..kkkkkookkkkk..", "......kddk......", "......kddk......", "......kddk......", "......kkkk......", "................", "................", "................"});
+        art.put("refresh", new String[]{"................", "................", "......kkkkk.....", "....kkWWWWWkk...", "...kWWkkkkkWWk..", "..kWWk.....kWWWk", "..kWk.......kWk.", "..kWk......kWWWk", "..kWk.......kWk.", "..kWk........k..", "...kWWk.....kWk.", "....kkWWkkkkWk..", ".....kkkWWWWk...", ".......kkkkk....", "................", "................"});
         art.put("hammer", new String[]{"............", ".kkkkkkkk...", ".kwwwwwwwk..", ".kwwwwwwwwk.", ".kkkkkkkkkk.", "....kBBk....", "....kBBk....", "....kBBk....", "....kBBk....", "....kBBk....", "....kkkk....", "............"});
         art.put("r_straight", road(true, false, true, false, false));
         art.put("r_corner", road(false, true, true, false, false));

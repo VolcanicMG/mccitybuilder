@@ -68,6 +68,8 @@ public final class SelfCheck {
         check(r.need() == 150 && r.missing() == 10 && r.rows().size() == 2, "materials: roads tab has road pieces only");
         check(h.need() == 90 && h.missing() == 0 && h.rows().size() == 2, "materials: huts tab has huts only, covered by stock");
         check(Materials.view(Map.of(), Map.of(), Materials.Tab.ALL, have).rows().isEmpty(), "materials: nothing planned, no rows");
+        check(HutCatalog.levelPaths("fundamentals/baker3.blueprint", 3, true).equals(List.of("fundamentals/baker1.blueprint", "fundamentals/baker2.blueprint", "fundamentals/baker3.blueprint")), "materials: a level-3 hut is built through levels 1-3");
+        check(HutCatalog.levelPaths("fundamentals/baker1.blueprint", 1, true).size() == 1 && HutCatalog.levelPaths("decos/bench3.blueprint", 3, false).size() == 1, "materials: level 1 and decorations count their own blueprint");
         check(Materials.allowed(null, 0, 2000) && !Materials.allowed(1000L, 2500, 2000) && Materials.allowed(1000L, 3000, 2000), "materials: one request per 2 s");
     }
 

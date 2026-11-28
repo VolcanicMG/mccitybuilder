@@ -140,9 +140,9 @@ public final class InstantBuild {
      * the channels (optional, so the planner falls back to MineColonies' own messages) instead of failing NeoForge's
      * version check, which disconnects. 7: record pages carry road / wall pieces; 8: and their owners; 9: shared
      * ghosts and plans ({@link PlanShare}); 10: survival orders carry the chosen builder hut; 11: creative free-material
-     * marks ({@link FreeMaterials}) and the planner-open state ({@link PlannerRange}); 12: warehouse stock for the Materials panel ({@link WarehouseStock}).
+     * marks ({@link FreeMaterials}) and the planner-open state ({@link PlannerRange}); the Materials panel's stock request ({@link WarehouseStock}) joined 11 as new payload types.
      */
-    public static final String PROTOCOL = "12";
+    public static final String PROTOCOL = "11";
 
     /** Registers the payload as optional, so clients and servers without the mod (or another protocol) still connect. */
     public static void register(RegisterPayloadHandlersEvent e) {

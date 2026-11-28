@@ -61,4 +61,12 @@ public final class HutCatalog {
         if (base.isEmpty() || !Character.isDigit(base.charAt(base.length() - 1))) return null;
         return base.substring(0, base.length() - 1) + level + ".blueprint";
     }
+
+    /** @return the blueprint paths a hut planned at {@code level} is built through (levels 1..level, survival builds each in turn); just {@code path} when it has no level digit or is a decoration */
+    public static java.util.List<String> levelPaths(String path, int level, boolean hut) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (hut && level > 1 && levelPath(path, 1) != null) for (int l = 1; l <= level; l++) out.add(levelPath(path, l));
+        else out.add(path);
+        return out;
+    }
 }

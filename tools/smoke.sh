@@ -203,9 +203,24 @@ else
   setwin 1600 900 2
   aclick materials_close; sleep 1
   [ "$(mfield open)" = false ] && step "materials: close button closes the panel" ok || step "materials: close button closes the panel" fail "open=$(mfield open)"
+  # The plan panel's Materials button (no road tool): opens the same panel on the Huts tab, listing the planned hut's items.
+  B tool off >/dev/null; aclick tb_plan; sleep 2
+  if aclick plan_materials; then
+    sleep 1; B screenshot "materials-plan" >/dev/null
+    [ "$(mfield open)" = true ] && [ "$(mfield tab)" = HUTS ] && [ -n "$(B materials | sed -n 2p)" ] && [ "$(B anchor materials_close)" != none ] && step "materials: plan panel button opens the Huts tab ($(B materials | sed -n 2p | cut -d' ' -f1)...)" ok || step "materials: plan panel button opens the Huts tab" fail "$(B materials | head -2 | tr '\n' '|')"
+    aclick materials_close; sleep 1
+  else step "materials: plan panel button opens the Huts tab" fail "no plan_materials button"; fi
+  aclick tb_plan; sleep 1; B tool road >/dev/null
   B planentry clear >/dev/null; B clearlines >/dev/null
   need=1; for _ in $(seq 10); do need=$(mfield need); [ "$need" = 0 ] && break; sleep 1; done
   [ "$need" = 0 ] && step "materials: Clear empties the needs" ok || step "materials: Clear empties the needs" fail "need=$need"
+  # A hut planned at level 3 is built through levels 1-3: its needs exceed the level-3 blueprint alone (the same path planned at level 1).
+  wait_huts() { local v=0; for _ in $(seq 30); do v=$(mfield huts); [ "${v:-0}" -gt 0 ] && [ "$(mfield loading)" = false ] && { v=$(mfield huts); break; }; sleep 1; done; echo "$v"; }
+  B planentry "minecolonies:blockhutbuilder Colonial fundamentals/builder3.blueprint 3 $((mx + 20)) $my $((mz + 20))" >/dev/null; h3=$(wait_huts)
+  B planentry clear >/dev/null; sleep 2
+  B planentry "minecolonies:blockhutbuilder Colonial fundamentals/builder3.blueprint 1 $((mx + 20)) $my $((mz + 20))" >/dev/null; h1=$(wait_huts)
+  [ "${h1:-0}" -gt 0 ] && [ "${h3:-0}" -gt "$h1" ] && step "materials: a level-3 hut counts levels 1-3 ($h3 > level-3 alone $h1)" ok || step "materials: a level-3 hut counts levels 1-3" fail "level 3: $h3, level-3 blueprint alone: $h1"
+  B planentry clear >/dev/null
 fi
 B materials "mode BUILDERS_FREE" >/dev/null; B tool off >/dev/null
 [ -n "${SMOKE_ONLY:-}" ] && { echo "== $passes passed, $fails failed"; [ "$fails" -gt 0 ] && printf 'FAILED: %s\n' "${failed[@]}"; exit $((fails > 0)); }

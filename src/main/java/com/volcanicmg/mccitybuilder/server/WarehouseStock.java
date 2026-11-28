@@ -35,7 +35,8 @@ public final class WarehouseStock {
     static final long MIN_GAP_MS = 2000;
     /** Items in one reply (a decoder refuses more). */
     static final int MAX_ITEMS = 4096;
-    private static final Map<UUID, Long> last = new HashMap<>();
+    private static final Map<UUID, Long> lastAt = new HashMap<>();
+    private static final Map<UUID, Stock> last = new HashMap<>();
     private static Consumer<Stock> handler = s -> {
     };
 
@@ -54,24 +55,27 @@ public final class WarehouseStock {
     }
 
     /** Server to client: item id to count over the colony's warehouse racks. */
-    public record Stock(int colony, Map<String, Integer> items) implements CustomPacketPayload {
+    public record Stock(int colony, String dim, Map<String, Integer> items) implements CustomPacketPayload {
         public static final Type<Stock> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(CityBuilder.MODID, "stock_" + InstantBuild.PROTOCOL));
         public static final StreamCodec<RegistryFriendlyByteBuf, Stock> CODEC = StreamCodec.of((buf, s) -> {
             buf.writeVarInt(s.colony);
+            buf.writeUtf(s.dim, 128);
             int n = Math.min(s.items.size(), MAX_ITEMS);
             buf.writeVarInt(n);
             int i = 0;
             for (Map.Entry<String, Integer> e : s.items.entrySet()) {
                 if (i++ >= n) break;
-                buf.writeUtf(e.getKey(), 128);
+                buf.writeUtf(e.getKey(), 32767);
                 buf.writeVarInt(e.getValue());
             }
         }, buf -> {
-            int colony = buf.readVarInt(), n = buf.readVarInt();
+            int colony = buf.readVarInt();
+            String dim = buf.readUtf(128);
+            int n = buf.readVarInt();
             if (n < 0 || n > MAX_ITEMS) throw new DecoderException("too many stock items: " + n);
             Map<String, Integer> items = new LinkedHashMap<>();
-            for (int i = 0; i < n; i++) items.put(buf.readUtf(128), buf.readVarInt());
-            return new Stock(colony, items);
+            for (int i = 0; i < n; i++) items.put(buf.readUtf(32767), buf.readVarInt());
+            return new Stock(colony, dim, items);
         });
 
         @Override
@@ -90,21 +94,30 @@ public final class WarehouseStock {
     }
 
     static void forget(UUID id) {
+        lastAt.remove(id);
         last.remove(id);
     }
 
     static void clear() {
+        lastAt.clear();
         last.clear();
     }
 
     static void handle(Query q, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer p)) return;
         long now = System.currentTimeMillis();
-        if (!Materials.allowed(last.get(p.getUUID()), now, MIN_GAP_MS)) return;
-        last.put(p.getUUID(), now);
+        // Too soon: the last answer again (never nothing), so a jittery refresh isn't lost.
+        if (!Materials.allowed(lastAt.get(p.getUUID()), now, MIN_GAP_MS)) {
+            Stock again = last.get(p.getUUID());
+            if (again != null && again.colony() == q.colony && p.connection.hasChannel(Stock.TYPE)) PacketDistributor.sendToPlayer(p, again);
+            return;
+        }
+        lastAt.put(p.getUUID(), now);
         IColony colony = IColonyManager.getInstance().getColonyByWorld(q.colony, p.serverLevel());
         if (colony == null || !colony.getPermissions().hasPermission(p, Action.ACCESS_HUTS) || !p.connection.hasChannel(Stock.TYPE)) return;
-        PacketDistributor.sendToPlayer(p, new Stock(q.colony, count(colony, p.serverLevel())));
+        Stock st = new Stock(q.colony, p.serverLevel().dimension().location().toString(), count(colony, p.serverLevel()));
+        last.put(p.getUUID(), st);
+        PacketDistributor.sendToPlayer(p, st);
     }
 
     /** @return item id to count over the rack inventories of the colony's warehouses (racks in unloaded chunks are skipped) */

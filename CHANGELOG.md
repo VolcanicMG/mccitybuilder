@@ -7,8 +7,8 @@
   icon, need, have and short (red), scrolling, and a refresh button. Needs cover everything planned and not built yet (huts,
   decorations, road / wall pieces), worked out like the palette's material list; have is your inventory plus the colony's
   warehouse racks (the server checks you may see the colony and answers at most once per 2 s; builders' own stock isn't
-  counted). Hidden where nothing is consumed (creative Instant, Builders (free)). Network protocol 12: a new client and
-  an old server (or the other way round) just don't share the stock request, so the numbers use the inventory only.
+  counted). Hidden where nothing is consumed (creative Instant, Builders (free)). A new client and an
+  old server (or the other way round) just don't share the stock request, so the numbers use the inventory only.
 - The road / wall panel is rebuilt in three sections. PIECES: the set picker, a level / variant picker only when the
   set has more than one, a 3D preview and a row of piece-type tiles (road: straight, corner, T, cross, end; wall: its
   parts, with a Gate toggle). The preview's arrows browse the pieces of the selected part; the tiles pick which part it
