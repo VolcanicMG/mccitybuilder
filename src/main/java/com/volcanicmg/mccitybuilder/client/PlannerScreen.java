@@ -2082,7 +2082,9 @@ final class PlannerScreen extends Screen {
         if (at == null) return;
         boolean found = RouteView.phase == RouteView.Phase.PREVIEW, other = found || "no_other".equals(RouteView.fail);
         String[] keys = {"accept", "another", "cancel"};
-        int bw = 66, n = 3, w = n * (bw + 2) + 6, h = 28;
+        int bw = 0, n = 3, h = 28;
+        for (String k : keys) bw = Math.max(bw, font.width(Component.translatable("mccitybuilder.route." + k).getString()) + 16);
+        int w = n * (bw + 2) + 6;
         double[] ndc = Planner.project(at[0] + 0.5, LineView.groundY(at[0], at[1]) + 1, at[1] + 0.5);
         int x = ndc == null ? (width - w) / 2 : (int) Math.round((ndc[0] + 1) / 2 * width) - w / 2;
         int y = ndc == null ? height - 80 : (int) Math.round((1 - ndc[1]) / 2 * height) + 16;
