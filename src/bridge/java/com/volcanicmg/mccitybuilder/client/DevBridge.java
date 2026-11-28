@@ -405,6 +405,19 @@ public final class DevBridge {
                         java.util.Collections.sort(out);
                         return String.join(" ", out);
                     }
+                    // walls: the planned wall segments; flag <x> <z>: the search's flag at a cell
+                    case "walls" -> {
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < PlanView.lines.size(); i++) {
+                            var l = PlanView.lines.get(i);
+                            if (!l.tool().equals("road")) sb.append(l.x0()).append(',').append(l.z0()).append('>').append(l.x1()).append(',').append(l.z1()).append(" pieces=")
+                                    .append(i < PlanView.linePieces.size() ? PlanView.linePieces.get(i).size() : -1).append(' ');
+                        }
+                        return sb.toString().trim();
+                    }
+                    case "flag" -> {
+                        return String.valueOf(RouteView.flagAt(Integer.parseInt(a[1]), Integer.parseInt(a[2])));
+                    }
                     case "lines" -> {
                         StringBuilder sb = new StringBuilder();
                         for (var l : PlanView.lines) if (l.tool().equals("road")) sb.append(l.x0()).append(',').append(l.z0()).append('>').append(l.x1()).append(',').append(l.z1()).append(' ');

@@ -219,15 +219,22 @@ final class RouteView {
             int[] b = e.box();
             mark(b[0], b[2], b[3], b[5], Route.BLOCKED);
         }
-        for (int i = 0; i < PlanView.lines.size() && i < PlanView.linePieces.size(); i++) {
+        for (int i = 0; i < PlanView.lines.size(); i++) {
             byte f = PlanView.lines.get(i).tool().equals("road") ? Route.ROAD : Route.BLOCKED;
-            for (PieceCatalog.Placed p : PlanView.linePieces.get(i)) mark(p.box()[0], p.box()[1], p.box()[2], p.box()[3], f);
-            // A segment still loading has no pieces: its centreline at least.
-            if (PlanView.linePieces.get(i).isEmpty()) {
+            // A segment whose pieces aren't laid out yet (just planned, or still loading) is not skipped: its centreline at least.
+            List<PieceCatalog.Placed> placed = i < PlanView.linePieces.size() ? PlanView.linePieces.get(i) : List.of();
+            for (PieceCatalog.Placed p : placed) mark(p.box()[0], p.box()[1], p.box()[2], p.box()[3], f);
+            if (placed.isEmpty()) {
                 Plan.Line l = PlanView.lines.get(i);
                 for (int[] c : Roads.centreline(List.of(new int[]{l.x0(), l.z0()}, new int[]{l.x1(), l.z1()}))) mark(c[0], c[1], c[0], c[1], f);
             }
         }
+    }
+
+    /** @return the search's flag at a cell (the dev bridge): bit 1 blocked, bit 2 road..., -1 outside the sampled box or before a search */
+    static int flagAt(int x, int z) {
+        if (flags == null || box == null || x < box[0] || z < box[1] || x >= box[0] + box[2] || z >= box[1] + box[3]) return -1;
+        return flags[(z - box[1]) * box[2] + (x - box[0])];
     }
 
     private static void mark(int x0, int z0, int x1, int z1, byte f) {

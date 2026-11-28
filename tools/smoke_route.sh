@@ -77,21 +77,34 @@ else
       s=$(B project "$1.5 $((g + 1)) $2.5"); B mouse "move $s" >/dev/null; sleep 0.4; B mouse "click $s" >/dev/null; sleep 0.6
     done
     B key escape >/dev/null; sleep 2
+    # The wall's pieces laid out (the route marks the wall from them; a slow layout used to leave it unmarked): up to 20 s.
+    for _ in $(seq 20); do [[ "$(B lineturns)" == *dir=* ]] && break; sleep 1; done
     walls1=$(B plan | sed -n 's/.*lines=\([0-9]*\).*/\1/p')
+    # Where the wall actually landed (the clicks can snap it several blocks off), so the route is asked across its middle.
+    wl=$(B route walls | head -c 200); wseg=${wl%% *}; wa=${wseg%>*}; wb=${wseg#*>}
+    wx0=${wa%,*}; wz0=${wa#*,}; wx1=${wb%,*}; wz1=${wb#*,}
+    wok=0; [[ "$wx0" =~ ^-?[0-9]+$ && "$wz0" =~ ^-?[0-9]+$ && "$wx1" =~ ^-?[0-9]+$ && "$wz1" =~ ^-?[0-9]+$ ]] && wok=1
+    if [ $wok = 1 ]; then rx=$(( (wx0 + wx1) / 2 )); rz=$(( (wz0 + wz1) / 2 )); else rx=$wx; rz=$((pz - 12)); fi
     B tool off >/dev/null; B tool road >/dev/null; sleep 1; B route on >/dev/null
-    B route "at $((px - 10)) $((pz - 12))" >/dev/null; B route "at $((px + 14)) $((pz - 12))" >/dev/null; route_wait; pd=$(route_pts)
+    B route "at $((rx - 12)) $rz" >/dev/null; B route "at $((rx + 12)) $rz" >/dev/null; route_wait; pd=$(route_pts)
     sleep 2; B screenshot route-detour >/dev/null
     n=$(wc -w <<< "$pd")
-    # The detour never crosses x = wx between the wall's ends (with the walls' width as margin).
-    cross=0; set -- $pd; prev=""
-    for p in "$@"; do
-      if [ -n "$prev" ]; then
-        x0=${prev%,*}; z0=${prev#*,}; x1=${p%,*}; z1=${p#*,}
-        if [ "$z0" = "$z1" ] && [ $(( (x0 - wx) * (x1 - wx) )) -le 0 ] && [ "$z0" -gt $((pz - 26)) ] && [ "$z0" -lt $((pz + 2)) ]; then cross=1; fi
-      fi
-      prev=$p
-    done
-    [ "${walls1:-0}" -gt "${walls0:-0}" ] && [[ "$rs" == preview* ]] && [ "$n" -ge 3 ] && [ $cross = 0 ] && step "route: around a planned wall ($pd)" ok || step "route: around a planned wall" fail "walls $walls0 -> $walls1; $rs"
+    # The detour never crosses the wall (with the walls' width as margin): no horizontal leg through its x span inside its z span (and vice versa).
+    cross=0
+    if [ $wok = 1 ]; then
+      xlo=$((wx0 < wx1 ? wx0 : wx1)); xhi=$((wx0 < wx1 ? wx1 : wx0)); zlo=$((wz0 < wz1 ? wz0 : wz1)); zhi=$((wz0 < wz1 ? wz1 : wz0))
+      set -- $pd; prev=""
+      for p in "$@"; do
+        if [ -n "$prev" ]; then
+          x0=${prev%,*}; z0=${prev#*,}; x1=${p%,*}; z1=${p#*,}
+          # a horizontal leg (same z) spanning the wall's x range inside its z range; a vertical leg (same x) the other way round
+          if [ "$z0" = "$z1" ] && [ $(( (x0 - xlo) * (x1 - xhi) )) -le 0 ] && [ "$z0" -ge $((zlo - 4)) ] && [ "$z0" -le $((zhi + 4)) ]; then cross=1; fi
+          if [ "$x0" = "$x1" ] && [ $(( (z0 - zlo) * (z1 - zhi) )) -le 0 ] && [ "$x0" -ge $((xlo - 4)) ] && [ "$x0" -le $((xhi + 4)) ]; then cross=1; fi
+        fi
+        prev=$p
+      done
+    else cross=9; fi
+    [ "${walls1:-0}" -gt "${walls0:-0}" ] && [[ "$rs" == preview* ]] && [ "$n" -ge 3 ] && [ $cross = 0 ] && step "route: around a planned wall ($pd)" ok || step "route: around a planned wall" fail "walls $walls0 -> $walls1 ($wl, crossing=$cross); $rs"
     B route cancel >/dev/null
     B route off >/dev/null; B tool off >/dev/null; B tool wall >/dev/null; B clearlines >/dev/null; sleep 1
   fi
