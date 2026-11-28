@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Route (road panel, beside Flip and Fill gaps): click a start (a road's end or side, a hut, or any point), then an end,
+  and the planner lays a road between them over the land: straight runs with L turns of the current set, lengths the
+  pieces fill, few turns, gentle slopes, round buildings, planned huts and decorations, walls and water, never along
+  another road; it joins a road it starts or ends on with the usual L / T. "Routing…" shows while it works (the
+  terrain is read a few thousand columns per frame, the search runs off the game thread). The route shows as ghosts
+  with Accept (Enter), Try another (a different way) and Cancel (Esc: the plan stays as it was); Accept is one Undo
+  step and leaves ordinary planned roads. A route is at most 256 blocks (`routeMaxLength` in the client config, with
+  `routeTurnCost` for how much it avoids turns). New help page "Auto-route a road" and a first-use tip. Water is gone
+  round, not bridged: no installed style has bridge pieces the road tool can lay yet (see DESIGN.md).
 - The road / wall panel is rebuilt in three sections. PIECES: the set picker, a level / variant picker only when the
   set has more than one, a 3D preview and a row of piece-type tiles (road: straight, corner, T, cross, end; wall: its
   parts, with a Gate toggle). The preview's arrows browse the pieces of the selected part; the tiles pick which part it

@@ -143,6 +143,15 @@ public final class Ponder {
                 s("roads", 1).line("0 0 2L 0", "2L 0 2L L ~"),
                 s("roads", 2).line("0 0 2L 0", "2L 0 2L L ~").keys("G"),
                 s("roads", 3).line("0 0 2L 0", "2L 0 2L L ~").colour(0, "white").keys("R"));
+        // Auto-route: Route on, a start on the road's end, an end off its axes; the found route (cyan ghosts), accepted.
+        String road = "0 0 2L 0", leg1 = "2L 0 3L 0", leg2 = "3L 0 3L 2L ~";
+        topic("route", "road",
+                s("route", 1).line(road).call("L", "0", 5, "mccitybuilder.ponder.call.route_btn"),
+                s("route", 2).line(road).mark("2L", "0", "end").cursor("2L", "0", true).call("2L", "0", 5, "mccitybuilder.ponder.call.route_start"),
+                s("route", 3).line(road).mark("2L", "0", "end").mark("3L", "2L", "target").cursor("3L", "2L", true)
+                        .call("3L", "2L", 4, "mccitybuilder.ponder.call.route_end"),
+                s("route", 4).line(road, leg1 + " ghost", leg2 + " ghost").colour(1, "cyan").colour(2, "cyan").call("3L", "0", 6, "mccitybuilder.ponder.call.route_found"),
+                s("route", 5).line(road, leg1, leg2).keys("#enter").call("3L", "0", 6, "mccitybuilder.ponder.call.route_accept"));
     }
 
     /** Pixel icons: 16x16 per topic, 12x12 for the player's buttons; {@link #iconColor} palette, '.' clear. */
@@ -162,6 +171,9 @@ public final class Ponder {
         ICONS.put("edit", new String[]{"....o...........", "...oyo..........", "..oyyao.........", ".oyyaaao........", "oyyaaaAAo.......", ".oaaawAo........", "..oaAwwo........", "...oAwwwo..o....", "....owwwwoowo...", "....owwooowwwo..", ".....oo.owowowo.", ".......owwwwwwwo", "........owowowo.", ".........owwwo..", "..........owo...", "...........o...."});
         ICONS.put("building", new String[]{"................", ".oooooooooooooo.", ".owwwwwwwwwwwlo.", ".owlllllllllllS.", ".olllllllllllSo.", ".oSSSSSSSSSSSSo.", ".ooooobbBBooooo.", "......obbBo.....", "......obbBo.....", "......obbBo.....", "......obbBo.....", "oooooooooooooooo", "olllllllllllllSo", "olssSssssssSsssS", "oSSSSSSSSSSSSSSo", "oooooooooooooooo"});
         ICONS.put("roads", new String[]{"................", "ooooooo..ooo.ooo", "olswsSo..olo.olo", "olswsSo..olooolo", "olsssSo..ollllSo", "olsssSo..olssSSo", "olswsSo..olsSsso", "olswsSo..olssSSo", "olsssSo..olSssso", "olsssSo..olssSSo", "olswsSo..olsSsso", "olswsSo..olssSSo", "olsssSo..olsssso", "oSsssSo..oSSSSSo", "ooooooo..ooooooo", "................"});
+        ICONS.put("route", new String[]{"................", ".oooo...........", ".oggo...........", ".oggo...........", ".oooo...........", "..oso...........",
+                "..oyo...........", "..osoooooooo....", "..ossyssysso....", "..oooooooooso....", ".........oso....", ".........oyo....", "........oaaao...",
+                "........oaaao...", "........ooooo...", "................"});
         // Toolbar icons (not topics): Plan's blueprint sheet, Road in the wall icon's framing.
         ICONS.put("tb_plan", new String[]{".ooooooooooo....", "oCCcCCCCcCClo...", "oCCcCCCCcCCllo..", "occcccccccccllo.", "oCCcCCCwcCCCCllo", "oCCcCCwCwCCCCcCo", "oCCcCwCCcwCCCcCo", "oCCcwwwwwwwCCcCo", "occcwcccccwcccco", "oCCcwCCCcCwCCcCo", "oCCcwCCwcCwCCcCo", "oCCcwCCwcCwCCcCo", "oCCcwwwwwwwCCcCo", "occcccccccccccco", "oCCcCCCCcCCCCcCo", ".oooooooooooooo."});
         ICONS.put("tb_road", new String[]{"................", "................", "................", "oooooooooooooooo", "ollllllllllllllo", "oSSSSSSSSSSSSSSo", "osssssssssssssso", "osssssssssssssso", "osswwwsssswwwsso", "osssssssssssssso", "osssssssssssssso", "ollllllllllllllo", "oSSSSSSSSSSSSSSo", "oooooooooooooooo", "GgggggGgggggGggg", "................"});

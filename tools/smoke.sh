@@ -403,6 +403,10 @@ else
 fi
 B tool off >/dev/null
 
+# Route (auto-route): its own file, also runnable alone against a running client.
+recover "route: start on the planner"
+. "$SELF/tools/smoke_route.sh"
+
 # The game log: failures the mod reports itself, exceptions out of the mod, and baked pieces with no blocks.
 echo "== log $LOG"
 if [ -f "$LOG" ]; then
