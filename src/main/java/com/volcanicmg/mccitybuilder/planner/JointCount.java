@@ -46,9 +46,9 @@ public final class JointCount {
     }
 
     /**
-     * @return the state for a case's issues ({@code overlap}, {@code opening}, {@code nofit}, {@code offcentre}): none = OK; a
+     * @return the state for a case's issues ({@code overlap}, {@code opening}, {@code towergap}, {@code nofit}, {@code offcentre}): none = OK; a
      * real problem (blocks broken, or a hole through the wall / a break in the road surface) = BAD; anything else (a gap
-     * in trim, berm, kerb or parapet only, a partial mismatch, off-centre) = MINOR
+     * in trim, berm, kerb or parapet only, a tower's slit beside a wall end, a partial mismatch, off-centre) = MINOR
      */
     public static int stateOf(List<String> issues) {
         if (issues.isEmpty()) return OK;

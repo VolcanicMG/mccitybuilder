@@ -609,7 +609,7 @@ final class JointEditorScreen extends Screen {
         g.fill(x1 - 1, z0, x1, z1, c);
     }
 
-    private record Layout(String jointPath, int turn, Blueprint jointBp, PieceLayout.Grid joint, int[] jb, int width, int run, List<Run> runs, String jkey, int jrot) {
+    private record Layout(String jointPath, int turn, Blueprint jointBp, PieceLayout.Grid joint, int[] jb, int width, int run, List<Run> runs, String jkey, int jrot, boolean tower) {
     }
 
     private List<int[]> runBoxes(Layout lay, Run r) {
@@ -680,7 +680,7 @@ final class JointEditorScreen extends Screen {
             runs.add(new Run(o, sp.path(), stt, sg, fit, bad, key, dr != null || PieceCatalog.overrides(pack).containsKey(key)));
         }
         PieceLayout.JointKey jk = PieceLayout.jointKey(jp.path(), outs, sps, sts, sym);
-        return new Layout(jp.path(), t, jbp, jg, jb, width, run, runs, jk.key(), jk.rot());
+        return new Layout(jp.path(), t, jbp, jg, jb, width, run, runs, jk.key(), jk.rot(), ROLES[role] == PieceSets.Role.TOWER);
     }
 
     /** @return the straight's turns on line q (the first arrives at the joint, the rest leave; +2 when flipped) */
@@ -1149,7 +1149,8 @@ final class JointEditorScreen extends Screen {
         }
         List<String> out = new ArrayList<>();
         if (overlap) out.add("overlap");
-        if (opening) out.add("opening");
+        // A tower's narrow slit beside a wall end (its parapet ring is air at wall height) reads as the stakes' own rhythm: minor.
+        if (opening) out.add(l.tower() ? "towergap" : "opening");
         if (nofit) out.add("nofit");
         if (off) out.add("offcentre");
         return out;

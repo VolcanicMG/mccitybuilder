@@ -892,7 +892,7 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   "Fix joints (N)" count the family's cases with a REAL problem: `overlap` (`PieceLayout.destructiveAt`: blocks would break) or
   `opening` (`PieceLayout.openingAt`: a whole slice across the run's axis, between the joint's last block toward the run and the run's
   first, with no block at all: for a wall air base to top across its thickness, for a road the surface band `y -2..1` around the ground).
-  `nofit` (a gap or poor match that leaves blocks in every slice: trim, berm, kerb, parapet) and `offcentre` are MINOR (`JointCount.stateOf`):
+  `nofit` (a gap or poor match that leaves blocks in every slice: trim, berm, kerb, parapet) and `offcentre` are MINOR (`JointCount.stateOf`), and so is an opening at a TOWER joint, reported as `towergap` (a 1-2 block slit where the parapet ring meets a wall end; it reads as the stakes' own rhythm in game):
   no badge, a grey "(N minor)" and a grey heading in the hover. The dev bridge's `inv count` still leads with the strict count (real +
   minor), which the tuned-joint ratchet keeps; it also prints `real=`, `minor=` and `oldreal=` (the earlier overlap-or-nofit rule). A
   headless editor instance lays out one case per frame (`Probe.step`), so nothing stalls; the cache key is pack, family,

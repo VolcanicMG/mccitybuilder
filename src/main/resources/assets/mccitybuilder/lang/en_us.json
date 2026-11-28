@@ -911,5 +911,7 @@
   "mccitybuilder.align.fix.minor": "Minor (looks fine in game):",
   "mccitybuilder.align.fix.click": "Click to open the first one",
   "mccitybuilder.jointcheck.opening": "There is a hole through the wall at the joint",
-  "mccitybuilder.jointcheck.opening.road": "The road's surface is broken at the joint"
+  "mccitybuilder.jointcheck.opening.road": "The road's surface is broken at the joint",
+  "mccitybuilder.jointcheck.towergap": "A narrow slit where the wall meets the tower",
+  "mccitybuilder.jointcheck.towergap.road": "A narrow slit where the road meets the tower"
 }

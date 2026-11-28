@@ -3346,8 +3346,9 @@ public final class SelfCheck {
         check(mixed.bad() == 2 && mixed.minor() == 2 && mixed.badge().equals("2") && mixed.failing().equals(List.of("T", "End")) && mixed.openIndex() == 2 && mixed.firstMinor() == 0,
                 "joint count: real ones count and open first, minor ones are listed apart");
         check(JointCount.stateOf(List.of()) == JointCount.OK && JointCount.stateOf(List.of("offcentre")) == JointCount.MINOR && JointCount.stateOf(List.of("overlap")) == JointCount.BAD
-                        && JointCount.stateOf(List.of("opening")) == JointCount.BAD && JointCount.stateOf(List.of("nofit", "offcentre")) == JointCount.MINOR,
-                "joint count: broken blocks and a hole through the wall are real, a bare gap and off-centre are minor");
+                        && JointCount.stateOf(List.of("opening")) == JointCount.BAD && JointCount.stateOf(List.of("nofit", "offcentre")) == JointCount.MINOR
+                        && JointCount.stateOf(List.of("towergap")) == JointCount.MINOR,
+                "joint count: broken blocks and a hole through the wall are real, a bare gap, a tower gap and off-centre are minor");
         // Through-openings: a whole empty slice between the joint and the run is real; a gap that leaves blocks in every slice is minor.
         PieceLayout.Grid wJoint = block(4, 4, 2, 1, 1, 3, 0, 1), wRun = block(4, 4, 2, 1, 1, 3, 0, 1);
         check(PieceLayout.opening(wJoint, 0, 0, wRun, 5, 0, 0, false) && !PieceLayout.opening(wJoint, 0, 0, wRun, 4, 0, 0, false) && !PieceLayout.opening(wJoint, 0, 0, wRun, 3, 0, 0, false),
