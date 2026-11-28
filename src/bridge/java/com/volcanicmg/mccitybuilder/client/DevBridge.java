@@ -563,6 +563,22 @@ public final class DevBridge {
                 return "ok";
             });
             // The plan as loaded on this client: entries and lines.
+            // (nothing)|open|close|all|roads|huts|refresh|mode <BUILDERS|BUILDERS_FREE|INSTANT>: the Materials state (totals, rows, stock), or its panel / tab / a stock request / the creative build mode.
+            case "/materials" -> client(() -> {
+                if (a.length > 0) switch (a[0]) {
+                    case "open" -> MaterialsView.open = true;
+                    case "close" -> MaterialsView.open = false;
+                    case "all", "roads", "huts" -> MaterialsView.tab = com.volcanicmg.mccitybuilder.planner.Materials.Tab.valueOf(a[0].toUpperCase());
+                    case "refresh" -> MaterialsView.forceRefresh();
+                    case "mode" -> com.volcanicmg.mccitybuilder.Config.BUILD_MODE.set(com.volcanicmg.mccitybuilder.Config.BuildMode.valueOf(a[1]));
+                    default -> {
+                        return "usage: materials [open|close|all|roads|huts|refresh|mode X]";
+                    }
+                }
+                StringBuilder sb = new StringBuilder(MaterialsView.dump());
+                for (var r : MaterialsView.view(MaterialsView.tab).rows()) sb.append('\n').append(r.item()).append(" need=").append(r.need()).append(" have=").append(r.have()).append(" missing=").append(r.missing());
+                return sb.toString();
+            });
             case "/plan" -> client(() -> "entries=" + PlanView.entries.size() + " lines=" + PlanView.lines.size() + " on=" + PlanView.on);
             // hutId x y z: a hut ghost dropped at that anchor (as if placed and clicked once), shared with mates.
             case "/ghost" -> client(() -> {

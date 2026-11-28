@@ -872,6 +872,22 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   badge when the role resolves to a piece, arrows through auto / none / every group of the family (hover: the piece it
   switches to, in 3D), and Set up pieces... / Fix joints. Picks are saved per pack in `mccitybuilder/piecesets/<pack>.txt`.
   Anything drawn over the 3D views (arrows, captions) is lifted to z 500: the views draw at z 400 with depth.
+- Materials (new payload types, protocol stays 11; `planner/Materials` pure, `client/MaterialsView`, `server/WarehouseStock`): the line panel's
+  "Needs 2,140 items · short 340" row above the footer (amber short, green covered) opens the Materials panel in the Pieces
+  panel's place (`piecesBox` is whichever side panel is open; one at a time; same BLOCK hit priority, fit and tooltip rules;
+  the wheel scrolls its list). Tabs All / Roads and walls / Huts (huts include decorations); rows: item icon, name, need, have,
+  short (red); refresh button; hint "Have = your inventory + warehouse racks. Builders' own stock isn't counted." Needs =
+  `Blueprints.cost` (the palette's own GET_RES_REQUIREMENTS walk, any pack / path; a cropped straight is cropped first) of
+  every plan entry (a hut at level L counts levels 1..L, each its own blueprint, as survival builds it; decorations once) plus every piece of every planned, unbuilt line (`PlanView.linePieces`, built lines
+  skipped; entries leave the plan once built), merged per distinct blueprint. Totals are cached on
+  `(layoutVersion, entries hash, Blueprints.generation, PieceCatalog.loadVersion)` and recomputed only on a change (or half
+  a second after a list was still loading), at most 3 new blueprint walks per pass. Have = the player's inventory +
+  `WarehouseStock`: client `Query(colony)` (on first show, every 10 s while shown, and the refresh button, at most one per 2.2 s)
+  to the server, which checks `ACCESS_HUTS` in that colony, rate limits one per player per 2 s (`Materials.allowed`; a too-soon request gets the last answer again), sums every
+  `IWareHouse`'s `getContainers()` racks (`AbstractTileEntityRack.getInventory()`, loaded racks only) and replies
+  `Stock(colony, dimension, item -> count)` (the client matches both). Hidden when nothing is consumed: `Planner.instant()` (creative + Instant) or `Planner.funded()`
+  (creative + Builders (free) on a City Builder server). Not reachable from the plan panel (its row would need its own
+  placement rule); huts show in the line panel's All and Huts tabs. Dev bridge: `materials [open|close|all|roads|huts|refresh|mode X]`.
 - Joint count (`client/JointCheck`, `JointEditorScreen.Probe`, pure tally in `planner/JointCount`): the Pieces button's amber badge and
   "Fix joints (N)" count the family's cases with a REAL problem: `overlap` (`PieceLayout.destructiveAt`: blocks would break) or
   `opening` (`PieceLayout.openingAt`: a whole slice across the run's axis, between the joint's last block toward the run and the run's
@@ -991,7 +1007,7 @@ buttons is projected under the anchor (`CameraMath.project`, the inverse of the 
 
 | Package | Minecraft? | What |
 |---|---|---|
-| `planner` | no | `DroneCamera` (the camera model; `step` = turn + move with the pivot carried along), `PlacementState` (follow / adjust), `CameraMath` (ray, pan, ease, clamp), `ColonyGeometry` (claims, footprint, border, bounds, building pick), `Costs` (material list), `QueueOrder` (priorities, stage progress), `QueueIcons`, `HutCatalog` (palette categories, level paths), `Hints` (controls guide) |
+| `planner` | no | `DroneCamera` (the camera model; `step` = turn + move with the pivot carried along), `PlacementState` (follow / adjust), `CameraMath` (ray, pan, ease, clamp), `ColonyGeometry` (claims, footprint, border, bounds, building pick), `Costs` (material list), `Materials` (plan totals, shortfall), `QueueOrder` (priorities, stage progress), `QueueIcons`, `HutCatalog` (palette categories, level paths), `Hints` (controls guide) |
 | `client` | yes | `Planner` (state, camera, placement, selection), `PlannerScreen` (UI + input), `Blueprints` (hut blueprint lookup), `VanillaUi`, `PlannerClient` (key, events) |
 
 ## Flow
