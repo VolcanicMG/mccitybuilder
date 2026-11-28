@@ -174,6 +174,7 @@ final class PlannerScreen extends Screen {
         hits.clear();
         setupHits.clear();
         panels.clear();
+        anchors.clear();
         IColonyView colony = Planner.colony();
         if (colony == null) return;
         // Aim the ghost and find the building under the cursor (every frame, so both follow smoothly).
@@ -183,7 +184,6 @@ final class PlannerScreen extends Screen {
         banner(g, colony);
         overlayMarkers(g);
         citizenRangeHint(g);
-        anchors.clear();
         overlayPicker(g, mouseX, mouseY);
         palette(g, mouseX, mouseY);
         queue(g, colony, mouseX, mouseY);
@@ -762,7 +762,7 @@ final class PlannerScreen extends Screen {
         PieceSets.Family jf = status == null && fam != null ? PieceCatalog.familyOf(pk, fam) : null;
         JointCount.Result jc = jf == null ? null : JointCheck.of(pk, jf.tool() + ":" + jf.key(), sel != null ? sel.level() : LineView.level);
         // Layout, once: the room under the queue panel (and above the plan panel when it shows).
-        int reserve = PlanView.on ? 62 + (pickBuilder ? 20 : 0) + (pickMode ? 20 : 0) : 0;
+        int reserve = PlanView.on ? planPanelH() + 4 : 0;
         Lay lay = layout(height - 4 - (queueBottom + 4) - reserve, picks, lvl, wall, pickMode, pickBuilder);
         tier = lay.tier();
         int gb = tier < 2 ? 4 : 2, ph = lay.ph();
@@ -1657,13 +1657,24 @@ final class PlannerScreen extends Screen {
     }
 
     /** Plan mode: the plan's state and its Build all / Build selected / Clear buttons. */
+    /** @return whether the plan panel carries its Materials button: not while the line panel is up (its Needs row opens the panel, and the plan panel stays as tall as before) */
+    private static boolean planMaterials() {
+        return MaterialsView.shown() && !LineView.active() && PlanView.selectedLine() == null;
+    }
+
+    /** @return the plan panel's height: title, buttons, and the Build mode / Builder pickers and Materials button when shown (the line panel reserves room for it) */
+    private static int planPanelH() {
+        return 58 + (!Planner.instant() ? 20 : 0) + (Planner.creative() ? 20 : 0) + (planMaterials() ? 22 : 0);
+    }
+
     private void planPanel(GuiGraphics g, int mx, int my) {
         if (!PlanView.on) return;
         boolean pickBuilder = !Planner.instant(), pickMode = Planner.creative();
-        boolean mats = MaterialsView.shown();
-        int w = 200, h = 58 + (pickBuilder ? 20 : 0) + (pickMode ? 20 : 0) + (mats ? 22 : 0), x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
+        boolean mats = planMaterials();
+        int w = 200, h = planPanelH(), x = Math.max(4 + PALETTE_W + 4, width - 4 - guideRoom() - 4 - w), y = stackTop - h;
         if (Planner.selected != null || Planner.selectedDeco != null) y -= selectionH() + 4;
         panels.add(new int[]{x, y, w, h});
+        anchor("plan_panel", x, y, w, h);
         VanillaUi.panel(g, x, y, w, h);
         long bad = PlanView.conflicts.stream().filter(c -> c != com.volcanicmg.mccitybuilder.planner.Plan.Conflict.NONE).count();
         // The full line when it fits, else the short one, never past the panel.
@@ -1732,23 +1743,23 @@ final class PlannerScreen extends Screen {
         // A narrow screen (a large GUI scale): icons only, so the side panels keep clear of it (the tooltips still name them).
         boolean compact = width < 800;
         int y = 20, bh = 22, pw = compact ? bh : 82, tw = compact ? bh : 74, gap = 4, px = (width - pw - 2 * (tw + gap)) / 2;
-        toolbarButton(g, mx, my, px, y, pw, bh, "tb_plan", compact ? "" : Component.translatable(PlanView.on ? "mccitybuilder.plan.on_short" : "mccitybuilder.plan.off_short").getString(),
+        toolbarButton(g, mx, my, px, y, pw, bh, "toolbar_plan", "tb_plan", compact ? "" : Component.translatable(PlanView.on ? "mccitybuilder.plan.on_short" : "mccitybuilder.plan.off_short").getString(),
                 PlanView.on, this::togglePlan, Component.translatable("mccitybuilder.plan.tip"));
         String[] tools = {"road", "wall"}, icons = {"tb_road", "draw"};
         for (int i = 0; i < 2; i++) {
             String t = tools[i];
-            toolbarButton(g, mx, my, px + pw + gap + i * (tw + gap), y, tw, bh, icons[i], compact ? "" : Component.translatable("mccitybuilder.line.tool." + t).getString(),
+            toolbarButton(g, mx, my, px + pw + gap + i * (tw + gap), y, tw, bh, "toolbar_" + t, icons[i], compact ? "" : Component.translatable("mccitybuilder.line.tool." + t).getString(),
                     t.equals(LineView.tool), () -> useTool(t), Component.translatable("mccitybuilder.line.tool." + t + ".tip"));
         }
     }
 
     /** A toolbar toggle: icon at the left, label centred in the rest (no label: the icon centred). */
-    private void toolbarButton(GuiGraphics g, int mx, int my, int x, int y, int w, int h, String icon, String label, boolean on, Runnable run, Component tip) {
+    private void toolbarButton(GuiGraphics g, int mx, int my, int x, int y, int w, int h, String id, String icon, String label, boolean on, Runnable run, Component tip) {
         panels.add(new int[]{x, y, w, h});
         VanillaUi.button(g, x, y, w, h, on, false, mx >= x && mx < x + w && my >= y && my < y + h);
         PonderScreen.icon(g, icon, label.isEmpty() ? x + (w - 16) / 2 : x + 4, y + (h - 16) / 2, 1);
         if (!label.isEmpty()) VanillaUi.buttonLabel(g, font, label, x + 20, y, w - 22, h, VanillaUi.INK);
-        anchor(icon, x, y, w, h);
+        anchor(id, x, y, w, h);
         hits.add(new Hit(x, y, w, h, run, tip));
     }
 

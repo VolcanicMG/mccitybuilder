@@ -204,13 +204,23 @@ else
   aclick materials_close; sleep 1
   [ "$(mfield open)" = false ] && step "materials: close button closes the panel" ok || step "materials: close button closes the panel" fail "open=$(mfield open)"
   # The plan panel's Materials button (no road tool): opens the same panel on the Huts tab, listing the planned hut's items.
-  B tool off >/dev/null; aclick tb_plan; sleep 2
+  B tool off >/dev/null; aclick toolbar_plan; sleep 2
   if aclick plan_materials; then
     sleep 1; B screenshot "materials-plan" >/dev/null
     [ "$(mfield open)" = true ] && [ "$(mfield tab)" = HUTS ] && [ -n "$(B materials | sed -n 2p)" ] && [ "$(B anchor materials_close)" != none ] && step "materials: plan panel button opens the Huts tab ($(B materials | sed -n 2p | cut -d' ' -f1)...)" ok || step "materials: plan panel button opens the Huts tab" fail "$(B materials | head -2 | tr '\n' '|')"
     aclick materials_close; sleep 1
   else step "materials: plan panel button opens the Huts tab" fail "no plan_materials button"; fi
-  aclick tb_plan; sleep 1; B tool road >/dev/null
+  # Plan mode + road tool: the plan panel (with its Materials button) stacks above the line panel, both on screen, clear of the queue.
+  B tool road >/dev/null
+  for wc in "1920 1080 4 270" "1280 720 2 360"; do
+    set -- $wc; setwin "$1" "$2" "$3"; gh=$4
+    read -r lx ly lw lh qb ph tr _ <<< "$(B panelstate layout)"; read -r _ py _ phh _ <<< "$(B anchor plan_panel)"
+    if [ "$(B state | sed -n 's/.*gui=[0-9]*x\([0-9]*\)@.*/\1/p')" != "$gh" ]; then step "materials: plan + line panels at GUI height $gh (skipped, window differs)" ok
+    elif [ -n "$py" ] && [ "$phh" -le 98 ] && [ "$(B anchor plan_materials)" = none ] && [ $((py + phh)) -le "$ly" ] && [ $((ly + lh)) -le "$gh" ]; then step "materials: plan + line panels on screen, plan panel not grown by the Materials button at GUI height $gh (plan $py+$phh, line $ly+$lh, queue $qb)" ok
+    else step "materials: plan + line panels at GUI height $gh" fail "plan y=$py h=$phh, line $ly+$lh, queue bottom $qb"; fi
+  done
+  setwin 1600 900 2; B tool off >/dev/null
+  aclick toolbar_plan; sleep 1; B tool road >/dev/null
   B planentry clear >/dev/null; B clearlines >/dev/null
   need=1; for _ in $(seq 10); do need=$(mfield need); [ "$need" = 0 ] && break; sleep 1; done
   [ "$need" = 0 ] && step "materials: Clear empties the needs" ok || step "materials: Clear empties the needs" fail "need=$need"

@@ -106,15 +106,15 @@ public final class WarehouseStock {
     static void handle(Query q, IPayloadContext ctx) {
         if (!(ctx.player() instanceof ServerPlayer p)) return;
         long now = System.currentTimeMillis();
+        IColony colony = IColonyManager.getInstance().getColonyByWorld(q.colony, p.serverLevel());
+        if (colony == null || !colony.getPermissions().hasPermission(p, Action.ACCESS_HUTS) || !p.connection.hasChannel(Stock.TYPE)) return;
         // Too soon: the last answer again (never nothing), so a jittery refresh isn't lost.
         if (!Materials.allowed(lastAt.get(p.getUUID()), now, MIN_GAP_MS)) {
             Stock again = last.get(p.getUUID());
-            if (again != null && again.colony() == q.colony && p.connection.hasChannel(Stock.TYPE)) PacketDistributor.sendToPlayer(p, again);
+            if (again != null && again.colony() == q.colony) PacketDistributor.sendToPlayer(p, again);
             return;
         }
         lastAt.put(p.getUUID(), now);
-        IColony colony = IColonyManager.getInstance().getColonyByWorld(q.colony, p.serverLevel());
-        if (colony == null || !colony.getPermissions().hasPermission(p, Action.ACCESS_HUTS) || !p.connection.hasChannel(Stock.TYPE)) return;
         Stock st = new Stock(q.colony, p.serverLevel().dimension().location().toString(), count(colony, p.serverLevel()));
         last.put(p.getUUID(), st);
         PacketDistributor.sendToPlayer(p, st);
