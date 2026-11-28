@@ -44,6 +44,7 @@ public final class SelfCheck {
         snapshots();
         hintsAndLang();
         pieceSetDetection();
+        builtInSettings();
         System.out.println("CityBuilder self-check passed");
     }
 
@@ -2965,6 +2966,62 @@ public final class SelfCheck {
 
     private static boolean near(double[] a, double[] b) {
         return near(a, b[0], b[1], b[2]);
+    }
+
+    /**
+     * The mod's built-in settings (src/main/resources/mccitybuilder/alignments/*.txt) are well-formed, and for a third-party pack with a fixture
+     * (src/test/resources/packs) every piece they name exists in it and every role pick names a group of its family. The tuned-joint ratchet file
+     * (src/test/resources/joint-tuned.txt, asserted in game by tools/smoke.sh: the third-party blueprints aren't in the test, so the check list
+     * can't run here) is well-formed too.
+     */
+    private static void builtInSettings() throws Exception {
+        Map<String, String> fixtureOf = Map.of("Byzantine_for_1.20.txt", "Byzantine_for_1.20.txt", "Nile.txt", "Nile.txt", "Shogun.txt", "Shogun.txt",
+                "Sword_and_Kingdom.txt", "sword_and_kingdom.txt", "______-f96960dd.txt", "sword_and_kingdom_zh.txt");
+        Pattern piece = Pattern.compile("(?:^|[|:,])([^|:,]*?\\.blueprint)");
+        check(PieceSets.fileName("Sword and Kingdom").equals("Sword_and_Kingdom") && PieceSets.fileName("Colonial").equals("Colonial"), "an ASCII-only pack keeps its plain name");
+        check(PieceSets.fileName("\u5251\u4e0e\u738b\u56fd\u98ce\u683c").equals("______-f96960dd"), "a non-Latin pack name gets its hash: " + PieceSets.fileName("\u5251\u4e0e\u738b\u56fd\u98ce\u683c"));
+        check(!PieceSets.fileName("\u4e00\u4e8c\u4e09\u56db\u4e94\u516d").equals(PieceSets.fileName("\u5251\u4e0e\u738b\u56fd\u98ce\u683c")), "two six-character non-Latin names don't share a file");
+        check(!PieceSets.builtIn("\u5251\u4e0e\u738b\u56fd\u98ce\u683c").isEmpty() && PieceSets.builtIn("\u4e00\u4e8c\u4e09\u56db\u4e94\u516d").isEmpty(), "the Chinese Sword and Kingdom built-ins load for that pack only");
+        int files = 0, keys = 0, checked = 0;
+        try (var dir = Files.list(Path.of("src/main/resources/mccitybuilder/alignments"))) {
+            for (Path f : (Iterable<Path>) dir.sorted()::iterator) {
+                String name = f.getFileName().toString();
+                check(name.matches("[A-Za-z0-9._-]+\\.txt"), "built-in file name is a sanitised pack name: " + name);
+                java.util.Set<String> paths = new java.util.HashSet<>(), groups = new java.util.HashSet<>();
+                if (fixtureOf.containsKey(name))
+                    for (String line : Files.readAllLines(Path.of("src/test/resources/packs", fixtureOf.get(name)))) {
+                        String[] c = line.split("\t");
+                        if (c[0].equals("P")) paths.add(c[1]);
+                        else if (c[0].equals("C")) groups.add(c[2] + "|" + c[4]);
+                    }
+                files++;
+                for (String line : Files.readAllLines(f)) {
+                    String[] kv = line.split("\t");
+                    check(kv.length == 2 && !kv[1].isBlank(), name + ": 'key TAB value' lines only: " + line);
+                    check(kv[0].matches("(align|joint|tool)\\|.*|(road|wall):[^|]+\\|[A-Z]+"), name + ": unknown key kind: " + kv[0]);
+                    keys++;
+                    if (fixtureOf.containsKey(name)) {
+                        if (kv[0].matches("(road|wall):[^|]+\\|[A-Z]+")) check(groups.contains(kv[0].substring(0, kv[0].lastIndexOf('|')) + "|" + kv[1]), name + ": role pick names no group of its family: " + line);
+                        else {
+                            Matcher m = piece.matcher(kv[0]);
+                            while (m.find()) {
+                                check(paths.contains(m.group(1)), name + ": names a piece the fixture lacks: " + m.group(1));
+                                checked++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        int rows = 0;
+        for (String line : Files.readAllLines(Path.of("src/test/resources/joint-tuned.txt"))) {
+            if (line.startsWith("#") || line.isBlank()) continue;
+            String[] f = line.split("\t");
+            check(f.length == 4 && f[2].matches("\\d+") && f[3].matches("\\d+"), "joint-tuned.txt: pack TAB family TAB level TAB max bad: " + line);
+            rows++;
+        }
+        check(rows > 0, "joint-tuned.txt has rows");
+        System.out.println("CityBuilder self-check: built-in settings, " + files + " files, " + keys + " keys, " + checked + " piece paths checked against fixtures; " + rows + " tuned-joint ratchet rows");
     }
 
     /** Piece sets of packs outside MineColonies' folder / name conventions: folders, keywords, shapes; bundled packs unchanged. */

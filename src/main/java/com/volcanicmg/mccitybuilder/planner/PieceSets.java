@@ -724,6 +724,20 @@ public final class PieceSets {
         return v != null ? v : builtIn.get(key);
     }
 
+    /**
+     * @return the file name stem for a pack's settings: the name with characters outside [A-Za-z0-9._-] as "_", plus "-" and the
+     * original name's hash (hex) when it has a non-ASCII character (ASCII names keep the plain form, so existing files stay), so two non-Latin names of one length never share a file
+     */
+    public static String fileName(String pack) {
+        String s = pack.replaceAll("[^A-Za-z0-9._-]", "_");
+        return pack.chars().allMatch(c -> c < 128) ? s : s + "-" + Integer.toHexString(pack.hashCode());
+    }
+
+    /** @return the pre-hash file name stem (sanitised only), for reading player files saved before {@link #fileName} */
+    public static String legacyFileName(String pack) {
+        return pack.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
     private static final Map<String, Map<String, String>> BUILT_IN = new java.util.HashMap<>();
 
     /**
@@ -734,7 +748,7 @@ public final class PieceSets {
         Map<String, String> done = BUILT_IN.get(pack);
         if (done != null) return done;
         // Only files that exist are cached: the server is asked with any pack name a client sends.
-        try (var in = PieceSets.class.getResourceAsStream("/mccitybuilder/alignments/" + pack.replaceAll("[^A-Za-z0-9._-]", "_") + ".txt")) {
+        try (var in = PieceSets.class.getResourceAsStream("/mccitybuilder/alignments/" + fileName(pack) + ".txt")) {
             if (in == null) return Map.of();
             Map<String, String> m = java.util.Collections.unmodifiableMap(readOverrides(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)));
             BUILT_IN.put(pack, m);

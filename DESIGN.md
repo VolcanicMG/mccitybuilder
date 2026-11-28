@@ -707,6 +707,21 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   the same a quarter turn on: one of the two has its arms backwards (or the piece is nearly symmetric).
   The planner's exit closes the editor too, the editor returns to the planner only while it runs, and a leftover
   planner screen closes plainly (no soft-lock).
+- Shipped set tuning (the built-ins hold what was already tested, so a player never redoes it; their own saves still win):
+  the files `alignments/<pack>.txt` are produced in the dev client, not by hand. Per pack and family / level, the bridge's
+  `inv count|<family>|<level>` is the Fix joints badge (the check list's verdicts) and `inv tune|<family>|<level>[|<min
+  match>]` runs `JointEditorScreen.tune`: for each failing case the editor's Auto-fix, else `deepFix` (the best total
+  match over all eight joint orientations and every safe run alignment whose run touches, is centred and matches at
+  least `min match`, default 0.6), then Save; a case that doesn't lay out clean (overlap, no fit, off-centre) with every
+  run at that match keeps the automatic layout, nothing broken or sloppy is saved. Role picks that detection misread
+  are set through the set-up screen (`panelstate setrole`). The dev game's `mccitybuilder/piecesets/<pack>.txt` is then
+  merged into the resource file by `tools/merge_builtins.py` (a key already there is replaced, a new one appended, the
+  `#v2` header dropped). Built-in `align|` keys are read under the player's (`PieceCatalog`'s align source: draft,
+  saved, built-in), `joint|` and role keys as before. Kept honest by `tools/smoke.sh` (every row of
+  `src/test/resources/joint-tuned.txt`, pack / family / level / max bad, asserts `inv count` is at or under the max: the
+  third-party blueprints aren't in the unit test, so the check list can't run there) and SelfCheck (`builtInSettings`:
+  well-formed files; for a third-party pack with a fixture every piece a key names exists in it and every role pick names
+  one of its groups). To record a new fix: tune it, merge it, lower its row in `joint-tuned.txt`.
 - Joint continuity (`PieceLayout.fit`, replacing the inset rule): the ground truth is the placed blocks. For each
   sideways shift (within max(3, width)) the run's end face (the straight's solid face toward the joint, trim skipped)
   meets the joint at the first layer from its face inward that holds blocks in front of at least half the face's
@@ -871,7 +886,7 @@ It reuses MineColonies' and Structurize's own placement and work-order machinery
   in `changes` until Save (`PieceCatalog.setSetup`), as before. Bridge: `/open setup road|wall`, `setupstate`, `setupstep`, `anchor`
   (tile_ROLE, row_i, row_prev_i / row_next_i, save, cancel, more) work on this screen too.
 - Dev bridge for the panels: `anchor <name>|list` (boxes of the drawn controls), `tip` (the 3D tooltip's text),
-  `panelstate picks|preview|layout|dragging|has|role|setrole`, `jointcount` (ref / probe / panel counts and timing), `jointmenu open|type|set`.
+  `panelstate picks|preview|layout|dragging|has|role|setrole`, `jointcount` (ref / probe / panel counts and timing), `jointmenu open|type|set`, `inv info|open|count|tune` (the current pack's families, a joint case in the editor, a family's joint count, Auto-fix + Save; see Shipped set tuning).
 - Preview (`client/PieceView`): Structurize has no GUI blueprint renderer (its `BlueprintRenderer` draws in the
   world stage only), so each piece is baked once into vertex buffers (one per entity render type, the block models
   the world uses, full-bright, at most 6000 blocks; animated / entity-model blocks such as chests are left out) and

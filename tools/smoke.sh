@@ -3,7 +3,7 @@
 #   tools/smoke.sh [checkout]       launch that checkout via ~/mcdev/tools/splaunch.sh (default: this repo), then run
 #   tools/smoke.sh --no-launch      run against the client that is already up (planner is switched on)
 # Per pack (Byzantine_for_1.20, Sword and Kingdom, Colonial): palette tabs, road / wall tools, role panel, Set up pieces,
-# joint editor + Auto-fix, a drawn crossing + Clear, a Huts search; then the game log is scanned for failures.
+# joint editor + Auto-fix, a drawn crossing + Clear, a Huts search; the tuned-joint ratchet (src/test/resources/joint-tuned.txt); then the game log is scanned for failures.
 # Prints PASS / FAIL per step; exits non-zero with a summary when any step or the log scan failed.
 # Pixel layout assumptions: none of the UI is clicked by coordinates (bridge commands drive it); the crossing is drawn
 # with world-projected clicks (like ~/mcdev/tools/draw.sh) around the player, which needs the planner's map view and no
@@ -402,6 +402,21 @@ else
   B clearlines >/dev/null; sleep 1
 fi
 B tool off >/dev/null
+
+# Tuned joints (ratchet): each family in src/test/resources/joint-tuned.txt (pack, family, level, max bad) keeps its bad-joint count
+# (the Fix joints badge, bridge `inv count`) at or under the recorded maximum. Third-party blueprints aren't in the unit test, so this is where it runs.
+echo "== tuned joints"
+recover "tuned joints: start on the planner"
+B tool off >/dev/null
+while IFS=$'\t' read -r tpack tfam tlvl tmax; do
+  [[ -z "$tpack" || "$tpack" == \#* ]] && continue
+  ans=$(B pack "$tpack")
+  [[ "$ans" == "$tpack of "* ]] || { step "tuned joints $tpack $tfam L$tlvl: pack not in this instance (skipped)" ok; continue; }
+  cnt=""
+  for _ in $(seq 40); do cnt=$(B inv "count|$tfam|$tlvl"); [[ "$cnt" =~ ^[0-9]+/[0-9]+ && "$cnt" != *+* ]] && break; sleep 1; done
+  bad=${cnt%%/*}
+  [[ "$bad" =~ ^[0-9]+$ ]] && [ "$bad" -le "$tmax" ] && step "tuned joints $tpack $tfam L$tlvl: $bad bad (max $tmax)" ok || step "tuned joints $tpack $tfam L$tlvl" fail "'$cnt' vs max $tmax"
+done < "$SELF/src/test/resources/joint-tuned.txt"
 
 # The game log: failures the mod reports itself, exceptions out of the mod, and baked pieces with no blocks.
 echo "== log $LOG"

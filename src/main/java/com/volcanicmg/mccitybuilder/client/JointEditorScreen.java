@@ -998,6 +998,118 @@ final class JointEditorScreen extends Screen {
         return JointCount.tally(names, st);
     }
 
+    /**
+     * Dev tool (DevBridge {@code /tune}): fixes every failing case of a family at a level and Saves it, keeping a result only when the case then
+     * lays out clean (no overlap, no fit gap, centred). First the editor's Auto-fix; when that leaves a problem, the best clean alternative over all
+     * eight joint orientations and every safe run alignment ({@link #deepFix}). A fix that still has a problem, or a run matching the joint worse than
+     * {@code minMatch}, is dropped: nothing broken or sloppy is saved.
+     *
+     * @param minMatch the least cross-section match (0 to 1) every run of a fix must have
+     * @return one line per failing case: "label: fixed (how, turn T, min match M)" / "label: kept auto (reason)", or "loading" while pieces load
+     */
+    static List<String> tune(String pack, String fam, int lvl, double minMatch) {
+        JointEditorScreen s = new JointEditorScreen(pack, fam, PieceSets.Role.CORNER, -1);
+        s.lvl = lvl;
+        List<Case> cs = s.cases();
+        Map<Case, Verdict> vs = s.verdicts(cs);
+        List<String> out = new ArrayList<>();
+        for (Case c : cs) {
+            Verdict v = vs.get(c);
+            if (v == null || v.loading()) {
+                out.add(s.caseLabel(c) + ": loading");
+                continue;
+            }
+            if (v.ok()) continue;
+            s.select(c);
+            s.autoFix(s.layout());
+            Layout after = s.layout();
+            String how = "auto-fix";
+            if (s.turn < 0 || after == null || !s.issues(after).isEmpty() || minMatch(after) < minMatch) {
+                s.dropDrafts();
+                s.turn = -1;
+                how = s.deepFix(minMatch) ? "deep search" : null;
+                after = s.layout();
+            }
+            List<String> left = after == null ? List.of("loading") : s.issues(after);
+            if (how != null && s.turn >= 0 && left.isEmpty()) {
+                double min = minMatch(after);
+                s.save(after);
+                out.add(s.caseLabel(c) + String.format(": fixed (%s, turn %d%s, min match %.2f)", how, s.turn & 3, PieceLayout.mirrorOf(s.turn) ? "m" : "", min));
+            } else {
+                s.dropDrafts();
+                s.turn = -1;
+                out.add(s.caseLabel(c) + ": kept auto (was " + v.issues() + (how == null ? ", no clean alternative" : ", fix left " + left) + ")");
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Dev tool (DevBridge {@code /inv open}): opens the editor on a family's case whose label (as in the check list) contains {@code label}.
+     *
+     * @return whether such a case exists
+     */
+    static boolean openOn(String pack, String fam, int lvl, String label) {
+        JointEditorScreen e = new JointEditorScreen(pack, fam, PieceSets.Role.CORNER, -1);
+        e.lvl = lvl;
+        for (Case c : e.cases())
+            if (e.caseLabel(c).contains(label)) {
+                e.select(c);
+                Minecraft.getInstance().setScreen(e);
+                return true;
+            }
+        return false;
+    }
+
+    /** @return the worst run's match in a laid-out case */
+    private static double minMatch(Layout lay) {
+        double min = 1;
+        for (Run r : lay.runs) min = Math.min(min, r.fit().match());
+        return min;
+    }
+
+    /**
+     * Drafts the clean arrangement with the best total match over every joint orientation: per run, the best-ranked safe fit that touches (depth
+     * found, match {@code minMatch} or more) and keeps the run centred on the joint (the check list's three tests).
+     *
+     * @return whether one was found (the turn and drafts are set)
+     */
+    private boolean deepFix(double minMatch) {
+        int bestTurn = -1;
+        double best = -1;
+        List<PieceLayout.Fit> bestFits = null;
+        for (int t : PieceLayout.ORIENTS) {
+            Layout l = layout(role, kase, flipped, t);
+            if (l == null) continue;
+            List<PieceLayout.Fit> picks = new ArrayList<>();
+            double sum = 0;
+            for (Run r : l.runs) {
+                PieceLayout.Fit pick = null;
+                int lat = r.out() % 2 == 0 ? 1 : 0;
+                for (PieceLayout.Fit f : PieceLayout.ranked(new int[]{0, 0}, r.out(), l.jb, l.joint, r.grid(), l.width, l.run, Math.max(3, l.width), 1000)) {
+                    int[] b = PieceLayout.boxes(new int[]{0, 0}, r.out(), f.off(), List.of(l.run, l.run), l.width, f.shift()).get(0);
+                    if (f.depth() >= 0 && f.match() >= minMatch && Math.abs(b[lat] + b[lat + 2] - l.jb[lat] - l.jb[lat + 2]) <= 2) {
+                        pick = f;
+                        break;
+                    }
+                }
+                if (pick == null) break;
+                picks.add(pick);
+                sum += pick.match();
+            }
+            if (picks.size() == l.runs.size() && sum > best + 1e-9) {
+                best = sum;
+                bestTurn = t;
+                bestFits = picks;
+            }
+        }
+        if (bestFits == null) return false;
+        turn = bestTurn;
+        Layout l = layout();
+        for (int a = 0; a < l.runs.size(); a++) setDraft(l.runs.get(a), new int[]{bestFits.get(a).shift(), bestFits.get(a).depth()});
+        return true;
+    }
+
     /** @return whether a piece the case needs (its straight or joint group) failed to load for good */
     private boolean failedPiece(Case c) {
         PieceSets.Family f = PieceCatalog.familyOf(pack, fam);

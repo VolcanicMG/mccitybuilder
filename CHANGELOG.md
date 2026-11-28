@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Tested joint settings now ship with the mod, so you don't redo what we already did. Sword and Kingdom (English and
+  Chinese), Shogun and Minecolonies Original have their fixed corners built in (their road corners / basic wall corners
+  and inner corners now fit, where "Fix joints" listed 2 each), and Incan's fancy road gets its T piece set. Your own
+  saved settings still win. The built-in `align|` settings are now read too (only joint turns were before).
+- Settings files of packs with non-Latin names (such as 剑与王国风格) get a hash in their name so two such packs no
+  longer share one; an older saved file is still read until you save again.
+
 - The road / wall panel is rebuilt in three sections. PIECES: the set picker, a level / variant picker only when the
   set has more than one, a 3D preview and a row of piece-type tiles (road: straight, corner, T, cross, end; wall: its
   parts, with a Gate toggle). The preview's arrows browse the pieces of the selected part; the tiles pick which part it

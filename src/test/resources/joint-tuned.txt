@@ -1,0 +1,78 @@
+# pack, family, level, max bad joints (the Fix joints badge, bridge `inv count`); tools/smoke.sh fails when a family has more.
+# A tuned family can only go down: lower a row here when a fix lands, never raise one.
+Byzantine_for_1.20	road:infrastructure/avenue	1	0
+Byzantine_for_1.20	road:infrastructure/avenue_early	1	0
+Byzantine_for_1.20	road:infrastructure/avenueodd	1	0
+Byzantine_for_1.20	road:infrastructure/avenueodd_early	1	0
+Byzantine_for_1.20	road:infrastructure/road	1	0
+Byzantine_for_1.20	road:infrastructure/road/dio	1	0
+Byzantine_for_1.20	wall:infrastructure/retainingwall	1	3
+Byzantine_for_1.20	wall:walls/palisades	1	5
+Byzantine_for_1.20	wall:walls/wall_main	1	0
+Byzantine_for_1.20	wall:walls/wall_small	1	0
+Sword and Kingdom	road:infrastructure/road	1	0
+Sword and Kingdom	wall:walls	1	1
+剑与王国风格	road:infrastructure/道路	1	0
+剑与王国风格	wall:城墙	1	1
+Shogun	road:infrastructure/avenue	1	0
+Shogun	road:infrastructure/road/dark	1	0
+Shogun	road:infrastructure/road/light	1	0
+Shogun	wall:infrastructure/retainingwall/incline	1	0
+Shogun	wall:walls/castle/early	1	0
+Shogun	wall:walls/castle/late	1	0
+Shogun	wall:walls/city_flat	1	0
+Shogun	wall:walls/city_gate	1	0
+Shogun	wall:walls/palisades	1	5
+Nile	road:infrastructure/avenue	1	0
+Nile	road:infrastructure/avenue_odd	1	0
+Nile	road:infrastructure/boulevard	1	2
+Nile	road:infrastructure/boulevard/bevel	1	0
+Nile	wall:infrastructure/retainingwall/bottom	1	0
+Nile	wall:infrastructure/retainingwall/mid	1	0
+Nile	wall:infrastructure/retainingwall/top	1	0
+Nile	wall:walls/flat	1	0
+Nile	wall:walls/moat	1	0
+Nile	wall:walls	1	3
+Ancient Athens	road:infrastructure/roads/grand_processional	1	3
+Ancient Athens	road:infrastructure/roads/rural	1	0
+Ancient Athens	road:infrastructure/roads/urban/alley	1	0
+Ancient Athens	road:infrastructure/roads/urban/path	1	0
+Ancient Athens	road:infrastructure/roads/urban/road	1	0
+Ancient Athens	wall:walls/city	1	5
+Ancient Athens	wall:walls/fortress	1	4
+Ancient Athens	wall:walls/tall	1	1
+Colonial	road:infrastructure/roads	1	0
+Colonial	road:infrastructure/roads	2	0
+Colonial	road:infrastructure/roads	3	4
+Colonial	road:infrastructure/roads	4	4
+Colonial	road:infrastructure/roads	5	0
+Colonial	road:infrastructure/streets	1	0
+Colonial	wall:walls	1	3
+Dark Oak Treehouse	road:infrastructure/roads	1	4
+Dark Oak Treehouse	wall:walls	1	1
+Desert Oasis	road:infrastructure/roads/basic	1	2
+Desert Oasis	road:infrastructure/roads/rails	1	0
+Desert Oasis	wall:walls/basic	1	6
+Desert Oasis	wall:walls/fancy	1	5
+Fortress	road:infrastructure/roads	1	0
+Fortress	wall:walls	1	3
+Incan	road:infrastructure/roads/brick	1	0
+Incan	road:infrastructure/roads/cobble	1	0
+Incan	road:infrastructure/roads/fancy	1	0
+Incan	road:infrastructure/roads/path	1	2
+Incan	wall:walls/brick	1	0
+Incan	wall:walls/clay	1	0
+Incan	wall:walls/cobble	1	0
+Minecolonies Original	road:infrastructure/roads/fancy	1	0
+Minecolonies Original	road:infrastructure/roads/nice	1	0
+Minecolonies Original	road:infrastructure/roads/poor	1	0
+Minecolonies Original	road:infrastructure/roads/simple	1	0
+Minecolonies Original	road:infrastructure/roads/streets	1	0
+Minecolonies Original	wall:walls/basic	1	0
+Minecolonies Original	wall:walls/cobble	1	1
+Minecolonies Original	wall:walls/fancy	1	1
+Minecolonies Original	wall:walls/oak	1	0
+Minecolonies Original	wall:walls/original	1	2
+Minecolonies Original	wall:walls/palisade	1	0
+Urban Savanna	road:infrastructure/roads	1	1
+Urban Savanna	wall:walls	1	5

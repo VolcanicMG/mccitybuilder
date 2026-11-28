@@ -176,6 +176,39 @@ public final class DevBridge {
                         + " panel=" + (pn == null ? "none" : pn.bad() + "/" + pn.total() + (pn.done() ? "" : "+" + pn.pending())) + " failing=" + r.failing()
                         + String.format(" steps=%d totalMs=%.2f maxStepMs=%.2f", pr.steps, pr.nanos / 1e6, pr.maxNanos / 1e6);
             });
+            // info | open|<family>|<level>|<case label part> | count|<family>|<level> | tune|<family>|<level>[|<min match, default 0.6>] (split on |): the current pack's families with their roles and levels, a family's
+            // joint count as the check list works it out, or Auto-fix + Save on its failing cases (JointEditorScreen.tune; clean results only).
+            case "/inv" -> client(() -> {
+                String pk = PlannerScreen.pack();
+                String[] p = body.split("\\|");
+                if (PieceCatalog.families(pk) == null) return "loading";
+                if (p[0].equals("count")) {
+                    var r = JointEditorScreen.reference(pk, p[1], Integer.parseInt(p[2]));
+                    return r.bad() + "/" + r.total() + (r.done() ? "" : "+" + r.pending()) + " " + r.failing();
+                }
+                if (p[0].equals("open")) return JointEditorScreen.openOn(pk, p[1], Integer.parseInt(p[2]), p[3]) ? "ok" : "no such case";
+                if (p[0].equals("tune")) return String.join("\n", JointEditorScreen.tune(pk, p[1], Integer.parseInt(p[2]), p.length > 3 ? Double.parseDouble(p[3]) : 0.6));
+                StringBuilder sb = new StringBuilder();
+                for (String t : new String[]{"road", "wall"})
+                    for (String key : PieceCatalog.familyKeys(pk, t)) {
+                        var f = PieceCatalog.familyOf(pk, key);
+                        var main = PieceCatalog.groups(pk, f, com.volcanicmg.mccitybuilder.planner.PieceSets.Role.STRAIGHT).get(0);
+                        var lv = new java.util.TreeSet<Integer>();
+                        if (main.levels()) for (var pc : main.pieces()) lv.add(Math.max(1, pc.number()));
+                        else lv.add(1);
+                        sb.append(key).append("\tlevels=").append(lv).append("\troles=");
+                        for (var r : com.volcanicmg.mccitybuilder.planner.PieceSets.Role.values()) {
+                            var all = f.of(r);
+                            var chosen = PieceCatalog.groups(pk, f, r);
+                            if (all.isEmpty()) continue;
+                            sb.append(r).append('=');
+                            for (var g : chosen) sb.append(g.base()).append('(').append(g.pieces().size()).append(')').append('/');
+                            sb.append("of").append(all.size()).append(' ');
+                        }
+                        sb.append('\n');
+                    }
+                return sb.toString();
+            });
             // open <x> <z> | type | set <t>: the edit-mode joint menu on the segment end nearest (x, z) (placed over the line panel: it must win clicks there),
             // the selected joint's type, or a type set as the menu's pick does.
             case "/jointmenu" -> client(() -> {

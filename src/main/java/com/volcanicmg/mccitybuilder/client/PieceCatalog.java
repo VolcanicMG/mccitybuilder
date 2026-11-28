@@ -318,7 +318,7 @@ final class PieceCatalog {
     // ---- overrides (the piece-set editor) ----
 
     private static Path overridesFile(String pack) {
-        return Minecraft.getInstance().gameDirectory.toPath().resolve(CityBuilder.MODID).resolve("piecesets").resolve(pack.replaceAll("[^A-Za-z0-9._-]", "_") + ".txt");
+        return Minecraft.getInstance().gameDirectory.toPath().resolve(CityBuilder.MODID).resolve("piecesets").resolve(PieceSets.fileName(pack) + ".txt");
     }
 
     static Map<String, String> overrides(String pack) {
@@ -326,6 +326,9 @@ final class PieceCatalog {
             Map<String, String> m = new LinkedHashMap<>();
             try {
                 Path f = overridesFile(pack);
+                // A file saved under the old (unhashed) name is still read until the next save writes the new one.
+                Path old = f.resolveSibling(PieceSets.legacyFileName(pack) + ".txt");
+                if (!Files.exists(f) && Files.exists(old) && !old.equals(f)) f = old;
                 if (Files.exists(f)) m.putAll(PieceSets.loadOverrides(Files.readString(f)));
             } catch (Exception e) {
                 CityBuilder.LOGGER.warn("City Builder: can't read piece set overrides for {}", pack, e);
@@ -373,7 +376,7 @@ final class PieceCatalog {
             Object[] a = gridOf.get(j), b = gridOf.get(st);
             if (a == null || b == null) return null;
             String k = PieceLayout.alignKey((String) a[1], (Integer) a[2], (String) b[1], (Integer) b[2], d);
-            String v = PieceSets.alignLookup(PieceCatalog.drafts.getOrDefault((String) a[0], Map.of()), overrides((String) a[0]), Map.of(), k);
+            String v = PieceSets.alignLookup(PieceCatalog.drafts.getOrDefault((String) a[0], Map.of()), overrides((String) a[0]), PieceSets.builtIn((String) a[0]), k);
             return v == null ? null : PieceLayout.parseAlign(v);
         });
     }
